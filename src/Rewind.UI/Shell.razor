@@ -1,0 +1,78 @@
+@implements IDisposable
+@inject IJSRuntime JS
+
+<div class="window shell">
+    <div class="title-bar">
+        <div class="title-bar-text">Rewind Video · Register</div>
+    </div>
+    <div class="window-body shell-body">
+        <menu role="tablist">
+            @foreach (var screen in Screens)
+            {
+                <li role="tab" aria-selected="@AriaSelected(screen)">
+                    @* No href: a middle-click on a link would open the browser (SEC-6). *@
+                    <a @onclick="() => Open(screen)">@screen.Key @screen.Name</a>
+                </li>
+            }
+        </menu>
+        <div class="window shell-panel" role="tabpanel">
+            <div class="window-body">
+                <DynamicComponent Type="_screen.Type" />
+            </div>
+        </div>
+    </div>
+    <StatusBar />
+</div>
+
+@code {
+    private const string KeyboardModule = "./_content/Rewind.UI/js/keyboard.js";
+
+    private static readonly Screen[] Screens =
+    [
+        new("F1", "Checkout", typeof(Checkout)),
+        new("F2", "Return", typeof(Return)),
+        new("F3", "Ask the Clerk", typeof(AskTheClerk)),
+        new("F4", "Intake", typeof(Intake)),
+        new("F5", "Store Manager", typeof(StoreManager)),
+    ];
+
+    private Screen _screen = Screens[0];
+    private DotNetObjectReference<Shell>? _self;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        // keyboard.js keeps its F-key listener after this module reference is released.
+        _self = DotNetObjectReference.Create(this);
+        await using var keyboard = await JS.InvokeAsync<IJSObjectReference>("import", KeyboardModule);
+        await keyboard.InvokeVoidAsync("start", _self);
+    }
+
+    /// <summary>Called by keyboard.js when F1 to F5 is pressed (UI-3).</summary>
+    [JSInvokable]
+    public void OnFunctionKey(string key)
+    {
+        var screen = Array.Find(Screens, s => s.Key == key);
+        if (screen is null)
+        {
+            return;
+        }
+
+        Open(screen);
+        StateHasChanged();
+    }
+
+    public void Dispose() => _self?.Dispose();
+
+    private void Open(Screen screen) => _screen = screen;
+
+    // 98.css draws the open tab for aria-selected="true". Blazor writes a bool
+    // true as a bare attribute, which never matches, so pass the string.
+    private string AriaSelected(Screen screen) => screen == _screen ? "true" : "false";
+
+    private sealed record Screen(string Key, string Name, Type Type);
+}
