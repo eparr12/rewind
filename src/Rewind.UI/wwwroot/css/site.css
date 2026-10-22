@@ -1,0 +1,38 @@
+/* No control styling here: 98.css draws every control (UI-1, UI-2). */
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+/* A desktop app, not a web page: as in Windows 98, the mouse cursor stays
+   an arrow over tabs and labels, and their text can't be selected. Text
+   boxes keep the I-beam and their own selection. */
+body {
+  cursor: default;
+  user-select: none;
+}
+
+/* The shell fills the screen: tabs at the top, the open screen
+   in the middle, and the status bar along the bottom. */
+.shell {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.shell-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.shell-panel {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}

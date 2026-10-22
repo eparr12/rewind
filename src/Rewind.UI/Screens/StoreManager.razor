@@ -1,0 +1,10 @@
+@using Microsoft.Extensions.Hosting
+@inject IHostApplicationLifetime Lifetime
+
+<p>Members, prices, concessions and Close Out arrive in Phase 3.</p>
+<button @onclick="ShutDown">Shut Down</button>
+
+@code {
+    // The host tells MainForm to close, so Rewind.UI never touches WinForms (ARCH-2).
+    private void ShutDown() => Lifetime.StopApplication();
+}
