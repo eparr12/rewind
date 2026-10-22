@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Rewind.Core/Rewind.Core.csproj" />
+    <Project Path="src/Rewind.Register/Rewind.Register.csproj" />
+    <Project Path="src/Rewind.UI/Rewind.UI.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Rewind.Core.Tests/Rewind.Core.Tests.csproj" />
+    <Project Path="tests/Rewind.UI.Tests/Rewind.UI.Tests.csproj" />
+  </Folder>
+</Solution>
