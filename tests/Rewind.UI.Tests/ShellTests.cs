@@ -38,7 +38,7 @@ public sealed class ShellTests : BunitContext
         await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F2"));
 
         Assert.True(cut.HasComponent<Return>());
-        Assert.Equal("F2 Return", cut.Find("[role=tab][aria-selected=true]").TextContent);
+        Assert.Equal("F2 Rewind", cut.Find("[role=tab][aria-selected=true]").TextContent);
     }
 
     [Fact]
