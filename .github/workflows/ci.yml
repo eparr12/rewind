@@ -1,0 +1,49 @@
+name: ci
+
+# GIT-1: every push, and every pull request.
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    # A hung test fails after 15 minutes instead of running for six hours.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      # Directory.Build.props turns warnings into errors (NET-2), and a high or critical
+      # advisory fails the restore (SEC-8).
+      - name: Build
+        run: dotnet build -c Release
+
+      - name: Check formatting
+        run: dotnet format --verify-no-changes --no-restore
+
+      - name: Run Core and UI tests
+        run: dotnet test -c Release --no-build
+
+      # HW-9: the line parser is plain C. The undefined-behavior sanitizer stops the run on
+      # an out-of-bounds write that would otherwise pass unnoticed.
+      - name: Run firmware tests
+        run: |
+          fw=firmware/rewind-counter/Core
+          gcc -std=c11 -Wall -Wextra -Werror -fsanitize=undefined -fno-sanitize-recover=all \
+            -I "$fw/Inc" tests/firmware/test_proto.c "$fw/Src/proto.c" -o /tmp/test_proto
+          /tmp/test_proto
+
+      # Every .js file is an ES module: the register's keyboard.js and, from 7.3, the phone app.
+      # On its own, node --check passes a broken module it can't tell is one, so each file goes
+      # in explicitly as a module.
+      - name: Check JavaScript syntax
+        run: |
+          for f in $(git ls-files '*.js'); do
+            echo "$f"
+            node --input-type=module --check < "$f"
+          done
