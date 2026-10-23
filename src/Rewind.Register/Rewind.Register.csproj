@@ -27,6 +27,12 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
+  <!-- The sound files aren't in Git (GIT-6). Whatever is in Sounds\ is copied next to
+       Rewind.Register.exe by every build and publish. -->
+  <ItemGroup>
+    <None Update="Sounds\*.wav" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- WebView2's package references its WPF control in every Windows project.
        Rewind uses only the WinForms control, and the WPF one causes MSB3277. -->
   <Target Name="DropWebView2Wpf" BeforeTargets="ResolveAssemblyReferences">

@@ -21,6 +21,9 @@ public sealed class RewindPaths
     /// <summary>The folder that holds the backups.</summary>
     public string Backups => Path.Combine(Root, "backups");
 
+    /// <summary>The folder that holds the log files (OBS-2).</summary>
+    public string Logs => Path.Combine(Root, "logs");
+
     /// <summary>The live database file.</summary>
     public string Database => Path.Combine(Data, "rewind.db");
 }

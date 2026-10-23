@@ -1,11 +1,14 @@
 @implements IDisposable
 @inject IJSRuntime JS
+@inject DialogService Dialogs
+@inject ErrorHub Errors
 
 <div class="window shell">
     <div class="title-bar">
         <div class="title-bar-text">Rewind Video · Register</div>
     </div>
-    <div class="window-body shell-body">
+    @* While a dialog is open, the screen behind it ignores the mouse and Tab (UI-5). *@
+    <div class="window-body shell-body" inert="@DialogOpen">
         <menu role="tablist">
             @foreach (var screen in Screens)
             {
@@ -17,11 +20,24 @@
         </menu>
         <div class="window shell-panel" role="tabpanel">
             <div class="window-body">
-                <DynamicComponent Type="_screen.Type" />
+                @* UI-6: a screen that throws is logged, shows the error dialog, then Checkout. *@
+                <ErrorBoundary @ref="_boundary">
+                    <ChildContent>
+                        <DynamicComponent Type="_screen.Type" />
+                    </ChildContent>
+                    <ErrorContent>
+                        <CrashNotice OnClosed="BackToCheckout" />
+                    </ErrorContent>
+                </ErrorBoundary>
             </div>
         </div>
     </div>
     <StatusBar />
+    @if (_crashed)
+    {
+        <CrashNotice OnClosed="AfterCrash" />
+    }
+    <DialogHost />
 </div>
 
 @code {
@@ -38,6 +54,16 @@
 
     private Screen _screen = Screens[0];
     private DotNetObjectReference<Shell>? _self;
+    private ErrorBoundary? _boundary;
+    private bool _crashed;
+
+    private bool DialogOpen => Dialogs.Current is not null;
+
+    protected override void OnInitialized()
+    {
+        Dialogs.Changed += OnDialogChanged;
+        Errors.Crashed += OnCrashed;
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -57,18 +83,46 @@
     public void OnFunctionKey(string key)
     {
         var screen = Array.Find(Screens, s => s.Key == key);
-        if (screen is null)
+        if (screen is null || DialogOpen)
         {
-            return;
+            return; // as in Windows 98, an open dialog must be answered first
         }
 
         Open(screen);
         StateHasChanged();
     }
 
-    public void Dispose() => _self?.Dispose();
+    public void Dispose()
+    {
+        Dialogs.Changed -= OnDialogChanged;
+        Errors.Crashed -= OnCrashed;
+        _self?.Dispose();
+    }
 
     private void Open(Screen screen) => _screen = screen;
+
+    // UI-6: after the error dialog, the clerk lands back on Checkout.
+    private void BackToCheckout()
+    {
+        _screen = Screens[0];
+        _boundary?.Recover();
+    }
+
+    private void AfterCrash()
+    {
+        _crashed = false;
+        BackToCheckout();
+    }
+
+    private void OnDialogChanged() => _ = InvokeAsync(StateHasChanged);
+
+    // OBS-5: ErrorHub reports an exception on the WinForms thread, outside every screen.
+    // CrashNotice shows the error dialog; a second crash before OK changes nothing.
+    private void OnCrashed() => _ = InvokeAsync(() =>
+    {
+        _crashed = true;
+        StateHasChanged();
+    });
 
     // 98.css draws the open tab for aria-selected="true". Blazor writes a bool
     // true as a bare attribute, which never matches, so pass the string.

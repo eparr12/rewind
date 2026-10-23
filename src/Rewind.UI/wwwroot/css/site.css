@@ -36,3 +36,45 @@ body {
   min-height: 0;
   overflow: auto;
 }
+
+/* A dialog sits in the middle of the screen, over everything (UI-5). As in
+   Windows 98, nothing dims behind it; the shell makes the screen inert instead. */
+.dialog-layer {
+  position: fixed;
+  z-index: 10; /* above 98.css's open tab (8) and tab panel (2) */
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dialog {
+  min-width: 280px;
+  max-width: 440px;
+}
+
+.dialog-message {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 8px 16px;
+}
+
+  .dialog-message p {
+    margin: 0;
+    white-space: pre-line; /* a line break in the message starts a new line */
+  }
+
+.dialog-icon {
+  flex: none;
+}
+
+.dialog-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+.diagnostics {
+  margin-top: 24px;
+}
