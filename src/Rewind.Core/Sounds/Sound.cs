@@ -5,13 +5,13 @@ namespace Rewind.Core.Sounds;
 /// </summary>
 public enum Sound
 {
-    /// <summary>A scan was accepted: the scan beep.</summary>
+    /// <summary>A barcode Rewind knows was read: the scan beep.</summary>
     Scan,
 
     /// <summary>A sale is complete: the register chime.</summary>
     Chime,
 
-    /// <summary>Something needs the clerk: an error or warning dialog, a factory UPC at checkout or an overdue alert.</summary>
+    /// <summary>Something needs the clerk: an error or warning dialog, an unknown barcode, a factory UPC at checkout or an overdue alert.</summary>
     Error,
 
     /// <summary>A DVD dropped into the return box: the return chime.</summary>

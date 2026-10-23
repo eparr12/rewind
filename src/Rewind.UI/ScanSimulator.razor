@@ -1,0 +1,25 @@
+@inject ScannerHub Scanner
+
+@* Debug builds only: type what a barcode holds, such as RV-00042, and press Enter. It arrives
+   just as a scan from the scanner would, so every screen can be tried without one (TEST-5). *@
+<form class="field-row scan-simulator" @onsubmit="Submit" @onsubmit:preventDefault>
+    <label for="scan-simulator-code">Simulated scan:</label>
+    <input id="scan-simulator-code" type="text" autocomplete="off" spellcheck="false"
+           @bind="_code" @bind:event="oninput" />
+    <button type="submit">Scan</button>
+</form>
+
+@code {
+    private string _code = "";
+
+    private void Submit()
+    {
+        if (string.IsNullOrWhiteSpace(_code))
+        {
+            return;
+        }
+
+        Scanner.Receive(_code);
+        _code = "";
+    }
+}

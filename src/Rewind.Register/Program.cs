@@ -3,7 +3,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Rewind.Core;
+using Rewind.Core.Devices;
 using Rewind.Core.Sounds;
+using Rewind.Register.Devices;
 using Rewind.Register.Sounds;
 using Rewind.UI.Dialogs;
 using Rewind.UI.Errors;
@@ -37,9 +39,11 @@ internal static class Program
 
         var services = builder.Services;
         services.AddRewindCore(builder.Configuration); // first, so the database is ready before anything else starts
+        services.AddRewindScanner(builder.Configuration); // then the devices, once the database is ready
         services.AddSerilog((provider, logging) =>
             ConfigureLogging(logging, provider.GetRequiredService<IOptions<RewindPaths>>().Value));
         services.AddSingleton<ISoundPlayer, NAudioPlayer>();
+        services.AddSingleton<IDeviceLocator, WmiDeviceLocator>();
         services.AddSingleton<DialogService>();
         services.AddSingleton<ErrorHub>();
         services.AddWindowsFormsBlazorWebView();
