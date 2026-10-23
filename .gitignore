@@ -431,3 +431,8 @@ FodyWeavers.xsd
 *.db
 *.db-shm
 *.db-wal
+
+
+# Rewind: the sound files stay out of Git (GIT-6). To commit one you made
+# yourself, add a line such as !src/Rewind.Register/Sounds/Scan.wav
+src/Rewind.Register/Sounds/*.wav

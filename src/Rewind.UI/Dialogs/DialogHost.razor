@@ -1,0 +1,68 @@
+@implements IDisposable
+@inject DialogService Dialogs
+
+@if (Dialogs.Current is { } dialog)
+{
+    <div class="dialog-layer">
+        @* tabindex="-1": a click on the message keeps the keyboard in the dialog, so Esc still works. *@
+        <div class="window dialog" role="alertdialog" aria-modal="true" aria-labelledby="dialog-title"
+             aria-describedby="dialog-message" tabindex="-1" @onkeydown="OnKeyDown">
+            <div class="title-bar">
+                <div class="title-bar-text" id="dialog-title">@dialog.Title</div>
+                <div class="title-bar-controls">
+                    <button aria-label="Close" tabindex="-1" @onclick="() => Dialogs.Close(false)"></button>
+                </div>
+            </div>
+            <div class="window-body">
+                <div class="dialog-message">
+                    <DialogIconImage Icon="dialog.Icon" />
+                    <p id="dialog-message">@dialog.Message</p>
+                </div>
+                <div class="dialog-buttons">
+                    <button class="default" @ref="_ok" @onclick="() => Dialogs.Close(true)">OK</button>
+                    @if (dialog.CanCancel)
+                    {
+                        <button @onclick="() => Dialogs.Close(false)">Cancel</button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private ElementReference _ok;
+    private Dialog? _focused;
+
+    protected override void OnInitialized() => Dialogs.Changed += OnChanged;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // UI-3: a dialog opens with OK focused, so Enter presses it. Focus once per dialog,
+        // not on every render, so the clerk can Tab to Cancel.
+        var dialog = Dialogs.Current;
+        if (ReferenceEquals(dialog, _focused))
+        {
+            return;
+        }
+
+        _focused = dialog;
+        if (dialog is not null)
+        {
+            await _ok.FocusAsync();
+        }
+    }
+
+    public void Dispose() => Dialogs.Changed -= OnChanged;
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    // Enter presses whichever button has focus; the dialog itself only handles Esc.
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            Dialogs.Close(false);
+        }
+    }
+}

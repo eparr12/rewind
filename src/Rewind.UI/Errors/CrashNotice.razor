@@ -1,0 +1,21 @@
+@inject DialogService Dialogs
+
+@* Draws nothing itself: it shows the Windows 98 error dialog, then reports that the clerk closed it (OBS-5). *@
+
+@code {
+    private static readonly Dialog Crash = new(
+        "Rewind Video",
+        "This program has performed an illegal operation and will go back to Checkout.\n\n"
+            + "If the problem persists, tell the Store Manager.",
+        DialogIcon.Error);
+
+    /// <summary>Called once the clerk closes the error dialog.</summary>
+    [Parameter]
+    public EventCallback OnClosed { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Dialogs.ShowAsync(Crash);
+        await OnClosed.InvokeAsync();
+    }
+}

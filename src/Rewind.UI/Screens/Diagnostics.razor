@@ -1,0 +1,46 @@
+@inject ISoundPlayer Sounds
+@inject DialogService Dialogs
+
+@* Debug builds only: a way to try sounds, dialogs and each crash path (OBS-5) on purpose. *@
+<fieldset class="diagnostics">
+    <legend>Diagnostics (Debug builds only)</legend>
+    <div class="field-row">
+        <button @onclick="PlayTwoSounds">Play two sounds</button>
+        <button @onclick="ShowDialogsAsync">Show a dialog</button>
+    </div>
+    <div class="field-row">
+        <button @onclick="CrashThisScreen">Crash this screen</button>
+        <button @onclick="CrashOutsideTheScreens">Crash outside the screens</button>
+        <button @onclick="CrashRewind">Crash Rewind</button>
+    </div>
+</fieldset>
+
+@code {
+    // The chime and the beep overlap only if each sound gets its own output (UI-7).
+    private void PlayTwoSounds()
+    {
+        Sounds.Play(Sound.Chime);
+        Sounds.Play(Sound.Scan);
+    }
+
+    private async Task ShowDialogsAsync()
+    {
+        var ok = await Dialogs.ShowAsync(new Dialog(
+            "Rewind Video", "Be kind: rewind the tape before you return it?", DialogIcon.Warning, CanCancel: true));
+        await Dialogs.ShowAsync(new Dialog("Rewind Video", ok ? "You pressed OK." : "You cancelled."));
+    }
+
+    // The screen's ErrorBoundary catches this one.
+    private static void CrashThisScreen() =>
+        throw new InvalidOperationException("Diagnostics: a crash inside a screen");
+
+    // Thrown on the WinForms thread outside Blazor, as a bug in MainForm would be, so it
+    // reaches Application.ThreadException.
+    private static void CrashOutsideTheScreens() =>
+        SynchronizationContext.Current?.Post(
+            _ => throw new InvalidOperationException("Diagnostics: a crash on the WinForms thread"), null);
+
+    // A crash on another thread ends the process, so ErrorHub can only log it.
+    private static void CrashRewind() =>
+        new Thread(() => throw new InvalidOperationException("Diagnostics: a crash on another thread")).Start();
+}
