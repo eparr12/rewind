@@ -78,3 +78,8 @@ body {
 .diagnostics {
   margin-top: 24px;
 }
+
+/* Debug builds only: the scan simulator's row, between the screen and the status bar (TEST-5). */
+.scan-simulator {
+  margin: 4px 3px;
+}

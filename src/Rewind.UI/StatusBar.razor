@@ -1,6 +1,57 @@
-@* Device health joins these fields as each device arrives (OBS-6). *@
+@implements IDisposable
+@inject IScanner Scanner
+
+@* The last scan, then the health of each optional device as it arrives (OBS-6). *@
 <div class="status-bar">
-    <p class="status-bar-field">Ready</p>
+    <p class="status-bar-field">@LastScanText</p>
+    <p class="status-bar-field">@ScannerText</p>
     <p class="status-bar-field">F1 to F5 switch screens</p>
     <p class="status-bar-field">Be kind, rewind.</p>
 </div>
+
+@code {
+    private Scan? _lastScan;
+
+    private string LastScanText => _lastScan is null ? "No scan yet" : Describe(_lastScan);
+
+    private string ScannerText => Scanner.Status switch
+    {
+        ScannerStatus.Ready => "Scanner ready",
+        ScannerStatus.Busy => "Scanner busy",
+        _ => "Scanner missing",
+    };
+
+    protected override void OnInitialized()
+    {
+        Scanner.Scanned += OnScanned;
+        Scanner.StatusChanged += OnStatusChanged;
+    }
+
+    public void Dispose()
+    {
+        Scanner.Scanned -= OnScanned;
+        Scanner.StatusChanged -= OnStatusChanged;
+    }
+
+    // Both events can arrive on the scanner's thread, so move onto the renderer's first (UI-11).
+    private void OnScanned(Scan scan) => _ = InvokeAsync(() =>
+    {
+        _lastScan = scan;
+        StateHasChanged();
+    });
+
+    private void OnStatusChanged() => _ = InvokeAsync(StateHasChanged);
+
+    // Such as "RV-00042 · Store label". A scan too long to keep shows only its kind.
+    private static string Describe(Scan scan) =>
+        scan.Code.Length == 0 ? KindName(scan.Kind) : $"{scan.Code} · {KindName(scan.Kind)}";
+
+    private static string KindName(ScanKind kind) => kind switch
+    {
+        ScanKind.StoreLabel => "Store label",
+        ScanKind.MemberCard => "Member card",
+        ScanKind.Concession => "Concession",
+        ScanKind.Upc => "Factory UPC",
+        _ => "Unknown barcode",
+    };
+}

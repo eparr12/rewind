@@ -32,6 +32,10 @@
             </div>
         </div>
     </div>
+    @if (BuildInfo.IsDebug)
+    {
+        <ScanSimulator />
+    }
     <StatusBar />
     @if (_crashed)
     {
