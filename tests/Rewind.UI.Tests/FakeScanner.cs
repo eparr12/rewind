@@ -12,6 +12,9 @@ internal sealed class FakeScanner : IScanner
 
     public event Action? StatusChanged;
 
+    /// <summary>Whether anything still listens for scans, such as a screen that never stopped.</summary>
+    public bool IsListenedTo => Scanned is not null;
+
     /// <summary>Raises a scan, as the scanner's thread would.</summary>
     public void Emit(Scan scan) => Scanned?.Invoke(scan);
 

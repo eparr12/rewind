@@ -358,6 +358,18 @@ public sealed class TmdbClientTests : IDisposable
         Assert.Null(details.Movie?.Overview);
     }
 
+    // SEC-5: TMDB's text is cleaned as UPCitemdb's is. A control character, such as a line break,
+    // becomes a space, and an invisible format character, such as a right-to-left override, goes.
+    [Fact]
+    public async Task GetMovieAsync_TextWithControlAndFormatCharacters_IsCleaned()
+    {
+        _tmdb.AnswerJson(FakeTmdb.MovieFor(TmdbJson.HalloweenId), TmdbJson.Movie(title: "Hallo​ween‮", overview: "A masked killer\ncomes home."));
+
+        var details = await Client().GetMovieAsync(TmdbJson.HalloweenId, TestContext.Current.CancellationToken);
+
+        Assert.Equal(("Halloween", "A masked killer comes home."), (details.Movie?.Title, details.Movie?.Overview));
+    }
+
     // SEC-5: answers are capped, however long TMDB's text is.
     [Fact]
     public async Task GetMovieAsync_LongOverview_IsCut()

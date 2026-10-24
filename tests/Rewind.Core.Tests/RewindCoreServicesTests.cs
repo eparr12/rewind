@@ -30,4 +30,17 @@ public sealed class RewindCoreServicesTests
         Assert.Contains(log.Entries, entry => entry.Message.Contains("Authorization", StringComparison.Ordinal));
         Assert.DoesNotContain(log.Entries, entry => entry.Message.Contains(Token, StringComparison.Ordinal));
     }
+
+    // UPCitemdb's limits count every lookup the register makes, whichever screen asks.
+    [Fact]
+    public async Task AddRewindIntake_EveryScreen_SharesOnePacer()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(TimeProvider.System);
+        services.AddRewindIntake(new ConfigurationBuilder().Build());
+        await using var provider = services.BuildServiceProvider();
+
+        Assert.Same(provider.GetRequiredService<UpcItemDbPacer>(), provider.GetRequiredService<UpcItemDbPacer>());
+    }
 }

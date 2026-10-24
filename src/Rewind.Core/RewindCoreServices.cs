@@ -63,9 +63,9 @@ public static class RewindCoreServices
     }
 
     /// <summary>
-    /// Adds intake: TMDB's settings and client, the posters folder, and the service the Intake
-    /// screen finds and adds movies with. TMDB's token is a secret, so the host reads it from
-    /// somewhere outside the repo (SEC-1).
+    /// Adds intake: TMDB's and UPCitemdb's settings and clients, the posters folder, and the
+    /// services the Intake screen finds titles and movies with. TMDB's token is a secret, so the
+    /// host reads it from somewhere outside the repo (SEC-1). UPCitemdb's free plan needs none.
     /// </summary>
     public static IServiceCollection AddRewindIntake(this IServiceCollection services, IConfiguration configuration)
     {
@@ -73,6 +73,10 @@ public static class RewindCoreServices
         services.AddOptions<TmdbOptions>()
             .Bind(configuration.GetSection(TmdbOptions.SectionName))
             .Validate(tmdb => TmdbOptions.IsWellFormed(tmdb.AccessToken), "Tmdb:AccessToken must be TMDB's API Read Access Token alone, with no spaces, line breaks or \"Bearer\" in front.")
+            .ValidateOnStart(); // NET-11
+        services.AddOptions<UpcItemDbOptions>()
+            .Bind(configuration.GetSection(UpcItemDbOptions.SectionName))
+            .Validate(upcItemDb => UpcItemDbOptions.IsValidBaseUrl(upcItemDb.BaseUrl), "UpcItemDb:BaseUrl must be a full https address that ends in a slash, such as https://api.upcitemdb.com/prod/trial/.")
             .ValidateOnStart(); // NET-11
 
         // TmdbClient sets its own timeout and cap on answers. SEC-7: the HTTP client factory logs
@@ -83,9 +87,15 @@ public static class RewindCoreServices
             .RedactLoggedHeaders(_ => true);
         services.AddSingleton<Posters>();
 
-        // Transient, like the TmdbClient it holds, so each screen gets its own, and the HTTP
-        // client factory can renew its connections between them.
+        // UpcItemDbClient sets its own timeout and cap too, and sends nothing secret. UPCitemdb's
+        // limits count every lookup the register makes, so one pacer serves every screen.
+        services.AddHttpClient<UpcItemDbClient>();
+        services.AddSingleton<UpcItemDbPacer>();
+
+        // Transient, like the clients they hold, so each screen gets its own, and the HTTP client
+        // factory can renew its connections between them.
         services.AddTransient<IMovieIntake, MovieIntake>();
+        services.AddTransient<IBarcodeTitles, BarcodeTitles>();
         return services;
     }
 }

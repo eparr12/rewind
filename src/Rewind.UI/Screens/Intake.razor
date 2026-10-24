@@ -1,17 +1,30 @@
 @implements IDisposable
+@using System.Globalization
+@using Microsoft.Extensions.Logging
+@inject IScanner Scanner
+@inject IBarcodeTitles Titles
 @inject IMovieIntake Movies
 @inject DialogService Dialogs
+@inject TimeProvider Time
+@inject ILogger<Intake> Logger
 
-@* F4 Intake, for now its middle step (Build Plan 2.3): find the movie on TMDB by its title, pick
-   it by its poster, year and story, and add it to the collection. Build Plan 2.4 puts the factory
-   UPC in front of this and the store label after it. *@
+@* F4 Intake, for now its first steps (Build Plan 2.2, 2.3): scan the DVD's factory UPC, and
+   UPCitemdb's title for it goes in the title box and is searched for, or type the title; then pick
+   the movie by its poster, year and story, and add it to the collection. Build Plan 2.4 adds the
+   store label after it. *@
 <form class="field-row intake-search" @onsubmit="SearchAsync" @onsubmit:preventDefault @onkeydown="OnSearchKeyDown">
     <label for="intake-title">Title:</label>
+    @* While a scan is looked up, the box is read-only rather than disabled, so it keeps the focus
+       and Esc can stop the lookup. *@
     <input id="intake-title" type="text" autocomplete="off" spellcheck="false"
-           maxlength="@TmdbClient.MaxNameLength" disabled="@Busy"
+           maxlength="@TmdbClient.MaxNameLength" disabled="@(Busy && !LookingUp)" readonly="@LookingUp"
            @ref="_titleBox" @bind="_title" @bind:event="oninput" />
     <button type="submit" disabled="@Busy">Search</button>
 </form>
+@if (_barcode is { } barcode)
+{
+    <p class="intake-barcode">This DVD's barcode: @barcode</p>
+}
 <p class="intake-prompt">@Prompt</p>
 
 @if (_added?.Movie is { } movie)
@@ -50,6 +63,9 @@ else if (_matches is { Count: > 0 } matches)
 }
 
 @code {
+    private const string ClockFormat = "h:mm tt";
+    private const string DayFormat = "dddd";
+
     private static readonly Dialog NotSetUp = new(
         Store.Name,
         "Rewind can't reach TMDB until its token is set up.\n\nTell the Store Manager.",
@@ -65,7 +81,8 @@ else if (_matches is { Count: > 0 } matches)
         "TMDB has no details for that movie.\n\nPick another one, or search again.",
         DialogIcon.Warning);
 
-    // Cancelled when the clerk leaves the screen, so a search or an add still waiting on TMDB stops.
+    // Cancelled when the clerk leaves the screen, so a lookup, a search or an add still waiting
+    // on UPCitemdb or TMDB stops.
     private readonly CancellationTokenSource _closing = new();
 
     private ElementReference _titleBox;
@@ -77,17 +94,66 @@ else if (_matches is { Count: > 0 } matches)
     private MovieAdd? _added;
     private string? _addedPoster;
 
+    // The factory UPC of the DVD being entered, in Core's form once the lookup returns, from its
+    // scan until the next scan, a title typed after an add, or Esc starting over. Build Plan 2.4
+    // saves it on the DVD's case, as Case.FactoryUpc, for the phone catalog.
+    private string? _barcode;
+
+    // What the scan found, until the clerk searches for a title of their own or starts over.
+    private BarcodeTitle? _lookup;
+
+    // Esc stops a running lookup through this. Null when no lookup is running.
+    private CancellationTokenSource? _stopLookup;
+
     private bool Busy => _busy is not null;
 
+    private bool LookingUp => _stopLookup is not null;
+
     // One line that always says what's happening or what to do next (UI-6).
-    private string Prompt => _busy ?? (_added, _matches) switch
+    private string Prompt
     {
-        ({ Status: AddStatus.AlreadyOwned }, _) => "That movie is already in the collection. Type the next title, then press Enter.",
-        ({ }, _) => "Added to the collection. Type the next title, then press Enter.",
-        (_, { Count: > 0 }) => "Pick the movie by its poster and year, then press Enter.",
-        (_, { }) => $"TMDB has no movie called \"{_searched}\". Check the spelling, then search again.",
-        _ => "Type the title from the DVD case, then press Enter.",
+        get
+        {
+            if (_busy is { } busy)
+            {
+                return busy;
+            }
+
+            if (_added is { } added)
+            {
+                return added.Status == AddStatus.AlreadyOwned
+                    ? "That movie is already in the collection. Scan the next DVD, or type its title and press Enter."
+                    : "Added to the collection. Scan the next DVD, or type its title and press Enter.";
+            }
+
+            if (_matches is { Count: > 0 })
+            {
+                return _lookup?.Title is { } found
+                    ? $"Found {found}. Pick the movie, or press Esc to fix the title."
+                    : "Pick the movie by its poster and year, then press Enter.";
+            }
+
+            // The clerk didn't spell a title UPCitemdb gave, so it's to fix, not to check.
+            return _matches is not null
+                ? $"TMDB has no movie called \"{_searched}\". {(_lookup?.Title is null ? "Check the spelling" : "Fix the title")}, then search again."
+                : LookupPrompt;
+        }
+    }
+
+    // What the last scan came to, once no search is on screen: it gave no title to search with, the
+    // clerk closed the picker to fix the one it gave, or its barcode waits for the title the clerk
+    // types, after Esc stopped the lookup or a search of their own.
+    private string LookupPrompt => _lookup switch
+    {
+        { Upc: null } => "That barcode didn't read properly. Scan it again.",
+        { Title: not null } => "Fix the title, then press Enter.",
+        { Status: UpcStatus.NotFound } => "No title for that barcode. Type the title, then press Enter.",
+        { Reason: { } reason, RetryAt: var retryAt } => $"{Trouble(reason, retryAt)} Type the title, then press Enter.",
+        _ when _barcode is not null => "Type the title, then press Enter.",
+        _ => "Scan the DVD's barcode, or type its title and press Enter.",
     };
+
+    protected override void OnInitialized() => Scanner.Scanned += OnScanned;
 
     // UI-3: the title box has the focus when the screen opens and after each movie, so the clerk
     // can just type. While the picker is open, it has the focus instead.
@@ -102,10 +168,108 @@ else if (_matches is { Count: > 0 } matches)
 
     public void Dispose()
     {
+        Scanner.Scanned -= OnScanned;
         _closing.Cancel();
         _closing.Dispose();
     }
 
+    // UI-4: a scan reaches the screen from the scanner, whatever has the focus. UI-11: it can arrive
+    // on the scanner's thread, and an exception here would only fault the Task that InvokeAsync
+    // returns, which nobody awaits, so it goes to DispatchExceptionAsync and the screen's
+    // ErrorBoundary.
+    private void OnScanned(Scan scan) => _ = InvokeAsync(async () =>
+    {
+        try
+        {
+            await OnScanAsync(scan);
+        }
+        catch (Exception e)
+        {
+            await DispatchExceptionAsync(e);
+        }
+    });
+
+    // Only a factory UPC means something here for now: the store label is Build Plan 2.4's.
+    private async Task OnScanAsync(Scan scan)
+    {
+        if (scan.Kind != ScanKind.Upc || _closing.IsCancellationRequested)
+        {
+            return; // nor does a scan that arrives as the clerk leaves the screen
+        }
+
+        // One DVD at a time: a scan while one is being looked up, searched for or added, or while a
+        // dialog waits for an answer, would start the next DVD in the middle of this one.
+        if (Busy || Dialogs.Current is not null)
+        {
+            LogScanIgnored(Logger, scan.Code);
+            return;
+        }
+
+        await LookUpAsync(scan.Code);
+        StateHasChanged(); // a scan isn't a UI event, so Blazor doesn't draw by itself
+    }
+
+    // A scan starts the next DVD. UPCitemdb's title for it goes in the title box, then the search
+    // Enter runs, so the picker opens without typing, and a wrong title is fixed as a typed one is.
+    private async Task LookUpAsync(string upc)
+    {
+        _barcode = upc;
+        _lookup = null;
+        _title = "";
+        _added = null;
+        _matches = null;
+        _focusTitle = true; // so Esc reaches the form
+
+        var lookup = await StoppableLookupAsync(upc);
+        if (lookup is null)
+        {
+            _focusTitle = true; // the clerk pressed Esc, so types the title
+            return;
+        }
+
+        _lookup = lookup;
+        _barcode = lookup.Upc; // null when it wasn't a factory barcode after all
+        if (lookup.Title is not { } title)
+        {
+            _focusTitle = true; // for the clerk to type the title
+            return;
+        }
+
+        _title = title;
+        await SearchTmdbAsync(title);
+    }
+
+    // The lookup, which Esc or leaving the screen stops. Null when either did. Progress hands each
+    // report on to the renderer's synchronization context, where it was made, as InvokeAsync would
+    // (UI-11).
+    private async Task<BarcodeTitle?> StoppableLookupAsync(string upc)
+    {
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token);
+        _stopLookup = stop;
+        try
+        {
+            var waiting = new Progress<TimeSpan>(wait => OnWaiting(stop, upc, wait));
+            return await WhileBusyAsync(LookingUpLine(upc, TimeSpan.Zero), token => Titles.LookupAsync(upc, waiting, token), stop.Token);
+        }
+        finally
+        {
+            _stopLookup = null;
+        }
+    }
+
+    // The pacer's word that the lookup waits for UPCitemdb's burst limit, then that it's asking.
+    private void OnWaiting(CancellationTokenSource lookup, string upc, TimeSpan wait)
+    {
+        if (!ReferenceEquals(_stopLookup, lookup))
+        {
+            return; // a report that arrives after its lookup ended
+        }
+
+        _busy = LookingUpLine(upc, wait);
+        StateHasChanged();
+    }
+
+    // Enter, or the Search button.
     private async Task SearchAsync()
     {
         var title = _title.Trim();
@@ -114,9 +278,21 @@ else if (_matches is { Count: > 0 } matches)
             return;
         }
 
+        // A title typed after an add is the next DVD's, and it has no barcode until one is scanned.
+        if (_added is not null)
+        {
+            _barcode = null;
+        }
+
+        _lookup = null;
+        await SearchTmdbAsync(title);
+    }
+
+    private async Task SearchTmdbAsync(string title)
+    {
         _added = null;
         _matches = null;
-        if (await WhileBusyAsync("Searching TMDB...", token => Movies.SearchAsync(title, token)) is not { } search)
+        if (await WhileBusyAsync("Searching TMDB...", token => Movies.SearchAsync(title, token), _closing.Token) is not { } search)
         {
             return;
         }
@@ -140,7 +316,7 @@ else if (_matches is { Count: > 0 } matches)
         }
 
         var adding = $"Adding {TitleAndYear(match.Title, match.Year)}...";
-        if (await WhileBusyAsync(adding, token => Movies.AddAsync(match.TmdbId, token)) is not { } add)
+        if (await WhileBusyAsync(adding, token => Movies.AddAsync(match.TmdbId, token), _closing.Token) is not { } add)
         {
             return;
         }
@@ -177,27 +353,59 @@ else if (_matches is { Count: > 0 } matches)
         _focusTitle = true;
     }
 
-    // UI-3: Esc closes the picker from the title box or the Search button too, not only from the
-    // list, which handles its own.
+    // UI-3: Esc stops a lookup, so the clerk can type the title instead. It also closes the picker
+    // from the title box or the Search button, not only from the list, which handles its own. With
+    // neither to do, it starts over.
     private void OnSearchKeyDown(KeyboardEventArgs e)
     {
-        if (e.Key == "Escape" && _matches is not null)
+        if (e.Key != "Escape")
+        {
+            return;
+        }
+
+        if (_stopLookup is { } stop)
+        {
+            stop.Cancel();
+        }
+        else if (_matches is not null)
         {
             ClosePicker();
         }
+        else
+        {
+            StartOver();
+        }
     }
 
-    // Shows what Rewind is doing until TMDB answers. Null when the clerk left the screen first,
-    // since there's nothing left to show it on.
-    private async Task<T?> WhileBusyAsync<T>(string doing, Func<CancellationToken, Task<T>> call)
+    // Back to how the screen opens, so a DVD scanned by mistake doesn't lend its barcode to the
+    // next title typed. Not while a search or an add runs, as ClosePicker isn't: its answer would
+    // land on a screen that had started over.
+    private void StartOver()
+    {
+        if (Busy)
+        {
+            return;
+        }
+
+        _barcode = null;
+        _lookup = null;
+        _added = null;
+        _title = "";
+        _focusTitle = true;
+    }
+
+    // Shows what Rewind is doing until UPCitemdb or TMDB answers. Null when the call was stopped,
+    // by the clerk leaving the screen or pressing Esc.
+    private async Task<T?> WhileBusyAsync<T>(string doing, Func<CancellationToken, Task<T>> call, CancellationToken token)
         where T : class
     {
         _busy = doing;
+        StateHasChanged(); // drawn now, even for a scan, which Blazor doesn't draw for by itself
         try
         {
-            return await call(_closing.Token);
+            return await call(token);
         }
-        catch (OperationCanceledException) when (_closing.IsCancellationRequested)
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
             return null;
         }
@@ -212,6 +420,36 @@ else if (_matches is { Count: > 0 } matches)
     {
         StateHasChanged();
         return Dialogs.ShowAsync(dialog);
+    }
+
+    // Such as "Looking up 032429258373 in 7 seconds...", while the lookup waits its turn.
+    private static string LookingUpLine(string upc, TimeSpan wait) =>
+        (wait > TimeSpan.Zero ? $"Looking up {upc} in {(int)Math.Ceiling(wait.TotalSeconds)} seconds..." : $"Looking up {upc}...")
+        + " Press Esc to type the title instead.";
+
+    // What the prompt says when UPCitemdb couldn't answer.
+    private string Trouble(UpcTryLaterReason reason, DateTimeOffset? retryAt) => reason switch
+    {
+        UpcTryLaterReason.DailyLimit when retryAt is { } back => $"UPCitemdb is out of lookups {Until(back)}.",
+        UpcTryLaterReason.DailyLimit => "UPCitemdb is out of lookups for today.",
+        UpcTryLaterReason.Offline => "UPCitemdb didn't answer.",
+        _ => "UPCitemdb is busy.",
+    };
+
+    // Such as "until 7:00 PM" or "until 7:00 PM tomorrow", in the register's own time (DATA-8).
+    private string Until(DateTimeOffset retryAt)
+    {
+        var back = TimeZoneInfo.ConvertTime(retryAt, Time.LocalTimeZone);
+        var today = Time.GetLocalNow().Date;
+        var clock = back.ToString(ClockFormat, CultureInfo.InvariantCulture);
+        if (back.Date == today)
+        {
+            return $"until {clock}";
+        }
+
+        return back.Date == today.AddDays(1)
+            ? $"until {clock} tomorrow"
+            : $"until {back.ToString(DayFormat, CultureInfo.InvariantCulture)} at {clock}";
     }
 
     private static string TitleAndYear(string title, int? year) => year is null ? title : $"{title} ({year})";
