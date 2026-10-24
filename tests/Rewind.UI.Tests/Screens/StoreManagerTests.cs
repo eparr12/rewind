@@ -11,16 +11,16 @@ namespace Rewind.UI.Tests.Screens;
 public sealed class StoreManagerTests : BunitContext
 {
     private readonly FakeApplicationLifetime _lifetime = new();
+    private readonly FakeSoundPlayer _sounds = new();
     private readonly DialogService _dialogs;
 
     public StoreManagerTests()
     {
-        var sounds = new FakeSoundPlayer();
-        _dialogs = new DialogService(sounds);
+        _dialogs = new DialogService(_sounds);
 
         Services.AddSingleton<IHostApplicationLifetime>(_lifetime);
         Services.AddSingleton(_dialogs);
-        Services.AddSingleton<ISoundPlayer>(sounds); // Debug builds add Diagnostics, which plays sounds
+        Services.AddSingleton<ISoundPlayer>(_sounds); // Debug builds add Diagnostics, which plays sounds
     }
 
     [Fact]
@@ -45,6 +45,19 @@ public sealed class StoreManagerTests : BunitContext
         await shutDown;
 
         Assert.False(_lifetime.StopRequested);
+    }
+
+    // The error chord means something's wrong, and asking before Shut Down is routine.
+    [Fact]
+    public async Task ShutDown_ClerkIsAsked_PlaysNoErrorChord()
+    {
+        var cut = Render<StoreManager>();
+        var shutDown = PressShutDownAsync(cut);
+
+        await cut.InvokeAsync(() => _dialogs.Close(ok: false));
+        await shutDown;
+
+        Assert.DoesNotContain(Sound.Error, _sounds.Played);
     }
 
     // Completes once the clerk answers the dialog that Shut Down opens.

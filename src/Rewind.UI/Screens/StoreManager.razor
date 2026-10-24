@@ -11,11 +11,13 @@
 }
 
 @code {
-    // Asked first, so a stray Enter on the button can't close the store on movie night.
+    // Asked first, so a stray Enter on the button can't close the store on movie night. Info,
+    // not Warning: a warning plays the error chord, which means something's wrong, and asking
+    // before Shut Down is routine.
     private static readonly Dialog ConfirmShutDown = new(
         Store.Name,
         "Are you sure you want to shut down Rewind?\n\nNobody can rent or return a movie until Rewind starts again.",
-        DialogIcon.Warning,
+        DialogIcon.Info,
         CanCancel: true);
 
     // The host tells MainForm to close, so Rewind.UI never touches WinForms (ARCH-2).
