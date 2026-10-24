@@ -19,6 +19,31 @@ namespace Rewind.Core.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
 
+            modelBuilder.Entity("Rewind.Core.Members.Member", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CardBarcode")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CardBarcode")
+                        .IsUnique();
+
+                    b.ToTable("Members");
+                });
+
             modelBuilder.Entity("Rewind.Core.StoreManager.StoreSettings", b =>
                 {
                     b.Property<int>("Id")
@@ -39,15 +64,6 @@ namespace Rewind.Core.Migrations
                     b.ToTable("StoreSettings", t =>
                         {
                             t.HasCheckConstraint("CK_StoreSettings_SingleRow", "\"Id\" = 1");
-                        });
-
-                    b.HasData(
-                        new
-                        {
-                            Id = 1,
-                            LateFeeCents = 100,
-                            RentalPriceCents = 200,
-                            StoreName = "Rewind Video"
                         });
                 });
 #pragma warning restore 612, 618

@@ -62,15 +62,6 @@ namespace Rewind.Core.Migrations
                         {
                             t.HasCheckConstraint("CK_StoreSettings_SingleRow", "\"Id\" = 1");
                         });
-
-                    b.HasData(
-                        new
-                        {
-                            Id = 1,
-                            LateFeeCents = 100,
-                            RentalPriceCents = 200,
-                            StoreName = "Rewind Video"
-                        });
                 });
 #pragma warning restore 612, 618
         }

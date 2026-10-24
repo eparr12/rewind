@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace Rewind.Core.Tests.Data;
 
@@ -42,21 +43,14 @@ public sealed class DatabaseStartupTests
     {
         var ct = TestContext.Current.CancellationToken;
         await using var rewind = new TempRewind();
-        Directory.CreateDirectory(rewind.Paths.Data);
-        string firstMigration;
-        await using (var db = rewind.OpenDb())
-        {
-            firstMigration = db.Database.GetMigrations().First();
-            await db.Database.MigrateAsync(firstMigration, ct);
-        }
+        await CreateDatabaseBeforeMigrationAsync(rewind, ct);
 
         await rewind.StartAsync(ct);
 
-        // The backup is the database as it was before: only the first migration applied.
+        // The backup is the database as it was before: no migrations applied.
         var backup = Assert.Single(rewind.BackupFiles());
         await using var copy = rewind.OpenDb(backup);
-        var applied = await copy.Database.GetAppliedMigrationsAsync(ct);
-        Assert.Equal(firstMigration, Assert.Single(applied));
+        Assert.Empty(await copy.Database.GetAppliedMigrationsAsync(ct));
     }
 
     [Fact]
@@ -88,5 +82,14 @@ public sealed class DatabaseStartupTests
         var error = await Record.ExceptionAsync(() => rewind.StartAsync(ct));
 
         Assert.Null(error);
+    }
+
+    // A database from before the Initial migration: it exists, so Rewind backs it up, and
+    // every migration is still pending.
+    private static async Task CreateDatabaseBeforeMigrationAsync(TempRewind rewind, CancellationToken ct)
+    {
+        Directory.CreateDirectory(rewind.Paths.Data);
+        await using var db = rewind.OpenDb();
+        await db.Database.MigrateAsync(Migration.InitialDatabase, ct);
     }
 }
