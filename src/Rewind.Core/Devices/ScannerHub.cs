@@ -33,6 +33,7 @@ public sealed partial class ScannerHub(ISoundPlayer sounds, ILogger<ScannerHub> 
     /// <summary>
     /// Takes one scan as the scanner sent it: sorts it, plays the scan beep, or the error chord
     /// for a code Rewind doesn't know, which is also logged (HW-5), then raises <see cref="Scanned"/>.
+    /// A handler that throws is logged, and the others still get the scan.
     /// </summary>
     public void Receive(string raw)
     {
@@ -48,12 +49,23 @@ public sealed partial class ScannerHub(ISoundPlayer sounds, ILogger<ScannerHub> 
             sounds.Play(Sound.Scan);
         }
 
-        Scanned?.Invoke(scan);
+        // Each handler on its own, so one that throws can't keep the scan from the rest.
+        foreach (var handler in Delegate.EnumerateInvocationList(Scanned))
+        {
+            try
+            {
+                handler(scan);
+            }
+            catch (Exception e) // GEN-7, HW-4: unwinding into the serial reader would close the port
+            {
+                LogScanHandlerFailed(logger, e, scan.Kind);
+            }
+        }
     }
 
     /// <summary>
     /// Records whether the scanner can be read, and raises <see cref="StatusChanged"/> when that
-    /// changes.
+    /// changes. A handler that throws is logged, as in <see cref="Receive"/>.
     /// </summary>
     /// <returns>True when the status changed.</returns>
     public bool SetStatus(ScannerStatus status)
@@ -63,7 +75,18 @@ public sealed partial class ScannerHub(ISoundPlayer sounds, ILogger<ScannerHub> 
             return false;
         }
 
-        StatusChanged?.Invoke();
+        foreach (var handler in Delegate.EnumerateInvocationList(StatusChanged))
+        {
+            try
+            {
+                handler();
+            }
+            catch (Exception e) // GEN-7, HW-4: as in Receive
+            {
+                LogStatusHandlerFailed(logger, e, status);
+            }
+        }
+
         return true;
     }
 
@@ -72,4 +95,10 @@ public sealed partial class ScannerHub(ISoundPlayer sounds, ILogger<ScannerHub> 
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Ignored an unknown barcode: {Code}")]
     private static partial void LogUnknown(ILogger logger, string code);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "A screen threw while handling a {Kind} scan; the scanner carries on")]
+    private static partial void LogScanHandlerFailed(ILogger logger, Exception exception, ScanKind kind);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "A screen threw while handling the scanner going {Status}; the scanner carries on")]
+    private static partial void LogStatusHandlerFailed(ILogger logger, Exception exception, ScannerStatus status);
 }
