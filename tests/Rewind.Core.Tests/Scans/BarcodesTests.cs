@@ -48,11 +48,21 @@ public sealed class BarcodesTests
         Assert.Equal(new Scan(ScanKind.Upc, "4006381333931"), scan);
     }
 
+    [Fact]
+    public void Classify_ExpandedUpcE_KeepsAllTwelveDigits()
+    {
+        // UPC-E 04252614 as the scanner sends it with UPC-E0 Expand on (README). Like every
+        // expanded UPC-E0 it starts with 0, which only a 13-digit code loses.
+        var scan = Barcodes.Classify("042100005264");
+
+        Assert.Equal(new Scan(ScanKind.Upc, "042100005264"), scan);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("HELLO")]
     [InlineData("036000291453")] // wrong check digit
-    [InlineData("04210005")] // UPC-E: the scanner should send it as UPC-A
+    [InlineData("04252614")] // UPC-E: the scanner sends it expanded to UPC-A (README)
     [InlineData("RV-0042")] // four digits
     [InlineData("MEM-0001")] // four digits
     [InlineData("CON-")] // no snack
