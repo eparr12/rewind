@@ -1,0 +1,26 @@
+name: pr-title
+
+# GIT-3, GIT-5: squash-merging makes a pull request's title main's commit message, and GitHub
+# titles a pull request of several commits after its branch, such as "Feat/barcode scanner".
+# Edits rerun the check, and so does each push, because a required check must pass on every commit.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions: {}
+
+jobs:
+  conventional-commit:
+    runs-on: ubuntu-latest
+    steps:
+      # The title arrives through the environment, never pasted into the script, so a title
+      # with quotes or $( ) in it can't run as shell code.
+      - name: Check the title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|refactor|perf|test|docs|chore|ci)(\([a-z0-9-]+\))?!?: [^ ]'
+          if [[ ! $TITLE =~ $pattern ]]; then
+            echo "::error title=Pull request title::Use a Conventional Commit, such as feat(scanner): read the barcode scanner over USB serial (GIT-3)."
+            exit 1
+          fi
