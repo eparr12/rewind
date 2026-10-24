@@ -9,6 +9,9 @@ namespace Rewind.Core.Tests;
 /// </summary>
 internal sealed class WatchedTimeProvider : FakeTimeProvider
 {
+    // Real time, not fake: how long NextTimerAsync waits for code to start a timer.
+    private static readonly TimeSpan NoTimer = TimeSpan.FromSeconds(10);
+
     private readonly Channel<TimeSpan> _timers = Channel.CreateUnbounded<TimeSpan>();
 
     public WatchedTimeProvider()
@@ -27,7 +30,10 @@ internal sealed class WatchedTimeProvider : FakeTimeProvider
         return timer;
     }
 
-    /// <summary>Waits until code starts its next timer, and returns how long that timer waits.</summary>
-    public ValueTask<TimeSpan> NextTimerAsync(CancellationToken cancellationToken) =>
-        _timers.Reader.ReadAsync(cancellationToken);
+    /// <summary>
+    /// Waits until code starts its next timer, and returns how long that timer waits. Code that
+    /// never starts one fails the test after 10 seconds, instead of hanging the run.
+    /// </summary>
+    public async ValueTask<TimeSpan> NextTimerAsync(CancellationToken cancellationToken) =>
+        await _timers.Reader.ReadAsync(cancellationToken).AsTask().WaitAsync(NoTimer, cancellationToken);
 }
