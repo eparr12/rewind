@@ -15,6 +15,11 @@
         "This program has performed an illegal operation and will close Checkout." + IfItPersists,
         DialogIcon.Error);
 
+    private static readonly Dialog ShutDown = new(
+        Store.Name,
+        "This program has performed an illegal operation and will be shut down.\n\nTell the Store Manager.",
+        DialogIcon.Error);
+
     /// <summary>What happens once the clerk closes the dialog, which the dialog tells them.</summary>
     [Parameter]
     public CrashOutcome Outcome { get; set; }
@@ -28,6 +33,7 @@
         await Dialogs.ShowAsync(Outcome switch
         {
             CrashOutcome.CheckoutClosed => CheckoutClosed,
+            CrashOutcome.ShutDown => ShutDown,
             _ => BackToCheckout,
         });
         await OnClosed.InvokeAsync();

@@ -2,11 +2,21 @@
 
 const functionKey = /^F[1-5]$/;
 
+// The shell that F1 to F5 go to. After a crash, App starts a new shell, which takes its place.
+let shell = null;
+
 // The element that last had the focus outside a dialog, for the focus to go back to.
 let focusBeforeDialog = null;
 
-// The shell calls this once, after its first render.
-export function start(shell) {
+// Each shell calls this once, after its first render. The listeners outlive the shell that
+// added them, so a new shell after a crash only takes over the F-keys.
+export function start(dotNetShell) {
+  const listening = shell !== null;
+  shell = dotNetShell;
+  if (listening) {
+    return;
+  }
+
   // F1 to F5 switch screens wherever the focus is (UI-3).
   document.addEventListener('keydown', e => {
     if (!functionKey.test(e.key) || e.altKey || e.ctrlKey || e.shiftKey || e.metaKey) {

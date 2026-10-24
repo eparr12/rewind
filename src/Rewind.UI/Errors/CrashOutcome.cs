@@ -11,4 +11,10 @@ public enum CrashOutcome
     /// again at once could only crash it again.
     /// </summary>
     CheckoutClosed,
+
+    /// <summary>
+    /// Rewind shuts down, because the shell crashed before it had even started, and a new one
+    /// would only crash again.
+    /// </summary>
+    ShutDown,
 }

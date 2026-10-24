@@ -14,7 +14,7 @@ namespace Rewind.Register;
 internal sealed class MainForm : Form
 {
     private const string HostPagePath = @"wwwroot\index.html";
-    private const string ShellSelector = "#app";
+    private const string AppSelector = "#app";
 
     private bool _stopping;
 
@@ -31,7 +31,7 @@ internal sealed class MainForm : Form
             HostPage = HostPagePath,
             Services = services, // BlazorWebView needs the container itself
         };
-        web.RootComponents.Add<Shell>(ShellSelector);
+        web.RootComponents.Add<App>(AppSelector); // the shell, inside the ErrorBoundary of last resort
         web.BlazorWebViewInitialized += (_, e) => LockDown(e.WebView);
         web.UrlLoading += (_, e) => StayInsideRewind(e);
         Controls.Add(web);

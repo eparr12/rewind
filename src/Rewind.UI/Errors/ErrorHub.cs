@@ -3,11 +3,18 @@ using Microsoft.Extensions.Logging;
 namespace Rewind.UI.Errors;
 
 /// <summary>
-/// Handles the exceptions that escape Blazor (OBS-5). A screen's own exceptions never come
-/// here: its ErrorBoundary logs them and shows the error dialog. Program.cs sends this hub
-/// what reaches Application.ThreadException, which the shell answers with the same dialog,
-/// and what reaches AppDomain.UnhandledException, which can only be logged.
+/// Handles the exceptions that escape Blazor (OBS-5). Blazor's own never come here: a screen's
+/// ErrorBoundary catches its exceptions, and App's catches the rest of the shell's. Program.cs
+/// sends this hub what reaches Application.ThreadException, which only WinForms code such as
+/// MainForm can throw and which the shell answers with the same dialog, and what reaches
+/// AppDomain.UnhandledException, which can only be logged.
 /// </summary>
+/// <remarks>
+/// BlazorWebView itself never passes an exception on to either event. One that no ErrorBoundary
+/// catches stops the page, unlogged, and one thrown inside InvokeAsync only faults the Task it
+/// returns. So a component that discards that Task, as background events do (UI-11), passes
+/// anything it catches to DispatchExceptionAsync, which hands it to the nearest ErrorBoundary.
+/// </remarks>
 public sealed partial class ErrorHub(ILogger<ErrorHub> logger)
 {
     /// <summary>Raised after an exception on the WinForms thread is logged.</summary>
@@ -24,14 +31,15 @@ public sealed partial class ErrorHub(ILogger<ErrorHub> logger)
     }
 
     /// <summary>
-    /// Logs an exception from another thread. The process ends right after, and on the
-    /// register the launcher starts Rewind again.
+    /// Logs an exception that nothing caught, such as one on a background thread or a failed
+    /// migration at startup. The process ends right after, and on the register the launcher
+    /// starts Rewind again.
     /// </summary>
     public void Fatal(Exception? exception) => LogFatal(logger, exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Unhandled exception on the WinForms thread; going back to Checkout")]
     private static partial void LogCrashed(ILogger logger, Exception exception);
 
-    [LoggerMessage(Level = LogLevel.Critical, Message = "Unhandled exception on another thread; Rewind is closing")]
+    [LoggerMessage(Level = LogLevel.Critical, Message = "Unhandled exception; Rewind is closing")]
     private static partial void LogFatal(ILogger logger, Exception? exception);
 }

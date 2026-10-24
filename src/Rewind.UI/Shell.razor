@@ -68,6 +68,10 @@
     private bool _crashed;
     private bool _checkoutClosed;
 
+    /// <summary>Called once the shell has drawn itself and started listening to the keyboard.</summary>
+    [Parameter]
+    public EventCallback OnStarted { get; set; }
+
     private bool DialogOpen => Dialogs.Current is not null;
 
     // Checkout can't be where a Checkout crash goes back to: see AfterScreenCrash.
@@ -91,6 +95,7 @@
         _self = DotNetObjectReference.Create(this);
         await using var keyboard = await JS.InvokeAsync<IJSObjectReference>("import", KeyboardModule.Path);
         await keyboard.InvokeVoidAsync("start", _self);
+        await OnStarted.InvokeAsync();
     }
 
     /// <summary>Called by keyboard.js when F1 to F5 is pressed (UI-3).</summary>

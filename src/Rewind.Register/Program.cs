@@ -54,8 +54,10 @@ internal static class Program
 
         using var host = builder.Build();
 
-        // OBS-5: exceptions outside Blazor end up here. They're hooked up before the host
-        // starts, so a failed migration at startup is logged too.
+        // OBS-5: exceptions outside Blazor end up here. Blazor's own never do, because
+        // BlazorWebView doesn't pass them on; the ErrorBoundaries in the shell and App catch
+        // those. These are hooked up before the host starts, so a failed migration at startup
+        // is logged too.
         var errors = host.Services.GetRequiredService<ErrorHub>();
         Application.ThreadException += (_, e) => errors.Report(e.Exception);
         AppDomain.CurrentDomain.UnhandledException += (_, e) => errors.Fatal(e.ExceptionObject as Exception);
