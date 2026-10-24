@@ -35,7 +35,7 @@ In Debug builds, the row above the status bar is the scan simulator (TEST-5): ty
 The scanner keeps its own settings, so a new PC needs only the driver.
 
 - **Driver:** TEEMI's Virtual COM driver, from [teemistore.com/download](https://www.teemistore.com/download/) under "Activate USB virtual COM Port Feature on 2D Wired Scanners". Keep a copy of the installer with the backups, in case the link disappears.
-- **Settings,** for a new scanner or after a factory reset: scan that page's Virtual COM barcode, then these from the printed manual: **Add CR** (`090200.`) and **Good Read Beeper OFF** (`0502100.`), so only Rewind beeps.
+- **Settings,** for a new scanner or after a factory reset: scan that page's Virtual COM barcode, then these from the printed manual: **Add CR** (`090200.`), **Good Read Beeper OFF** (`0502100.`), so only Rewind beeps, and **Enable UPC-E0 Expand** (`0212031.`). Expansion is off from the factory, and without it a UPC-E, the 8-digit short form of a UPC-A, arrives as 8 digits, which Rewind treats as unknown.
 - **Factory reset:** **Restore All Factory Defaults** (`0D0100.`) puts it back in keyboard mode with no suffix.
 - **Never scan** "remove the initial zero" (`0211030.`): it shortens a UPC-A to 11 digits, which Rewind treats as unknown.
 
