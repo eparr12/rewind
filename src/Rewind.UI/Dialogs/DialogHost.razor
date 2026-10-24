@@ -1,5 +1,6 @@
 @implements IDisposable
 @inject DialogService Dialogs
+@inject IJSRuntime JS
 
 @if (Dialogs.Current is { } dialog)
 {
@@ -10,7 +11,7 @@
             <div class="title-bar">
                 <div class="title-bar-text" id="dialog-title">@dialog.Title</div>
                 <div class="title-bar-controls">
-                    <button aria-label="Close" tabindex="-1" @onclick="() => Dialogs.Close(false)"></button>
+                    <button aria-label="Close" tabindex="-1" @onclick="Dialogs.Dismiss"></button>
                 </div>
             </div>
             <div class="window-body">
@@ -38,8 +39,9 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // UI-3: a dialog opens with OK focused, so Enter presses it. Focus once per dialog,
-        // not on every render, so the clerk can Tab to Cancel.
+        // UI-3: a dialog opens with OK focused, so Enter presses it, and once it closes the focus
+        // goes back to where the clerk was, as in Windows 98. Focus once per dialog, not on
+        // every render, so the clerk can Tab to Cancel.
         var dialog = Dialogs.Current;
         if (ReferenceEquals(dialog, _focused))
         {
@@ -50,19 +52,24 @@
         if (dialog is not null)
         {
             await _ok.FocusAsync();
+            return;
         }
+
+        await using var keyboard = await JS.InvokeAsync<IJSObjectReference>("import", KeyboardModule.Path);
+        await keyboard.InvokeVoidAsync("restoreFocus");
     }
 
     public void Dispose() => Dialogs.Changed -= OnChanged;
 
     private void OnChanged() => _ = InvokeAsync(StateHasChanged);
 
-    // Enter presses whichever button has focus; the dialog itself only handles Esc.
+    // Enter presses whichever button has focus, and keyboard.js keeps Tab inside the dialog;
+    // the dialog itself only handles Esc.
     private void OnKeyDown(KeyboardEventArgs e)
     {
         if (e.Key == "Escape")
         {
-            Dialogs.Close(false);
+            Dialogs.Dismiss();
         }
     }
 }

@@ -13,8 +13,9 @@
             @foreach (var screen in Screens)
             {
                 <li role="tab" aria-selected="@AriaSelected(screen)">
-                    @* No href: a middle-click on a link would open the browser (SEC-6). *@
-                    <a @onclick="() => Open(screen)">@screen.Key @screen.Name</a>
+                    @* No href: a middle-click on a link would open the browser (SEC-6). tabindex
+                       makes each tab a Tab stop anyway, as an href would (UI-3). *@
+                    <a tabindex="0" @onclick="() => Open(screen)" @onkeydown="e => OnTabKeyDown(e, screen)">@screen.Key @screen.Name</a>
                 </li>
             }
         </menu>
@@ -45,8 +46,6 @@
 </div>
 
 @code {
-    private const string KeyboardModule = "./_content/Rewind.UI/js/keyboard.js";
-
     private static readonly Screen[] Screens =
     [
         new("F1", "Checkout", typeof(Checkout)),
@@ -76,9 +75,9 @@
             return;
         }
 
-        // keyboard.js keeps its F-key listener after this module reference is released.
+        // keyboard.js keeps its listeners after this module reference is released.
         _self = DotNetObjectReference.Create(this);
-        await using var keyboard = await JS.InvokeAsync<IJSObjectReference>("import", KeyboardModule);
+        await using var keyboard = await JS.InvokeAsync<IJSObjectReference>("import", KeyboardModule.Path);
         await keyboard.InvokeVoidAsync("start", _self);
     }
 
@@ -104,6 +103,15 @@
     }
 
     private void Open(Screen screen) => _screen = screen;
+
+    // UI-3: Enter clicks a link only when it has an href, so the tabs handle Enter themselves.
+    private void OnTabKeyDown(KeyboardEventArgs e, Screen screen)
+    {
+        if (e.Key == "Enter")
+        {
+            Open(screen);
+        }
+    }
 
     // UI-6: after the error dialog, the clerk lands back on Checkout.
     private void BackToCheckout()

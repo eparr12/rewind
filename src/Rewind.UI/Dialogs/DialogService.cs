@@ -18,8 +18,9 @@ public sealed class DialogService(ISoundPlayer sounds)
     public event Action? Changed;
 
     /// <summary>
-    /// Shows a dialog and completes when it closes: true for OK, false for Cancel or Esc.
-    /// A new dialog replaces one that's still open, which then counts as cancelled.
+    /// Shows a dialog and completes when it closes: true for OK, false for Cancel. Esc and the
+    /// title bar's X answer as <see cref="Dismiss"/> describes. A new dialog replaces one that's
+    /// still open, which then counts as cancelled.
     /// </summary>
     /// <remarks>
     /// Warnings and errors play the error chord, as Windows 98's message boxes did, so a screen
@@ -50,4 +51,10 @@ public sealed class DialogService(ISoundPlayer sounds)
         Changed?.Invoke();
         answer?.TrySetResult(ok);
     }
+
+    /// <summary>
+    /// Closes the dialog on screen as Esc or its title bar's X does, as in Windows 98: that
+    /// answers Cancel when the dialog has a Cancel button, and OK when OK is all it has.
+    /// </summary>
+    public void Dismiss() => Close(ok: Current is { CanCancel: false });
 }

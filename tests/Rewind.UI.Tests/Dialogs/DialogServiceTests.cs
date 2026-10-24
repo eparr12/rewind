@@ -33,6 +33,29 @@ public sealed class DialogServiceTests
     }
 
     [Fact]
+    public async Task Dismiss_DialogWithCancel_ReturnsFalse()
+    {
+        var dialogs = new DialogService(_sounds);
+        var answer = dialogs.ShowAsync(Question);
+
+        dialogs.Dismiss();
+
+        Assert.False(await answer);
+    }
+
+    // As in Windows 98, Esc or the X on a message box with only OK answers OK.
+    [Fact]
+    public async Task Dismiss_OkOnlyDialog_ReturnsTrue()
+    {
+        var dialogs = new DialogService(_sounds);
+        var answer = dialogs.ShowAsync(Note);
+
+        dialogs.Dismiss();
+
+        Assert.True(await answer);
+    }
+
+    [Fact]
     public void Close_OpenDialog_LeavesNothingOnScreen()
     {
         var dialogs = new DialogService(_sounds);

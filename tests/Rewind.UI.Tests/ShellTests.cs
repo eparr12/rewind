@@ -1,4 +1,5 @@
 using Bunit;
+using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Rewind.Core.Devices;
@@ -24,10 +25,11 @@ public sealed class ShellTests : BunitContext
         Services.AddSingleton(_dialogs);
         Services.AddSingleton(new ErrorHub(NullLogger<ErrorHub>.Instance));
 
-        // On its first render, the shell imports keyboard.js and starts its F-key listener (UI-3).
-        JSInterop.SetupModule("./_content/Rewind.UI/js/keyboard.js")
-            .SetupVoid("start", _ => true)
-            .SetVoidResult();
+        // On its first render, the shell imports keyboard.js and starts its F-key listener, and
+        // a dialog that closes hands the focus back through it (UI-3).
+        var keyboard = JSInterop.SetupModule("./_content/Rewind.UI/js/keyboard.js");
+        keyboard.SetupVoid("start", _ => true).SetVoidResult();
+        keyboard.SetupVoid("restoreFocus").SetVoidResult();
     }
 
     [Fact]
@@ -50,5 +52,26 @@ public sealed class ShellTests : BunitContext
         await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F2"));
 
         Assert.True(cut.HasComponent<Checkout>());
+    }
+
+    [Fact]
+    public void Render_Tabs_AreAllTabStops()
+    {
+        var cut = Render<Shell>();
+
+        var tabStops = cut.FindAll("[role=tab] a").Count(tab => tab.GetAttribute("tabindex") == "0");
+
+        Assert.Equal(5, tabStops);
+    }
+
+    [Fact]
+    public async Task KeyDown_EnterOnATab_OpensItsScreen()
+    {
+        var cut = Render<Shell>();
+        var returnTab = cut.FindAll("[role=tab] a").Single(tab => tab.TextContent == "F2 Return");
+
+        await returnTab.KeyDownAsync(new KeyboardEventArgs { Key = "Enter" });
+
+        Assert.True(cut.HasComponent<Return>());
     }
 }
