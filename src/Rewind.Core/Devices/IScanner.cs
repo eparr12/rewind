@@ -13,7 +13,9 @@ public interface IScanner
 
     /// <summary>
     /// Raised for every scan, unknown ones included. It can arrive on a background thread, so a
-    /// component moves onto its own with InvokeAsync before touching its state (UI-11).
+    /// component moves onto its own with InvokeAsync before touching its state (UI-11). An
+    /// exception thrown in there only faults the Task that InvokeAsync returns, so the component
+    /// passes it to DispatchExceptionAsync, which hands it to the screen's ErrorBoundary.
     /// </summary>
     event Action<Scan>? Scanned;
 

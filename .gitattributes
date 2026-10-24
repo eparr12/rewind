@@ -1,1 +1,10 @@
 * text=auto eol=lf
+
+# GIT-8: binary files are stored byte for byte, never converted. A .docx still diffs as text
+# once tools/docx-text.sh is set up (see the README).
+*.db binary
+*.docx binary diff=docx
+*.png binary
+*.wav binary
+*.woff binary
+*.woff2 binary

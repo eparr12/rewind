@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using Rewind.Core.Devices;
 using Rewind.Core.Scans;
 using Rewind.Core.Sounds;
@@ -8,6 +8,7 @@ namespace Rewind.Core.Tests.Devices;
 public sealed class ScannerHubTests
 {
     private readonly FakeSoundPlayer _sounds = new();
+    private readonly ListLogger<ScannerHub> _logger = new();
 
     [Fact]
     public void Receive_StoreLabel_RaisesScannedWithItsKind()
@@ -54,6 +55,43 @@ public sealed class ScannerHubTests
     }
 
     [Fact]
+    public void Receive_TooLongToSort_LogsItsStartAndLength()
+    {
+        var hub = NewHub();
+        var sent = new string('7', Barcodes.MaxLength) + "-AND-MORE";
+
+        hub.Receive(sent);
+
+        var entry = Assert.Single(_logger.Entries);
+        Assert.Equal($"Ignored an unknown barcode: {sent[..Barcodes.MaxLength]} ({sent.Length} characters)", entry.Message);
+    }
+
+    [Fact]
+    public void Receive_HandlerThrows_StillRaisesScannedForTheRest()
+    {
+        var hub = NewHub();
+        Scan? scanned = null;
+        hub.Scanned += _ => throw new InvalidOperationException("A screen's bug.");
+        hub.Scanned += scan => scanned = scan;
+
+        hub.Receive("RV-00042");
+
+        Assert.Equal(new Scan(ScanKind.StoreLabel, "RV-00042"), scanned);
+    }
+
+    [Fact]
+    public void Receive_HandlerThrows_LogsAnError()
+    {
+        var hub = NewHub();
+        var bug = new InvalidOperationException("A screen's bug.");
+        hub.Scanned += _ => throw bug;
+
+        hub.Receive("RV-00042");
+
+        Assert.Contains(_logger.Entries, entry => entry.Level == LogLevel.Error && entry.Exception == bug);
+    }
+
+    [Fact]
     public void Status_BeforeTheReaderReports_IsMissing()
     {
         var hub = NewHub();
@@ -85,5 +123,18 @@ public sealed class ScannerHubTests
         Assert.Equal(0, changes);
     }
 
-    private ScannerHub NewHub() => new(_sounds, NullLogger<ScannerHub>.Instance);
+    [Fact]
+    public void SetStatus_HandlerThrows_StillRaisesStatusChangedForTheRest()
+    {
+        var hub = NewHub();
+        var changes = 0;
+        hub.StatusChanged += () => throw new InvalidOperationException("A screen's bug.");
+        hub.StatusChanged += () => changes++;
+
+        hub.SetStatus(ScannerStatus.Ready);
+
+        Assert.Equal(1, changes);
+    }
+
+    private ScannerHub NewHub() => new(_sounds, _logger);
 }

@@ -1,8 +1,9 @@
 @using Microsoft.Extensions.Hosting
 @inject IHostApplicationLifetime Lifetime
+@inject DialogService Dialogs
 
 <p>Members, prices, concessions and Close Out arrive in Phase 3.</p>
-<button @onclick="ShutDown">Shut Down</button>
+<button @onclick="ShutDownAsync">Shut Down</button>
 
 @if (BuildInfo.IsDebug)
 {
@@ -10,6 +11,21 @@
 }
 
 @code {
+    // Asked first, so a stray Enter on the button can't close the store on movie night. Info,
+    // not Warning: a warning plays the error chord, which means something's wrong, and asking
+    // before Shut Down is routine.
+    private static readonly Dialog ConfirmShutDown = new(
+        Store.Name,
+        "Are you sure you want to shut down Rewind?\n\nNobody can rent or return a movie until Rewind starts again.",
+        DialogIcon.Info,
+        CanCancel: true);
+
     // The host tells MainForm to close, so Rewind.UI never touches WinForms (ARCH-2).
-    private void ShutDown() => Lifetime.StopApplication();
+    private async Task ShutDownAsync()
+    {
+        if (await Dialogs.ShowAsync(ConfirmShutDown))
+        {
+            Lifetime.StopApplication();
+        }
+    }
 }

@@ -1,4 +1,11 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Rewind.UI\Rewind.UI.csproj" />
@@ -17,15 +24,6 @@
     <PackageReference Include="Serilog.Sinks.File" />
     <PackageReference Include="System.Management" />
   </ItemGroup>
-
-  <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <Nullable>enable</Nullable>
-    <UseWindowsForms>true</UseWindowsForms>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <EnableWindowsTargeting>true</EnableWindowsTargeting>
-  </PropertyGroup>
 
   <!-- The sound files aren't in Git (GIT-6). Whatever is in Sounds\ is copied next to
        Rewind.Register.exe by every build and publish. -->

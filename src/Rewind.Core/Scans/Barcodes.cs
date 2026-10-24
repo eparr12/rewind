@@ -15,7 +15,8 @@ public static partial class Barcodes
 
     /// <summary>
     /// Sorts one scan. Spaces around it are ignored and letters are made upper case, so
-    /// rv-00042 is the store label RV-00042. A UPC comes back in its 12-digit form.
+    /// rv-00042 is the store label RV-00042. A UPC comes back as 12 or 13 digits: a 13-digit EAN
+    /// that starts with 0 becomes its 12-digit UPC-A.
     /// </summary>
     public static Scan Classify(string raw)
     {

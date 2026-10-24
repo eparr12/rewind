@@ -1,0 +1,80 @@
+@using Microsoft.Extensions.Hosting
+@inject IHostApplicationLifetime Lifetime
+
+@* OBS-5: the root component that MainForm shows, and the last ErrorBoundary before
+   BlazorWebView. Each screen has its own in the shell (UI-6); this one catches what the rest of
+   the shell throws, such as the status bar, the tabs or a dialog's buttons. BlazorWebView can't
+   recover from an exception that no ErrorBoundary catches: it stops the page without logging
+   anything, and the register answers no key or click until Rewind is ended in Task Manager. *@
+<ErrorBoundary @ref="_boundary">
+    <ChildContent>
+        <Shell OnStarted="ShellStarted" />
+    </ChildContent>
+    <ErrorContent Context="exception">
+        @if (IsShellCrash(exception))
+        {
+            @* The shell's DialogHost went with the shell, so the error dialog needs its own. *@
+            <CrashNotice Outcome="Outcome" OnClosed="AfterShellCrash" />
+            <DialogHost />
+        }
+        else
+        {
+            @* The error dialog crashed too. Drawing it again would only crash again, up to the 100
+               tries ErrorBoundary allows before it gives up and BlazorWebView stops the page, so
+               this is plain markup that can't throw, with one way out, and nothing from
+               DialogService, which may be what broke. Enter presses Shut Down (UI-3) through
+               autofocus rather than FocusAsync, since JavaScript interop may be broken too. *@
+            <div class="dialog-layer">
+                <div class="window dialog" role="alertdialog" aria-labelledby="last-resort-title">
+                    <div class="title-bar">
+                        <div class="title-bar-text" id="last-resort-title">@Store.Name</div>
+                    </div>
+                    <div class="window-body">
+                        <p>Rewind can't recover from this error. Shut it down, then tell the Store Manager.</p>
+                        <div class="dialog-buttons">
+                            <button class="default" autofocus @onclick="Lifetime.StopApplication">Shut Down</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </ErrorContent>
+</ErrorBoundary>
+
+@code {
+    private ErrorBoundary? _boundary;
+
+    // False from the moment a shell is created until it has drawn itself and started the
+    // keyboard. A shell that crashes in that time would crash the same way again.
+    private bool _shellStarted;
+
+    // The crash the error dialog is for. Until the clerk closes it, any other exception that
+    // reaches this boundary came from the error dialog itself.
+    private Exception? _shellCrash;
+
+    private CrashOutcome Outcome => _shellStarted ? CrashOutcome.BackToCheckout : CrashOutcome.ShutDown;
+
+    private void ShellStarted() => _shellStarted = true;
+
+    private bool IsShellCrash(Exception exception)
+    {
+        _shellCrash ??= exception;
+        return ReferenceEquals(exception, _shellCrash);
+    }
+
+    // A new shell opens on Checkout. Starting one after a shell that never started would only
+    // bring the error dialog back each time the clerk closed it, with no way out, so Rewind shuts
+    // down instead, the same way Shut Down does.
+    private void AfterShellCrash()
+    {
+        if (Outcome == CrashOutcome.ShutDown)
+        {
+            Lifetime.StopApplication();
+            return;
+        }
+
+        _shellStarted = false;
+        _shellCrash = null;
+        _boundary?.Recover();
+    }
+}

@@ -1,3 +1,4 @@
+@implements IDisposable
 @inject ISoundPlayer Sounds
 @inject DialogService Dialogs
 
@@ -10,12 +11,15 @@
     </div>
     <div class="field-row">
         <button @onclick="CrashThisScreen">Crash this screen</button>
-        <button @onclick="CrashOutsideTheScreens">Crash outside the screens</button>
+        <button @onclick="CrashTheShell">Crash the shell</button>
+        <button @onclick="CrashTheWinFormsThread">Crash the WinForms thread</button>
         <button @onclick="CrashRewind">Crash Rewind</button>
     </div>
 </fieldset>
 
 @code {
+    public void Dispose() => Dialogs.Changed -= ThrowAsTheDialogCloses;
+
     // The chime and the beep overlap only if each sound gets its own output (UI-7).
     private void PlayTwoSounds()
     {
@@ -26,17 +30,32 @@
     private async Task ShowDialogsAsync()
     {
         var ok = await Dialogs.ShowAsync(new Dialog(
-            "Rewind Video", "Be kind: rewind the tape before you return it?", DialogIcon.Warning, CanCancel: true));
-        await Dialogs.ShowAsync(new Dialog("Rewind Video", ok ? "You pressed OK." : "You cancelled."));
+            Store.Name, "Be kind: rewind the tape before you return it?", DialogIcon.Warning, CanCancel: true));
+        await Dialogs.ShowAsync(new Dialog(Store.Name, ok ? "You pressed OK." : "You cancelled."));
     }
 
     // The screen's ErrorBoundary catches this one.
     private static void CrashThisScreen() =>
         throw new InvalidOperationException("Diagnostics: a crash inside a screen");
 
+    // App's ErrorBoundary catches this one. The dialog's buttons belong to the shell's
+    // DialogHost, not to this screen, so throwing while the dialog closes is a crash outside
+    // every screen, as a bug in the status bar would be.
+    private void CrashTheShell()
+    {
+        _ = Dialogs.ShowAsync(new Dialog(Store.Name, "Press OK to crash the shell."));
+        Dialogs.Changed += ThrowAsTheDialogCloses; // after ShowAsync, which raises Changed too
+    }
+
+    private void ThrowAsTheDialogCloses()
+    {
+        Dialogs.Changed -= ThrowAsTheDialogCloses;
+        throw new InvalidOperationException("Diagnostics: a crash in the shell, outside the screens");
+    }
+
     // Thrown on the WinForms thread outside Blazor, as a bug in MainForm would be, so it
     // reaches Application.ThreadException.
-    private static void CrashOutsideTheScreens() =>
+    private static void CrashTheWinFormsThread() =>
         SynchronizationContext.Current?.Post(
             _ => throw new InvalidOperationException("Diagnostics: a crash on the WinForms thread"), null);
 

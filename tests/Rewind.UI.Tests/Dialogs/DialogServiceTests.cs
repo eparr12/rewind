@@ -5,8 +5,8 @@ namespace Rewind.UI.Tests.Dialogs;
 
 public sealed class DialogServiceTests
 {
-    private static readonly Dialog Question = new("Rewind Video", "Rewind the tape?", DialogIcon.Warning, CanCancel: true);
-    private static readonly Dialog Note = new("Rewind Video", "Due back tonight.");
+    private static readonly Dialog Question = new(Store.Name, "Rewind the tape?", DialogIcon.Warning, CanCancel: true);
+    private static readonly Dialog Note = new(Store.Name, "Due back tonight.");
 
     private readonly FakeSoundPlayer _sounds = new();
 
@@ -30,6 +30,29 @@ public sealed class DialogServiceTests
         dialogs.Close(ok: false);
 
         Assert.False(await answer);
+    }
+
+    [Fact]
+    public async Task Dismiss_DialogWithCancel_ReturnsFalse()
+    {
+        var dialogs = new DialogService(_sounds);
+        var answer = dialogs.ShowAsync(Question);
+
+        dialogs.Dismiss();
+
+        Assert.False(await answer);
+    }
+
+    // As in Windows 98, Esc or the X on a message box with only OK answers OK.
+    [Fact]
+    public async Task Dismiss_OkOnlyDialog_ReturnsTrue()
+    {
+        var dialogs = new DialogService(_sounds);
+        var answer = dialogs.ShowAsync(Note);
+
+        dialogs.Dismiss();
+
+        Assert.True(await answer);
     }
 
     [Fact]

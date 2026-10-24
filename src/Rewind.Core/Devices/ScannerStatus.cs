@@ -7,8 +7,8 @@ public enum ScannerStatus
     Missing,
 
     /// <summary>
-    /// The scanner is plugged in, but its port won't open, usually because another program,
-    /// such as PuTTY, has it open.
+    /// The scanner is plugged in, but Windows refuses to open its port, usually because another
+    /// program, such as PuTTY, has it open.
     /// </summary>
     Busy,
 

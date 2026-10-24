@@ -1,5 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
-using System.IO.Ports;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -14,6 +12,7 @@ namespace Rewind.Core.Devices;
 /// </summary>
 public sealed partial class SerialScanner(
     IDeviceLocator locator,
+    ISerialPorts ports,
     ScannerHub hub,
     IOptions<ScannerOptions> options,
     TimeProvider time,
@@ -22,11 +21,14 @@ public sealed partial class SerialScanner(
     /// <summary>How long the reader waits before it looks for the scanner again (HW-4).</summary>
     public static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(3);
 
+    /// <summary>
+    /// How often the reader, between scans, checks that the scanner is still plugged in (HW-4).
+    /// </summary>
+    public static readonly TimeSpan PresenceCheckInterval = TimeSpan.FromSeconds(2);
+
     private const int BufferSize = 256;
-    private const int ReadTimeoutMilliseconds = 1000;
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(50);
-    private static readonly TimeSpan PresenceCheckInterval = TimeSpan.FromSeconds(2);
 
     private readonly ScannerOptions _options = options.Value;
 
@@ -37,6 +39,8 @@ public sealed partial class SerialScanner(
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Since .NET 10, BackgroundService runs all of this on the thread pool, so a slow first
+        // WMI search can't hold up host.Start() and the window (HW-3).
         LogLooking(logger, _options.VendorId, _options.ProductId);
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -64,8 +68,8 @@ public sealed partial class SerialScanner(
 
     private async Task ConnectAndReadAsync(CancellationToken stoppingToken)
     {
-        var portName = locator.FindSerialPort(_options.VendorId, _options.ProductId);
-        if (portName is null)
+        var device = locator.FindSerialDevice(_options.VendorId, _options.ProductId);
+        if (device is null)
         {
             if (hub.SetStatus(ScannerStatus.Missing))
             {
@@ -75,61 +79,45 @@ public sealed partial class SerialScanner(
             return;
         }
 
-        using var port = NewPort(portName);
-        if (!TryOpen(port, out var stream))
+        using var port = TryOpen(device.PortName);
+        if (port is null)
         {
             return;
         }
 
-        try
-        {
-            _failing = false;
-            hub.SetStatus(ScannerStatus.Ready);
-            LogReady(logger, portName);
-            await ReadUntilUnpluggedAsync(port, stoppingToken);
-        }
-        finally
-        {
-            Release(stream, portName);
-        }
+        _failing = false;
+        hub.SetStatus(ScannerStatus.Ready);
+        LogReady(logger, device.PortName);
+        await ReadUntilUnpluggedAsync(port, device, stoppingToken);
     }
 
-    private SerialPort NewPort(string portName) =>
-        new(portName, _options.BaudRate)
-        {
-            // Terminals such as PuTTY raise DTR and RTS when they open a port, but SerialPort
-            // doesn't, and some USB serial devices stay silent until both are up.
-            DtrEnable = true,
-            RtsEnable = true,
-            ReadTimeout = ReadTimeoutMilliseconds,
-        };
-
-    // A port that won't open makes the scanner busy, and the reader tries again in a few seconds.
-    private bool TryOpen(SerialPort port, [NotNullWhen(true)] out Stream? stream)
+    // A port that won't open leaves the scanner busy or missing, and the reader tries again in a
+    // few seconds.
+    private ISerialPort? TryOpen(string portName)
     {
         try
         {
-            port.Open();
-            stream = port.BaseStream;
-            return true;
+            return ports.Open(portName, _options.BaudRate);
         }
-        catch (Exception e) when (e is UnauthorizedAccessException or IOException)
+        catch (UnauthorizedAccessException e) // Windows refuses a port another program has open
         {
-            // UnauthorizedAccessException means another program has the port open.
             if (hub.SetStatus(ScannerStatus.Busy))
             {
-                LogBusy(logger, e, port.PortName);
+                LogBusy(logger, e, portName);
             }
-
-            stream = null;
-            return false;
         }
+        catch (IOException e) // the port went away after the search found it, usually in an unplug
+        {
+            Lost(portName, e);
+        }
+
+        return null;
     }
 
     // Polls instead of awaiting BaseStream.ReadAsync: a pending serial read only checks its
     // cancellation token before it starts, so it could miss Shut Down. This loop notices both
     // Shut Down and an unplug within moments.
-    private async Task ReadUntilUnpluggedAsync(SerialPort port, CancellationToken stoppingToken)
+    private async Task ReadUntilUnpluggedAsync(ISerialPort port, SerialDevice device, CancellationToken stoppingToken)
     {
         var lines = new ScanLineReader();
         var buffer = new byte[BufferSize];
@@ -148,7 +136,7 @@ public sealed partial class SerialScanner(
 
             if (time.GetElapsedTime(lastCheck) >= PresenceCheckInterval)
             {
-                if (!IsPluggedIn(port.PortName))
+                if (!IsPluggedIn(device))
                 {
                     Lost(port.PortName, exception: null);
                     return;
@@ -161,18 +149,19 @@ public sealed partial class SerialScanner(
         }
     }
 
-    // Reads only what has already arrived, so the call returns at once. False once the scanner
-    // is gone: after an unplug, Windows refuses the call, or .NET has already marked the port
-    // closed, which shows up as InvalidOperationException.
-    private bool TryReadWaitingBytes(SerialPort port, byte[] buffer, out int count)
+    // Reads only what has already arrived, so the call returns at once. False once the port is
+    // gone: after an unplug, Windows refuses the call, or .NET has already marked the port
+    // closed, which shows up as InvalidOperationException. A Read that times out (see
+    // SystemSerialPorts) counts as gone too, so it's logged as a warning rather than a reader
+    // failure.
+    private bool TryReadWaitingBytes(ISerialPort port, byte[] buffer, out int count)
     {
         try
         {
-            var waiting = port.BytesToRead;
-            count = waiting == 0 ? 0 : port.Read(buffer, 0, Math.Min(waiting, buffer.Length));
+            count = port.ReadWaiting(buffer);
             return true;
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or TimeoutException)
         {
             Lost(port.PortName, e);
             count = 0;
@@ -180,10 +169,11 @@ public sealed partial class SerialScanner(
         }
     }
 
-    // Windows lists every serial port that exists right now, and an unplugged scanner's port
-    // leaves the list, even when a driver never fails the reads.
-    private static bool IsPluggedIn(string portName) =>
-        SerialPort.GetPortNames().Contains(portName, StringComparer.OrdinalIgnoreCase);
+    // Catches an unplug that the reads don't. Some drivers take the port out of Windows' list of
+    // serial ports, but the TMSL-77's keeps it, open and silent, so that a replugged scanner can
+    // carry on, and only Plug and Play shows that the scanner has gone.
+    private bool IsPluggedIn(SerialDevice device) =>
+        ports.IsListed(device.PortName) && locator.IsPluggedIn(device.DeviceId);
 
     private void Lost(string portName, Exception? exception)
     {
@@ -193,29 +183,13 @@ public sealed partial class SerialScanner(
         }
     }
 
-    // After an unplug, .NET marks the port closed without releasing it, so SerialPort.Dispose
-    // skips it and BaseStream can't be fetched any more. Disposing the stream kept from Open
-    // releases the port now, rather than whenever the garbage collector runs. Its finally
-    // always closes the handle, but once the device is gone it also throws.
-    private void Release(Stream stream, string portName)
-    {
-        try
-        {
-            stream.Dispose();
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            LogReleasedAfterUnplug(logger, e, portName);
-        }
-    }
-
     [LoggerMessage(Level = LogLevel.Information, Message = "Looking for the scanner at USB VID_{VendorId} PID_{ProductId}")]
     private static partial void LogLooking(ILogger logger, string vendorId, string productId);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Scanner ready on {Port}")]
     private static partial void LogReady(ILogger logger, string port);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "The scanner isn't plugged in")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The scanner isn't plugged in")]
     private static partial void LogMissing(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Found the scanner on {Port}, but the port won't open; another program, such as PuTTY, may have it")]
@@ -223,9 +197,6 @@ public sealed partial class SerialScanner(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Lost the scanner on {Port}; it was probably unplugged")]
     private static partial void LogLost(ILogger logger, Exception? exception, string port);
-
-    [LoggerMessage(Level = LogLevel.Debug, Message = "{Port} threw while closing after an unplug; it's closed anyway")]
-    private static partial void LogReleasedAfterUnplug(ILogger logger, Exception exception, string port);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "The scanner reader failed; it tries again every few seconds and logs nothing more until the scanner is ready")]
     private static partial void LogFailed(ILogger logger, Exception exception);

@@ -27,4 +27,16 @@ public sealed class BackupsTests
         Assert.Equal("rewind-2026-10-23-2215-2.db", Path.GetFileName(second));
         Assert.True(File.Exists(first));
     }
+
+    [Fact]
+    public async Task CreateAsync_NoDatabaseYet_ReturnsNullWithoutCreatingOne()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+
+        var backup = await rewind.Backups.CreateAsync(ct);
+
+        Assert.Null(backup);
+        Assert.False(File.Exists(rewind.Paths.Database));
+    }
 }

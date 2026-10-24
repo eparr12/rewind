@@ -60,10 +60,10 @@ body {
   padding: 12px 8px 16px;
 }
 
-  .dialog-message p {
-    margin: 0;
-    white-space: pre-line; /* a line break in the message starts a new line */
-  }
+.dialog-message p {
+  margin: 0;
+  white-space: pre-line; /* a line break in the message starts a new line */
+}
 
 .dialog-icon {
   flex: none;

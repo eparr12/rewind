@@ -34,13 +34,24 @@
     }
 
     // Both events can arrive on the scanner's thread, so move onto the renderer's first (UI-11).
-    private void OnScanned(Scan scan) => _ = InvokeAsync(() =>
-    {
-        _lastScan = scan;
-        StateHasChanged();
-    });
+    private void OnScanned(Scan scan) => Refresh(() => _lastScan = scan);
 
-    private void OnStatusChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OnStatusChanged() => Refresh(); // the status is read as the bar draws
+
+    // UI-11: an exception in here would only fault the Task that InvokeAsync returns, which
+    // nobody awaits, so it goes to DispatchExceptionAsync and on to App's ErrorBoundary.
+    private void Refresh(Action? change = null) => _ = InvokeAsync(async () =>
+    {
+        try
+        {
+            change?.Invoke();
+            StateHasChanged();
+        }
+        catch (Exception e)
+        {
+            await DispatchExceptionAsync(e);
+        }
+    });
 
     // Such as "RV-00042 · Store label". A scan too long to keep shows only its kind.
     private static string Describe(Scan scan) =>

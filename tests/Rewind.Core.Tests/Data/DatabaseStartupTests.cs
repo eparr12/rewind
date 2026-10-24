@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace Rewind.Core.Tests.Data;
 
@@ -22,10 +23,10 @@ public sealed class DatabaseStartupTests
         var ct = TestContext.Current.CancellationToken;
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
-        await using (var restored = rewind.OpenDb())
+        await using (var touched = rewind.OpenDb())
         {
-            // Like a backup restored from a copy that wasn't in WAL mode.
-            await restored.Database.ExecuteSqlRawAsync("PRAGMA journal_mode = DELETE;", ct);
+            // Like a database file another tool has switched out of WAL mode.
+            await touched.Database.ExecuteSqlRawAsync("PRAGMA journal_mode = DELETE;", ct);
         }
 
         await rewind.StartAsync(ct);
@@ -42,21 +43,28 @@ public sealed class DatabaseStartupTests
     {
         var ct = TestContext.Current.CancellationToken;
         await using var rewind = new TempRewind();
-        Directory.CreateDirectory(rewind.Paths.Data);
-        string firstMigration;
-        await using (var db = rewind.OpenDb())
-        {
-            firstMigration = db.Database.GetMigrations().First();
-            await db.Database.MigrateAsync(firstMigration, ct);
-        }
+        await CreateDatabaseBeforeMigrationAsync(rewind, ct);
 
         await rewind.StartAsync(ct);
 
-        // The backup is the database as it was before: only the first migration applied.
+        // The backup is the database as it was before: no migrations applied.
         var backup = Assert.Single(rewind.BackupFiles());
         await using var copy = rewind.OpenDb(backup);
-        var applied = await copy.Database.GetAppliedMigrationsAsync(ct);
-        Assert.Equal(firstMigration, Assert.Single(applied));
+        Assert.Empty(await copy.Database.GetAppliedMigrationsAsync(ct));
+    }
+
+    [Fact]
+    public async Task StartAsync_BackupFails_LeavesMigrationPending()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await CreateDatabaseBeforeMigrationAsync(rewind, ct);
+        await File.WriteAllTextAsync(rewind.Paths.Backups, "", ct); // a file where the folder goes
+
+        await Assert.ThrowsAnyAsync<IOException>(() => rewind.StartAsync(ct));
+
+        await using var db = rewind.OpenDb();
+        Assert.NotEmpty(await db.Database.GetPendingMigrationsAsync(ct));
     }
 
     [Fact]
@@ -72,21 +80,47 @@ public sealed class DatabaseStartupTests
     }
 
     [Fact(Timeout = 30_000)] // a start that waits for the lock never finishes
-    public async Task StartAsync_LeftoverMigrationLock_StartsWithoutWaiting()
+    public async Task StartAsync_LeftoverLockAndUpToDate_StartsWithoutWaiting()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
-        await using (var db = rewind.OpenDb())
-        {
-            // A crash in the middle of a migration leaves EF Core's lock row behind.
-            await db.Database.ExecuteSqlRawAsync(
-                """INSERT INTO "__EFMigrationsLock" ("Id", "Timestamp") VALUES (1, '2026-10-23 22:15:00');""",
-                ct);
-        }
+        await LeaveMigrationLockAsync(rewind, ct);
 
         var error = await Record.ExceptionAsync(() => rewind.StartAsync(ct));
 
         Assert.Null(error);
+    }
+
+    [Fact(Timeout = 30_000)] // a start that waits for the lock never finishes
+    public async Task StartAsync_LeftoverLockAndMigrationPending_GivesUpWaiting()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await CreateDatabaseBeforeMigrationAsync(rewind, ct);
+        await LeaveMigrationLockAsync(rewind, ct);
+
+        var start = rewind.StartAsync(ct);
+        rewind.Time.Advance(await rewind.Time.NextTimerAsync(ct)); // the migration's time limit
+
+        await Assert.ThrowsAsync<TimeoutException>(() => start);
+    }
+
+    // A database from before the Initial migration: it exists, so Rewind backs it up, and
+    // every migration is still pending.
+    private static async Task CreateDatabaseBeforeMigrationAsync(TempRewind rewind, CancellationToken ct)
+    {
+        Directory.CreateDirectory(rewind.Paths.Data);
+        await using var db = rewind.OpenDb();
+        await db.Database.MigrateAsync(Migration.InitialDatabase, ct);
+    }
+
+    // A crash in the middle of a migration leaves EF Core's lock row behind.
+    private static async Task LeaveMigrationLockAsync(TempRewind rewind, CancellationToken ct)
+    {
+        await using var db = rewind.OpenDb();
+        await db.Database.ExecuteSqlRawAsync(
+            """INSERT INTO "__EFMigrationsLock" ("Id", "Timestamp") VALUES (1, '2026-10-23 22:15:00');""",
+            ct);
     }
 }
