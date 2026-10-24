@@ -24,9 +24,9 @@ public sealed partial class DatabaseStartup(
         var pending = await db.Database.GetPendingMigrationsAsync(cancellationToken);
         if (pending.Any())
         {
-            if (backups.HaveDatabase) // a first start has nothing to back up
+            var backup = await backups.CreateAsync(cancellationToken);
+            if (backup is not null)
             {
-                var backup = await backups.CreateAsync(cancellationToken);
                 LogBackedUp(logger, backup);
             }
 
@@ -35,8 +35,9 @@ public sealed partial class DatabaseStartup(
             await db.Database.MigrateAsync(cancellationToken);
         }
 
-        // EF Core turns WAL on when it creates the file. A database restored from a backup
-        // may not have it, and the setting is saved in the file, so check every start.
+        // EF Core turns WAL on when it creates the file, and Rewind's backups keep it, because
+        // the backup API copies the header that records it. A file another tool has touched may
+        // not be in WAL mode, and the mode is saved in the file, so check every start.
         await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode = WAL;", cancellationToken);
     }
 

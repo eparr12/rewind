@@ -14,17 +14,23 @@ public sealed class Backups(IOptions<RewindPaths> options, TimeProvider time)
 
     private readonly RewindPaths _paths = options.Value;
 
-    /// <summary>Whether the database file exists yet. A first start has nothing to back up.</summary>
-    public bool HaveDatabase => File.Exists(_paths.Database);
+    private bool DatabaseExists => File.Exists(_paths.Database);
 
     /// <summary>
     /// Copies the database to a new file named for the local time, such as
-    /// rewind-2026-10-23-2215.db, and returns its path.
+    /// rewind-2026-10-23-2215.db, and returns its path, or null when there's no database yet,
+    /// as on a first start.
     /// </summary>
-    public Task<string> CreateAsync(CancellationToken cancellationToken) =>
+    public Task<string?> CreateAsync(CancellationToken cancellationToken) =>
         Task.Run(
             () =>
             {
+                // Opening a missing file would create an empty database, and back that up.
+                if (!DatabaseExists)
+                {
+                    return null;
+                }
+
                 Directory.CreateDirectory(_paths.Backups);
                 var path = NewBackupPath();
                 using var live = new SqliteConnection(RewindDb.ConnectionStringFor(_paths.Database));

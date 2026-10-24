@@ -23,10 +23,10 @@ public sealed class DatabaseStartupTests
         var ct = TestContext.Current.CancellationToken;
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
-        await using (var restored = rewind.OpenDb())
+        await using (var touched = rewind.OpenDb())
         {
-            // Like a backup restored from a copy that wasn't in WAL mode.
-            await restored.Database.ExecuteSqlRawAsync("PRAGMA journal_mode = DELETE;", ct);
+            // Like a database file another tool has switched out of WAL mode.
+            await touched.Database.ExecuteSqlRawAsync("PRAGMA journal_mode = DELETE;", ct);
         }
 
         await rewind.StartAsync(ct);
@@ -51,6 +51,20 @@ public sealed class DatabaseStartupTests
         var backup = Assert.Single(rewind.BackupFiles());
         await using var copy = rewind.OpenDb(backup);
         Assert.Empty(await copy.Database.GetAppliedMigrationsAsync(ct));
+    }
+
+    [Fact]
+    public async Task StartAsync_BackupFails_LeavesMigrationPending()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await CreateDatabaseBeforeMigrationAsync(rewind, ct);
+        await File.WriteAllTextAsync(rewind.Paths.Backups, "", ct); // a file where the folder goes
+
+        await Assert.ThrowsAnyAsync<IOException>(() => rewind.StartAsync(ct));
+
+        await using var db = rewind.OpenDb();
+        Assert.NotEmpty(await db.Database.GetPendingMigrationsAsync(ct));
     }
 
     [Fact]
