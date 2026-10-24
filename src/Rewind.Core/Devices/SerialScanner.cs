@@ -37,6 +37,8 @@ public sealed partial class SerialScanner(
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Since .NET 10, BackgroundService runs all of this on the thread pool, so a slow first
+        // WMI search can't hold up host.Start() and the window (HW-3).
         LogLooking(logger, _options.VendorId, _options.ProductId);
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -101,10 +103,16 @@ public sealed partial class SerialScanner(
             // doesn't, and some USB serial devices stay silent until both are up.
             DtrEnable = true,
             RtsEnable = true,
+
+            // Read only ever asks for bytes that BytesToRead says have arrived, so it never has to
+            // wait. The timeout guards against a driver whose count is wrong: a Read left waiting
+            // throws TimeoutException, which TryReadWaitingBytes handles as a lost scanner, so the
+            // reader reconnects instead of hanging while the status bar says ready.
             ReadTimeout = ReadTimeoutMilliseconds,
         };
 
-    // A port that won't open makes the scanner busy, and the reader tries again in a few seconds.
+    // A port that won't open leaves the scanner busy or missing, and the reader tries again in a
+    // few seconds.
     private bool TryOpen(SerialPort port, [NotNullWhen(true)] out Stream? stream)
     {
         try
@@ -113,17 +121,20 @@ public sealed partial class SerialScanner(
             stream = port.BaseStream;
             return true;
         }
-        catch (Exception e) when (e is UnauthorizedAccessException or IOException)
+        catch (UnauthorizedAccessException e) // Windows refuses a port another program has open
         {
-            // UnauthorizedAccessException means another program has the port open.
             if (hub.SetStatus(ScannerStatus.Busy))
             {
                 LogBusy(logger, e, port.PortName);
             }
-
-            stream = null;
-            return false;
         }
+        catch (IOException e) // the port went away after the search found it, usually in an unplug
+        {
+            Lost(port.PortName, e);
+        }
+
+        stream = null;
+        return false;
     }
 
     // Polls instead of awaiting BaseStream.ReadAsync: a pending serial read only checks its
@@ -163,7 +174,8 @@ public sealed partial class SerialScanner(
 
     // Reads only what has already arrived, so the call returns at once. False once the scanner
     // is gone: after an unplug, Windows refuses the call, or .NET has already marked the port
-    // closed, which shows up as InvalidOperationException.
+    // closed, which shows up as InvalidOperationException. A Read that times out (see NewPort)
+    // counts as gone too, so it's logged as a warning rather than a reader failure.
     private bool TryReadWaitingBytes(SerialPort port, byte[] buffer, out int count)
     {
         try
@@ -172,7 +184,7 @@ public sealed partial class SerialScanner(
             count = waiting == 0 ? 0 : port.Read(buffer, 0, Math.Min(waiting, buffer.Length));
             return true;
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or TimeoutException)
         {
             Lost(port.PortName, e);
             count = 0;
@@ -215,7 +227,7 @@ public sealed partial class SerialScanner(
     [LoggerMessage(Level = LogLevel.Information, Message = "Scanner ready on {Port}")]
     private static partial void LogReady(ILogger logger, string port);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "The scanner isn't plugged in")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The scanner isn't plugged in")]
     private static partial void LogMissing(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Found the scanner on {Port}, but the port won't open; another program, such as PuTTY, may have it")]

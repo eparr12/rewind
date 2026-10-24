@@ -4,7 +4,8 @@ using Rewind.Core.Devices;
 
 namespace Rewind.Core.Tests.Devices;
 
-// The search loop only. Opening a real port needs hardware, so that's tried by hand with the Nucleo.
+// The search loop, and a port that's gone before it opens. Reading a real port needs hardware,
+// so that's tried by hand: the movie-night checklist unplugs the scanner mid-screen (TEST-9).
 public sealed class SerialScannerTests
 {
     // A loop that stops searching would hang the test instead of failing it.
@@ -12,6 +13,7 @@ public sealed class SerialScannerTests
 
     private readonly FakeDeviceLocator _locator = new();
     private readonly WatchedTimeProvider _time = new();
+    private readonly ScannerHub _hub = new(new FakeSoundPlayer(), NullLogger<ScannerHub>.Instance);
 
     [Fact(Timeout = TimeoutMilliseconds)]
     public async Task StartAsync_NoScannerPluggedIn_SearchesAgainAfterRetryDelay()
@@ -50,9 +52,23 @@ public sealed class SerialScannerTests
         Assert.True(scanner.ExecuteTask is { IsCompleted: true, IsFaulted: false });
     }
 
+    [Fact(Timeout = TimeoutMilliseconds)]
+    public async Task StartAsync_PortGoneBeforeItOpens_ShowsScannerMissing()
+    {
+        // Linux refuses every port it can't open as if another program had it.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Only Windows says when a port no longer exists.");
+        var ct = TestContext.Current.CancellationToken;
+        _locator.Port = "COM255"; // the search finds it, but no such port exists
+        using var scanner = NewScanner();
+
+        await StartAndWaitToRetryAsync(scanner, ct);
+
+        Assert.Equal(ScannerStatus.Missing, _hub.Status);
+    }
+
     private SerialScanner NewScanner() => new(
         _locator,
-        new ScannerHub(new FakeSoundPlayer(), NullLogger<ScannerHub>.Instance),
+        _hub,
         Options.Create(new ScannerOptions { VendorId = "0483", ProductId = "374B" }),
         _time,
         NullLogger<SerialScanner>.Instance);

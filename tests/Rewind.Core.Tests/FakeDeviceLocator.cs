@@ -4,15 +4,18 @@ using Rewind.Core.Devices;
 namespace Rewind.Core.Tests;
 
 /// <summary>
-/// A scanner that's never plugged in: every search finds nothing, or throws
-/// <see cref="Failure"/> when it's set (TEST-5).
+/// The search for the scanner, as each test sets it up: every search finds <see cref="Port"/>,
+/// which is null for nothing, or throws <see cref="Failure"/> when that's set (TEST-5).
 /// </summary>
 internal sealed class FakeDeviceLocator : IDeviceLocator
 {
     private readonly Channel<int> _searches = Channel.CreateUnbounded<int>();
     private int _searchCount;
 
-    /// <summary>What every search throws, or null to find nothing.</summary>
+    /// <summary>The port every search finds, or null to find nothing.</summary>
+    public string? Port { get; set; }
+
+    /// <summary>What every search throws, or null to return <see cref="Port"/>.</summary>
     public Exception? Failure { get; set; }
 
     public string? FindSerialPort(string vendorId, string productId)
@@ -23,7 +26,7 @@ internal sealed class FakeDeviceLocator : IDeviceLocator
             throw Failure;
         }
 
-        return null;
+        return Port;
     }
 
     /// <summary>Waits for the next search and returns its number, starting at 1.</summary>
