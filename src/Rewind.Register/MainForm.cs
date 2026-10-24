@@ -36,13 +36,15 @@ internal sealed class MainForm : Form
         web.UrlLoading += (_, e) => StayInsideRewind(e);
         Controls.Add(web);
 
-        // Shut Down in the Store Manager stops the host; only then may the window close.
-        lifetime.ApplicationStopping.Register(() => BeginInvoke(Stop));
+        // Shut Down in the Store Manager stops the host. The window closes once every hosted
+        // service has stopped, and Program then disposes the host.
+        lifetime.ApplicationStopped.Register(() => BeginInvoke(Stop));
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        // Alt+F4 and closing from the taskbar both arrive as UserClosing.
+        // Alt+F4, closing from the taskbar and Stop's own Close() all arrive as UserClosing,
+        // so only _stopping tells Shut Down apart from the clerk.
         if (e.CloseReason == CloseReason.UserClosing && !_stopping)
         {
             e.Cancel = true;

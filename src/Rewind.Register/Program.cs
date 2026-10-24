@@ -62,6 +62,12 @@ internal static class Program
 
         host.Start(); // backs up and migrates the database before the window opens
 
+        // Shut Down calls StopApplication, and this then stops every hosted service, such as
+        // the scanner's reader. MainForm closes only once they all have (ApplicationStopped),
+        // so when Main ends and disposes the host, nothing is left running. A failed stop is
+        // logged by the host itself.
+        _ = host.WaitForShutdownAsync();
+
         // WinForms owns this thread until the window closes; then the host is disposed.
         Application.Run(host.Services.GetRequiredService<MainForm>());
     }
