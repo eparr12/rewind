@@ -2,28 +2,42 @@
 
 Windows 98–style register for our family’s home video store: .NET 10, Blazor in WinForms, SQLite, STM32 counter hardware.
 
+## Run it
+
+Rewind runs on Windows 10 or 11 with the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) and the WebView2 Runtime, which Windows 11 already has.
+
+Its five sound files aren't in Git (GIT-6), so on a new PC, first copy them into `src/Rewind.Register/Sounds`; [its README](src/Rewind.Register/Sounds/README.md) lists them. Without them Rewind still runs, silently, and logs a warning for each missing sound.
+
+```
+dotnet run --project src/Rewind.Register
+```
+
+That's a Debug build, made for trying Rewind without the counter hardware: the scan simulator sits above the status bar (see [Barcode scanner](#barcode-scanner)), and the Store Manager screen (F5) has a Diagnostics panel for trying sounds, dialogs and crashes.
+
+Rewind keeps its database, backups and logs under `C:\Rewind`. To use another folder, set the `Paths__Root` environment variable to a full path, such as `D:\RewindDev`.
+
 ## Barcode scanner
 
-Rewind reads a USB barcode scanner in serial (COM) mode and finds it by its USB IDs, never by its COM number (HW-2). The IDs live in `src/Rewind.Register/appsettings.json`. For example, for a Nucleo-64's ST-LINK:
+Rewind reads a USB barcode scanner in serial (COM) mode and finds it by its USB IDs, never by its COM number (HW-2). The IDs live in `src/Rewind.Register/appsettings.json`. For example, for the TEEMI TMSL-77:
 
 ```json
 "Scanner": { "VendorId": "2DD6", "ProductId": "212A", "BaudRate": 115200 }
 ```
 
-Device Manager shows them in the scanner's Properties, on the Details tab under Hardware Ids, as `USB\VID_0483&PID_374B`. A scanner with its own USB serial port ignores the baud rate; a USB-to-serial bridge passes it on.
+Device Manager shows them in the scanner's Properties, on the Details tab under Hardware Ids, as `USB\VID_2DD6&PID_212A`. A scanner with its own USB serial port ignores the baud rate; a USB-to-serial bridge passes it on.
 
 The status bar shows the last scan and whether the scanner is ready, missing or busy. Busy usually means another program, such as PuTTY, has the port open.
 
 In Debug builds, the row above the status bar is the scan simulator (TEST-5): type what a barcode holds, such as `RV-00042`, and press Enter. It arrives just like a real scan.
 
-    ### The TEEMI TMSL-77
+### The TEEMI TMSL-77
 
-    The scanner keeps its own settings, so a new PC needs only the driver.
+The scanner keeps its own settings, so a new PC needs only the driver.
 
-    - **Driver:** TEEMI's Virtual COM driver, from [teemistore.com/download](https://www.teemistore.com/download/) under "Activate USB virtual COM Port Feature on 2D Wired Scanners". Keep a copy of the installer with the backups, in case the link disappears.
-    - **Settings,** for a new scanner or after a factory reset: scan that page's Virtual COM barcode, then these from the printed manual: **Add CR** (`090200.`) and **Good Read Beeper OFF** (`0502100.`), so only Rewind beeps.
-    - **Factory reset:** **Restore All Factory Defaults** (`0D0100.`) puts it back in keyboard mode with no suffix.
-    - **Never scan** "remove the initial zero" (`0211030.`): it shortens a UPC-A to 11 digits, which Rewind treats as unknown.
+- **Driver:** TEEMI's Virtual COM driver, from [teemistore.com/download](https://www.teemistore.com/download/) under "Activate USB virtual COM Port Feature on 2D Wired Scanners". Keep a copy of the installer with the backups, in case the link disappears.
+- **Settings,** for a new scanner or after a factory reset: scan that page's Virtual COM barcode, then these from the printed manual: **Add CR** (`090200.`) and **Good Read Beeper OFF** (`0502100.`), so only Rewind beeps.
+- **Factory reset:** **Restore All Factory Defaults** (`0D0100.`) puts it back in keyboard mode with no suffix.
+- **Never scan** "remove the initial zero" (`0211030.`): it shortens a UPC-A to 11 digits, which Rewind treats as unknown.
 
 ## Screen size
 
@@ -44,6 +58,15 @@ To troubleshoot, set the level to Debug in `appsettings.json`, which on the regi
 ```
 
 The other levels are Information, Warning and Error. Rewind won't start with one it doesn't know, and since that stops its logger too, the reason shows up only in Windows' Event Viewer, under Windows Logs > Application.
+
+## Test
+
+```
+dotnet test
+dotnet format --verify-no-changes
+```
+
+`dotnet test` runs the Core tests (xUnit, over real SQLite files in a temporary folder) and the screen tests (bUnit). CI runs both commands on every push, and also builds and runs the firmware parser's C tests with gcc and checks `keyboard.js` with Node; [ci.yml](.github/workflows/ci.yml) has those commands.
 
 ## Change the database
 
@@ -77,3 +100,38 @@ EF Core holds a lock while it migrates: a row in the `__EFMigrationsLock` table.
    ```
 
 4. Start Rewind. It backs up the database again and migrates it.
+
+## Release to the register
+
+The register only ever runs a tagged build (GIT-7).
+
+1. Run the movie-night checklist on the real counter (TEST-9).
+2. On an up-to-date `main` that CI has passed, tag the release and push the tag, for example `git tag v0.1.0` and `git push origin v0.1.0`.
+3. Copy the five sound files into `src/Rewind.Register/Sounds`. They aren't in Git; see [its README](src/Rewind.Register/Sounds/README.md).
+4. Build Rewind and its .NET runtime into one folder:
+
+   ```
+   dotnet publish src/Rewind.Register -c Release -r win-x64 --self-contained
+   ```
+
+5. Zip that folder and attach the zip to the tag's GitHub release. In PowerShell:
+
+   ```
+   Compress-Archive src\Rewind.Register\bin\Release\net10.0-windows\win-x64\publish\* rewind-v0.1.0.zip
+   gh release create v0.1.0 rewind-v0.1.0.zip
+   ```
+
+6. On the register, shut Rewind down (F5, then Shut Down, then OK). Rename its program folder, the one Task Scheduler starts `Rewind.Register.exe` from, to keep the old version, unzip the release into a new folder with the original name, and start Rewind. If the release adds a migration, Rewind backs up the database before applying it.
+
+The zip includes `appsettings.json`, so a setting changed by hand on the register is lost unless the repo has it too.
+
+## Restore a backup
+
+Before Rewind applies a migration, it backs up the database to `C:\Rewind\backups`, in a file named for the local time, such as `rewind-2026-10-23-2215.db`. To go back to one:
+
+1. Shut Rewind down (F5, then Shut Down, then OK). Never copy the database while Rewind runs (DATA-14).
+2. In `C:\Rewind\data`, move `rewind.db` into a new folder, such as `C:\Rewind\data\before-restore`, along with `rewind.db-wal` and `rewind.db-shm` if they're there. Keep the three together: the `-wal` file can hold changes that aren't in `rewind.db` yet, and SQLite would apply a `-wal` left behind to the restored database and corrupt it.
+3. Copy the backup to `C:\Rewind\data\rewind.db`.
+4. Start Rewind. If the backup is from an older release, Rewind backs it up again and migrates it.
+
+Anything entered after the backup was made isn't in it, but the moved files still have it. An older release may not work with a database that a newer one has migrated, so going back a release also means restoring the backup made just before that migration.
