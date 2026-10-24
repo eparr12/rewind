@@ -46,6 +46,9 @@ internal sealed class TempRewind : IAsyncDisposable
         await host.StartAsync(cancellationToken);
     }
 
+    /// <summary>The database factory that the Rewind.Core StartAsync started hands to services (DATA-6).</summary>
+    public IDbContextFactory<RewindDb> DbFactory => _hosts[^1].Services.GetRequiredService<IDbContextFactory<RewindDb>>();
+
     /// <summary>Opens the live database, or another file such as a backup, as the register does.</summary>
     public RewindDb OpenDb(string? databaseFile = null) =>
         new(new DbContextOptionsBuilder<RewindDb>()

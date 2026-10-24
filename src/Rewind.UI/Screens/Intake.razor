@@ -1,3 +1,227 @@
-@* Screens/Intake.razor *@
-<p>Scan a new DVD's barcode to add it to the store.</p>
-<p>Intake arrives in Phase 2.</p>
+@implements IDisposable
+@inject IMovieIntake Movies
+@inject DialogService Dialogs
+
+@* F4 Intake, for now its middle step (Build Plan 2.3): find the movie on TMDB by its title, pick
+   it by its poster, year and story, and add it to the collection. Build Plan 2.4 puts the factory
+   UPC in front of this and the store label after it. *@
+<form class="field-row intake-search" @onsubmit="SearchAsync" @onsubmit:preventDefault @onkeydown="OnSearchKeyDown">
+    <label for="intake-title">Title:</label>
+    <input id="intake-title" type="text" autocomplete="off" spellcheck="false"
+           maxlength="@TmdbClient.MaxNameLength" disabled="@Busy"
+           @ref="_titleBox" @bind="_title" @bind:event="oninput" />
+    <button type="submit" disabled="@Busy">Search</button>
+</form>
+<p class="intake-prompt">@Prompt</p>
+
+@if (_added?.Movie is { } movie)
+{
+    <fieldset class="intake-movie">
+        <legend>@TitleAndYear(movie.Title, movie.Year)</legend>
+        <div class="intake-movie-body">
+            @if (_addedPoster is { } poster)
+            {
+                <img src="@poster" width="171" alt="" />
+            }
+            <div>
+                @if (Facts(movie) is { Length: > 0 } facts)
+                {
+                    <p>@facts</p>
+                }
+                @if (movie.Director is { } director)
+                {
+                    <p>Directed by @director</p>
+                }
+                @if (movie.Cast.Count > 0)
+                {
+                    <p>Starring @string.Join(", ", movie.Cast)</p>
+                }
+                @if (movie.Overview is { } overview)
+                {
+                    <p>@overview</p>
+                }
+            </div>
+        </div>
+    </fieldset>
+}
+else if (_matches is { Count: > 0 } matches)
+{
+    <TmdbPicker Matches="matches" OnPick="AddAsync" OnCancel="ClosePicker" />
+}
+
+@code {
+    private static readonly Dialog NotSetUp = new(
+        Store.Name,
+        "Rewind can't reach TMDB until its token is set up.\n\nTell the Store Manager.",
+        DialogIcon.Error);
+
+    private static readonly Dialog NoAnswer = new(
+        Store.Name,
+        "TMDB didn't answer.\n\nCheck that the register is online, then try again.",
+        DialogIcon.Warning);
+
+    private static readonly Dialog NoDetails = new(
+        Store.Name,
+        "TMDB has no details for that movie.\n\nPick another one, or search again.",
+        DialogIcon.Warning);
+
+    // Cancelled when the clerk leaves the screen, so a search or an add still waiting on TMDB stops.
+    private readonly CancellationTokenSource _closing = new();
+
+    private ElementReference _titleBox;
+    private bool _focusTitle = true;
+    private string _title = "";
+    private string _searched = "";
+    private string? _busy;
+    private IReadOnlyList<TmdbMatch>? _matches;
+    private MovieAdd? _added;
+    private string? _addedPoster;
+
+    private bool Busy => _busy is not null;
+
+    // One line that always says what's happening or what to do next (UI-6).
+    private string Prompt => _busy ?? (_added, _matches) switch
+    {
+        ({ Status: AddStatus.AlreadyOwned }, _) => "That movie is already in the collection. Type the next title, then press Enter.",
+        ({ }, _) => "Added to the collection. Type the next title, then press Enter.",
+        (_, { Count: > 0 }) => "Pick the movie by its poster and year, then press Enter.",
+        (_, { }) => $"TMDB has no movie called \"{_searched}\". Check the spelling, then search again.",
+        _ => "Type the title from the DVD case, then press Enter.",
+    };
+
+    // UI-3: the title box has the focus when the screen opens and after each movie, so the clerk
+    // can just type. While the picker is open, it has the focus instead.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusTitle)
+        {
+            _focusTitle = false;
+            await _titleBox.FocusAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        _closing.Cancel();
+        _closing.Dispose();
+    }
+
+    private async Task SearchAsync()
+    {
+        var title = _title.Trim();
+        if (title.Length == 0 || Busy)
+        {
+            return;
+        }
+
+        _added = null;
+        _matches = null;
+        if (await WhileBusyAsync("Searching TMDB...", token => Movies.SearchAsync(title, token)) is not { } search)
+        {
+            return;
+        }
+
+        if (search.Status != TmdbStatus.Ok)
+        {
+            await ShowAsync(search.Status == TmdbStatus.NotSetUp ? NotSetUp : NoAnswer);
+            return;
+        }
+
+        _searched = title;
+        _matches = search.Matches;
+        _focusTitle = _matches.Count == 0;
+    }
+
+    private async Task AddAsync(TmdbMatch match)
+    {
+        if (Busy)
+        {
+            return; // a second Enter while the first pick is still being added
+        }
+
+        var adding = $"Adding {TitleAndYear(match.Title, match.Year)}...";
+        if (await WhileBusyAsync(adding, token => Movies.AddAsync(match.TmdbId, token)) is not { } add)
+        {
+            return;
+        }
+
+        // The picker stays open, so the clerk can try again or pick another match.
+        if (add.Movie is null)
+        {
+            await ShowAsync(add.Status switch
+            {
+                AddStatus.NotSetUp => NotSetUp,
+                AddStatus.NotFound => NoDetails,
+                _ => NoAnswer,
+            });
+            return;
+        }
+
+        _added = add;
+        _addedPoster = add.Movie.Poster is { } poster ? PosterImage.Source(poster) : null;
+        _matches = null;
+        _title = "";
+        _focusTitle = true; // ready for the next DVD
+    }
+
+    // UI-3: while a pick is being added, Esc and Cancel do nothing, as Enter does. Closing the list
+    // would look like a cancel, and then the movie would appear anyway.
+    private void ClosePicker()
+    {
+        if (Busy)
+        {
+            return;
+        }
+
+        _matches = null;
+        _focusTitle = true;
+    }
+
+    // UI-3: Esc closes the picker from the title box or the Search button too, not only from the
+    // list, which handles its own.
+    private void OnSearchKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && _matches is not null)
+        {
+            ClosePicker();
+        }
+    }
+
+    // Shows what Rewind is doing until TMDB answers. Null when the clerk left the screen first,
+    // since there's nothing left to show it on.
+    private async Task<T?> WhileBusyAsync<T>(string doing, Func<CancellationToken, Task<T>> call)
+        where T : class
+    {
+        _busy = doing;
+        try
+        {
+            return await call(_closing.Token);
+        }
+        catch (OperationCanceledException) when (_closing.IsCancellationRequested)
+        {
+            return null;
+        }
+        finally
+        {
+            _busy = null;
+        }
+    }
+
+    // Drawn first, so the screen behind the dialog shows what happened, not what was happening.
+    private Task ShowAsync(Dialog dialog)
+    {
+        StateHasChanged();
+        return Dialogs.ShowAsync(dialog);
+    }
+
+    private static string TitleAndYear(string title, int? year) => year is null ? title : $"{title} ({year})";
+
+    // Such as "Rated R · 91 minutes · Horror, Thriller". What isn't known is left out (DATA-3).
+    private static string Facts(MovieCard movie) =>
+        string.Join(" · ", new[]
+        {
+            movie.Rating is { } rating ? $"Rated {rating}" : null,
+            movie.RuntimeMinutes is { } minutes ? $"{minutes} minutes" : null,
+            movie.Genres.Count > 0 ? string.Join(", ", movie.Genres) : null,
+        }.OfType<string>());
+}

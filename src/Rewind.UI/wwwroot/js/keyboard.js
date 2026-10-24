@@ -2,6 +2,9 @@
 
 const functionKey = /^F[1-5]$/;
 
+// The keys that move through a list, as in a Windows 98 list view.
+const listKeys = ['ArrowUp', 'ArrowDown', 'Home', 'End'];
+
 // The shell that F1 to F5 go to. After a crash, App starts a new shell, which takes its place.
 let shell = null;
 
@@ -27,6 +30,7 @@ export function start(dotNetShell) {
   });
 
   document.addEventListener('keydown', keepTabInDialog);
+  document.addEventListener('keydown', moveInList);
   document.addEventListener('focusin', e => {
     if (e.target instanceof Element && !e.target.closest('.dialog')) {
       focusBeforeDialog = e.target;
@@ -72,6 +76,27 @@ function keepTabInDialog(e) {
     next = (here + 1) % stops.length;
   }
   stops[next].focus();
+}
+
+// UI-3: in a list, which is a 98.css interactive table, the arrow keys move the focus from row to
+// row, and Home and End to the first and last, as in a Windows 98 list view. Tab moves on to the
+// next control. The screen highlights whichever row has the focus.
+function moveInList(e) {
+  const row = e.target instanceof Element ? e.target.closest('table.interactive > tbody > tr') : null;
+  if (row === null || !listKeys.includes(e.key) || e.altKey || e.ctrlKey || e.shiftKey || e.metaKey) {
+    return;
+  }
+
+  const rows = [...row.parentElement.children];
+  const here = rows.indexOf(row);
+  const next = {
+    ArrowUp: Math.max(here - 1, 0),
+    ArrowDown: Math.min(here + 1, rows.length - 1),
+    Home: 0,
+    End: rows.length - 1,
+  }[e.key];
+  e.preventDefault(); // move by a row, rather than scroll the list as well
+  rows[next].focus(); // which scrolls the row into view
 }
 
 function ignoreHrefLinks(e) {

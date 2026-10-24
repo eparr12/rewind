@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Rewind.Core.Devices;
+using Rewind.Core.Intake;
 using Rewind.Core.Sounds;
 using Rewind.UI.Dialogs;
 using Rewind.UI.Errors;
@@ -28,6 +29,7 @@ public sealed class ShellTests : BunitContext
         Services.AddSingleton(new ErrorHub(NullLogger<ErrorHub>.Instance));
         Services.AddSingleton<ISoundPlayer>(sounds);
         Services.AddSingleton<IHostApplicationLifetime>(new FakeApplicationLifetime());
+        Services.AddSingleton<IMovieIntake>(new FakeMovieIntake());
 
         // On its first render, the shell imports keyboard.js and starts its F-key listener, and
         // a dialog that closes hands the focus back through it (UI-3).
@@ -73,6 +75,23 @@ public sealed class ShellTests : BunitContext
         await cut.InvokeAsync(() => cut.Instance.OnFunctionKey(key));
 
         Assert.Empty(cut.FindAll("a[href]"));
+    }
+
+    // A screen that throws as it opens shows the error dialog instead, and the other screen tests
+    // here would still pass on the error's markup.
+    [Theory]
+    [InlineData("F1")]
+    [InlineData("F2")]
+    [InlineData("F3")]
+    [InlineData("F4")]
+    [InlineData("F5")]
+    public async Task OnFunctionKey_AnyScreen_OpensWithoutAnError(string key)
+    {
+        var cut = Render<Shell>();
+
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey(key));
+
+        Assert.Null(_dialogs.Current);
     }
 
     [Fact]

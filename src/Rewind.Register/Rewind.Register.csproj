@@ -5,6 +5,9 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- SEC-1: on a development PC, Debug builds read TMDB's token from dotnet user-secrets,
+         which keeps it in the user's profile under this ID, outside the repo. -->
+    <UserSecretsId>b0729fa0-58a6-4379-a29c-27e940568166</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
