@@ -39,9 +39,10 @@ public static class RewindCoreServices
     }
 
     /// <summary>
-    /// Adds the barcode scanner: its settings, the hub the screens listen to, and the reader
-    /// that keeps it connected. Call this after <see cref="AddRewindCore"/>, so the database is
-    /// ready first. The host adds the <see cref="IDeviceLocator"/> and the sound player it uses.
+    /// Adds the barcode scanner: its settings, the hub the screens listen to, the serial ports,
+    /// and the reader that keeps it connected. Call this after <see cref="AddRewindCore"/>, so
+    /// the database is ready first. The host adds the <see cref="IDeviceLocator"/> and the sound
+    /// player it uses.
     /// </summary>
     public static IServiceCollection AddRewindScanner(this IServiceCollection services, IConfiguration configuration)
     {
@@ -54,6 +55,7 @@ public static class RewindCoreServices
 
         services.AddSingleton<ScannerHub>();
         services.AddSingleton<IScanner>(provider => provider.GetRequiredService<ScannerHub>());
+        services.AddSingleton<ISerialPorts, SystemSerialPorts>();
         services.AddHostedService<SerialScanner>();
         return services;
     }
