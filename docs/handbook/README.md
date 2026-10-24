@@ -28,11 +28,11 @@ Checkout, Return and Ask the Clerk are still being built. This page will explain
 
 Press **F4** for Intake.
 
-1. Type the title from the DVD case, then press **Enter**. Rewind looks it up on TMDB, a big movie website.
+1. Scan the barcode on the back of the DVD case. Rewind fills in the movie's title and looks it up on TMDB, a big movie website. If you scan lots of DVDs quickly, it may say it's waiting a few seconds: press **Esc** if you'd rather type the title. If no title appears, type the title from the case, then press **Enter**.
 2. Lots of movies share a name, so find the right one by its poster and year. Press **↓** and **↑** to move through the list, or click one.
-3. Press **Enter** to add it. Rewind shows its poster, its rating and who's in it. You don't need to close that: just type the next title and press **Enter**.
+3. Press **Enter** to add it. Rewind shows its poster, its rating and who's in it. You don't need to close that: just scan the next DVD.
 
-Can't find it? Type more of the title and search again. **Esc** closes the list.
+Wrong title? Press **Esc**, fix the title, then press **Enter**. Can't find it? Type more of the title and search again. **Esc** closes the list. Scanned the wrong DVD? Press **Esc** to start over, twice if the list is open.
 
 ## Scanning
 

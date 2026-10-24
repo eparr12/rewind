@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Rewind.Core.Devices;
 using Rewind.Core.Intake;
+using Rewind.Core.Metadata;
 using Rewind.Core.Sounds;
 using Rewind.UI.Dialogs;
 using Rewind.UI.Errors;
@@ -15,11 +16,14 @@ namespace Rewind.UI.Tests;
 public sealed class ShellTests : BunitContext
 {
     private readonly DialogService _dialogs;
+    private readonly ScannerHub _scanner;
+    private readonly FakeBarcodeTitles _titles = new();
 
     public ShellTests()
     {
         var sounds = new FakeSoundPlayer();
         var scanner = new ScannerHub(sounds, NullLogger<ScannerHub>.Instance);
+        _scanner = scanner;
         _dialogs = new DialogService(sounds);
 
         // The services the shell and its children use, wired as Program.cs wires them.
@@ -30,6 +34,8 @@ public sealed class ShellTests : BunitContext
         Services.AddSingleton<ISoundPlayer>(sounds);
         Services.AddSingleton<IHostApplicationLifetime>(new FakeApplicationLifetime());
         Services.AddSingleton<IMovieIntake>(new FakeMovieIntake());
+        Services.AddSingleton<IBarcodeTitles>(_titles);
+        Services.AddSingleton(TimeProvider.System);
 
         // On its first render, the shell imports keyboard.js and starts its F-key listener, and
         // a dialog that closes hands the focus back through it (UI-3).
@@ -125,6 +131,20 @@ public sealed class ShellTests : BunitContext
         await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F2"));
 
         Assert.Equal(DialogIcon.Error, _dialogs.Current?.Icon);
+    }
+
+    // UI-11: a scan is handled away from Blazor's own events, so what it throws is passed to the
+    // screen's ErrorBoundary rather than lost with the task nobody awaits.
+    [Fact]
+    public async Task Receive_IntakeThrowsOnTheScan_ShowsErrorDialog()
+    {
+        _titles.Lookup = Task.FromException<BarcodeTitle>(new InvalidOperationException("Something unexpected"));
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F4"));
+
+        _scanner.Receive("032429258373");
+
+        cut.WaitForAssertion(() => Assert.Equal(DialogIcon.Error, _dialogs.Current?.Icon));
     }
 
     [Fact]

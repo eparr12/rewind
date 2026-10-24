@@ -39,7 +39,23 @@ The scanner keeps its own settings, so a new PC needs only the driver.
 - **Factory reset:** **Restore All Factory Defaults** (`0D0100.`) puts it back in keyboard mode with no suffix.
 - **Never scan** "remove the initial zero" (`0211030.`): it shortens a UPC-A to 11 digits, which Rewind treats as unknown.
 
-## TMDB
+## Intake
+
+Intake (F4) turns a DVD into a movie in the collection: a scan of the DVD's factory barcode asks UPCitemdb what the product is called, and that title is searched for on TMDB, where the clerk picks the movie.
+
+### UPCitemdb
+
+Rewind looks barcodes up on [UPCitemdb](https://www.upcitemdb.com/)'s free plan, which needs no signup and no key. It allows 100 lookups a day and 6 a minute, counted by internet address, so another computer on the store's Wi-Fi spends the same 100. Rewind saves every answer in the database's `UpcLookups` table, so a barcode it has looked up before costs no other lookup. "Not found" is saved only when UPCitemdb itself says so, and only for 30 days, since UPCitemdb keeps growing.
+
+Lookups go one at a time, at most 6 in any minute: a quick run of scans goes straight through, and a seventh waits its turn while the screen says for how long. Esc stops a lookup, and the clerk types the title instead; with nothing to stop or close, Esc starts over, so a DVD scanned by mistake doesn't lend its barcode to the next title typed. When UPCitemdb says Rewind is asking too fast, Rewind asks nothing for a minute; when the day's lookups are used up, nothing until UPCitemdb's Retry-After says they're back, and Intake says when that is. When UPCitemdb is busy, offline or out of lookups, Intake asks the clerk to type the title. That answer isn't saved, so the next scan of the barcode asks again.
+
+Before searching TMDB, Rewind drops words such as DVD, Widescreen and Special Edition from the product's title, and anything in brackets, so "Tommy Boy (DVD)" becomes "Tommy Boy", and it puts a product list's "Matrix, The" back as "The Matrix". It cleans each title as it reads it from `UpcLookups`, so a better word list in `ProductTitles` cleans the answers already saved too.
+
+To try it in a Debug build, open Intake (F4), type a 12-digit UPC such as `032429258373` into the scan simulator and press Enter: the title box fills in with Tommy Boy, and the list opens. Each barcode Rewind hasn't seen before spends one of the day's 100 lookups.
+
+With the log at Debug (see [Logs](#logs)), each lookup has a line with the barcode, what UPCitemdb answered and how many lookups it says are left. A barcode answered from `UpcLookups` gets a line saying so, a lookup that waits its turn says for how long, and after a refusal the log says until when Rewind asks nothing.
+
+### TMDB
 
 Intake finds each movie on [TMDB](https://www.themoviedb.org/), using TMDB's **API Read Access Token**: the long one on the API page of the TMDB account's settings, not the 32-character API Key. The token is a secret, so it never goes in Git or in `appsettings.json` (SEC-1). Rewind starts without it, and Intake then says it can't reach TMDB.
 
