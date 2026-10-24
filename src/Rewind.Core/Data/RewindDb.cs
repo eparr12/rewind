@@ -1,6 +1,8 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Rewind.Core.Catalog;
 using Rewind.Core.Members;
+using Rewind.Core.Metadata;
 using Rewind.Core.StoreManager;
 
 namespace Rewind.Core.Data;
@@ -17,6 +19,27 @@ public sealed class RewindDb(DbContextOptions<RewindDb> options) : DbContext(opt
     /// <summary>The family members who rent movies.</summary>
     public DbSet<Member> Members => Set<Member>();
 
+    /// <summary>The films in the collection, with TMDB's details (DATA-9).</summary>
+    public DbSet<Movie> Movies => Set<Movie>();
+
+    /// <summary>Each movie's top-billed cast, from TMDB.</summary>
+    public DbSet<CastMember> MovieCast => Set<CastMember>();
+
+    /// <summary>The genres from TMDB.</summary>
+    public DbSet<Genre> Genres => Set<Genre>();
+
+    /// <summary>Which genres each movie has.</summary>
+    public DbSet<MovieGenre> MovieGenres => Set<MovieGenre>();
+
+    /// <summary>The physical cases, each with its store label.</summary>
+    public DbSet<Case> Cases => Set<Case>();
+
+    /// <summary>Which movies each case holds.</summary>
+    public DbSet<CaseMovie> CaseMovies => Set<CaseMovie>();
+
+    /// <summary>UPCitemdb's answers, so each barcode is looked up once.</summary>
+    public DbSet<UpcLookup> UpcLookups => Set<UpcLookup>();
+
     /// <summary>
     /// The connection string for a Rewind database file. Foreign Keys=True sends
     /// PRAGMA foreign_keys = 1 each time a connection opens, outside any transaction (DATA-1).
@@ -31,9 +54,9 @@ public sealed class RewindDb(DbContextOptions<RewindDb> options) : DbContext(opt
     /// <inheritdoc />
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
-        // DATA-8: SQLite hands DateTimes back as Unspecified, so every one is marked UTC.
+        // DATA-8: SQLite hands DateTimes back as Unspecified, so every one is marked UTC. EF Core
+        // applies a value type's conventions to its nullable form too, so this covers DateTime?.
         configurationBuilder.Properties<DateTime>().HaveConversion<UtcConverter>();
-        configurationBuilder.Properties<DateTime?>().HaveConversion<UtcConverter>();
     }
 
     /// <inheritdoc />
