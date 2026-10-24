@@ -95,4 +95,58 @@ public sealed class ShellTests : BunitContext
 
         Assert.True(cut.HasComponent<Return>());
     }
+
+    // UI-6: a screen that throws is caught by its ErrorBoundary, which shows the error dialog.
+    [Fact]
+    public async Task OnFunctionKey_ScreenThrows_ShowsErrorDialog()
+    {
+        ComponentFactories.Add<Return, ThrowingComponent>();
+        var cut = Render<Shell>();
+
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F2"));
+
+        Assert.Equal(DialogIcon.Error, _dialogs.Current?.Icon);
+    }
+
+    [Fact]
+    public async Task CloseErrorDialog_ReturnCrashed_OpensCheckout()
+    {
+        ComponentFactories.Add<Return, ThrowingComponent>();
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F2"));
+
+        await cut.InvokeAsync(() => _dialogs.Close(ok: true));
+
+        cut.WaitForAssertion(() => Assert.True(cut.HasComponent<Checkout>()));
+        Assert.Equal("F1 Checkout", cut.Find("[role=tab][aria-selected=true]").TextContent);
+    }
+
+    // Going back to a Checkout that crashes as it opens would bring the error dialog straight
+    // back, and the dialog blocks the F-keys, so the clerk could never get away from it.
+    [Fact]
+    public async Task CloseErrorDialog_CheckoutCrashed_LeavesCheckoutClosed()
+    {
+        ComponentFactories.Add<Checkout, ThrowingComponent>();
+        var cut = Render<Shell>();
+
+        await cut.InvokeAsync(() => _dialogs.Close(ok: true));
+
+        cut.WaitForAssertion(() =>
+            Assert.Contains("Checkout closed after an error", cut.Find("[role=tabpanel]").TextContent, StringComparison.Ordinal));
+        Assert.Null(_dialogs.Current);
+    }
+
+    [Fact]
+    public async Task OnFunctionKey_AfterCheckoutCrashed_OpensTheScreen()
+    {
+        ComponentFactories.Add<Checkout, ThrowingComponent>();
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => _dialogs.Close(ok: true));
+        cut.WaitForAssertion(() =>
+            Assert.Contains("Checkout closed after an error", cut.Find("[role=tabpanel]").TextContent, StringComparison.Ordinal));
+
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F5"));
+
+        Assert.True(cut.HasComponent<StoreManager>());
+    }
 }

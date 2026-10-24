@@ -3,19 +3,33 @@
 @* Draws nothing itself: it shows the Windows 98 error dialog, then reports that the clerk closed it (OBS-5). *@
 
 @code {
-    private static readonly Dialog Crash = new(
+    private const string IfItPersists = "\n\nIf the problem persists, tell the Store Manager.";
+
+    private static readonly Dialog BackToCheckout = new(
         Store.Name,
-        "This program has performed an illegal operation and will go back to Checkout.\n\n"
-            + "If the problem persists, tell the Store Manager.",
+        "This program has performed an illegal operation and will go back to Checkout." + IfItPersists,
         DialogIcon.Error);
 
-    /// <summary>Called once the clerk closes the error dialog.</summary>
+    private static readonly Dialog CheckoutClosed = new(
+        Store.Name,
+        "This program has performed an illegal operation and will close Checkout." + IfItPersists,
+        DialogIcon.Error);
+
+    /// <summary>What happens once the clerk closes the dialog, which the dialog tells them.</summary>
+    [Parameter]
+    public CrashOutcome Outcome { get; set; }
+
+    /// <summary>Called once the clerk closes the error dialog, to carry out the <see cref="Outcome"/>.</summary>
     [Parameter]
     public EventCallback OnClosed { get; set; }
 
     protected override async Task OnInitializedAsync()
     {
-        await Dialogs.ShowAsync(Crash);
+        await Dialogs.ShowAsync(Outcome switch
+        {
+            CrashOutcome.CheckoutClosed => CheckoutClosed,
+            _ => BackToCheckout,
+        });
         await OnClosed.InvokeAsync();
     }
 }

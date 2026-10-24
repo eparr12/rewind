@@ -21,13 +21,18 @@
         </menu>
         <div class="window shell-panel" role="tabpanel">
             <div class="window-body">
-                @* UI-6: a screen that throws is logged, shows the error dialog, then Checkout. *@
+                @* UI-6: a screen that throws is logged and shows the error dialog, then Checkout
+                   opens, unless Checkout was the screen that threw (see AfterScreenCrash). *@
                 <ErrorBoundary @ref="_boundary">
                     <ChildContent>
                         <DynamicComponent Type="_screen.Type" />
                     </ChildContent>
                     <ErrorContent>
-                        <CrashNotice OnClosed="BackToCheckout" />
+                        <CrashNotice Outcome="ScreenCrashOutcome" OnClosed="AfterScreenCrash" />
+                        @if (_checkoutClosed)
+                        {
+                            <p>Checkout closed after an error. Press F1 to open it again, or F5 for the Store Manager.</p>
+                        }
                     </ErrorContent>
                 </ErrorBoundary>
             </div>
@@ -55,12 +60,19 @@
         new("F5", "Store Manager", typeof(StoreManager)),
     ];
 
-    private Screen _screen = Screens[0];
+    private static readonly Screen CheckoutScreen = Screens[0];
+
+    private Screen _screen = CheckoutScreen;
     private DotNetObjectReference<Shell>? _self;
     private ErrorBoundary? _boundary;
     private bool _crashed;
+    private bool _checkoutClosed;
 
     private bool DialogOpen => Dialogs.Current is not null;
+
+    // Checkout can't be where a Checkout crash goes back to: see AfterScreenCrash.
+    private CrashOutcome ScreenCrashOutcome =>
+        _screen == CheckoutScreen ? CrashOutcome.CheckoutClosed : CrashOutcome.BackToCheckout;
 
     protected override void OnInitialized()
     {
@@ -102,7 +114,13 @@
         _self?.Dispose();
     }
 
-    private void Open(Screen screen) => _screen = screen;
+    // A screen picked after a crash starts afresh, so an F-key or a tab always leads out of an error.
+    private void Open(Screen screen)
+    {
+        _screen = screen;
+        _checkoutClosed = false;
+        _boundary?.Recover();
+    }
 
     // UI-3: Enter clicks a link only when it has an href, so the tabs handle Enter themselves.
     private void OnTabKeyDown(KeyboardEventArgs e, Screen screen)
@@ -113,17 +131,26 @@
         }
     }
 
-    // UI-6: after the error dialog, the clerk lands back on Checkout.
-    private void BackToCheckout()
+    // UI-6: after the error dialog, the clerk lands back on Checkout. When Checkout itself
+    // crashed, opening it again would most likely crash it again, and the error dialog that
+    // follows blocks the F-keys, so the clerk could never get away from it. Checkout stays
+    // closed instead, and the panel says how to carry on.
+    private void AfterScreenCrash()
     {
-        _screen = Screens[0];
-        _boundary?.Recover();
+        if (ScreenCrashOutcome == CrashOutcome.CheckoutClosed)
+        {
+            _checkoutClosed = true;
+            return;
+        }
+
+        Open(CheckoutScreen);
     }
 
+    // OBS-5: the WinForms thread's error dialog also ends on Checkout.
     private void AfterCrash()
     {
         _crashed = false;
-        BackToCheckout();
+        Open(CheckoutScreen);
     }
 
     private void OnDialogChanged() => _ = InvokeAsync(StateHasChanged);
