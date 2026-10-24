@@ -101,6 +101,16 @@ EF Core holds a lock while it migrates: a row in the `__EFMigrationsLock` table.
 
 4. Start Rewind. It backs up the database again and migrates it.
 
+## Change the docs
+
+The Coding Standards, the Build Plan and the Project Overview live in `docs/` as Word files, and change through a PR like the code. Move the date under a document's title to the day you change it: that date is how the review project's copies are told apart.
+
+Git shows a Word file only as "Binary files differ". To see the text that changed instead, run this once in each clone, in Git Bash:
+
+```
+git config diff.docx.textconv "sh \"$(git rev-parse --show-toplevel)/tools/docx-text.sh\""
+```
+
 ## Release to the register
 
 The register only ever runs a tagged build (GIT-7).
