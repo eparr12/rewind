@@ -67,6 +67,7 @@ internal sealed class MainForm : Form
         settings.IsStatusBarEnabled = false;
         settings.IsZoomControlEnabled = false; // Ctrl+wheel, Ctrl+plus, Ctrl+minus
         settings.IsGeneralAutofillEnabled = false;
+        settings.IsPasswordAutosaveEnabled = false;
 #if !DEBUG
         settings.AreDevToolsEnabled = false;
         settings.AreBrowserAcceleratorKeysEnabled = false; // F5, Ctrl+R, Ctrl+P, Ctrl+F, F12
@@ -75,7 +76,8 @@ internal sealed class MainForm : Form
 
     // Links outside the app are cancelled instead of opening the default browser.
     // New-window requests (a middle-click or Ctrl+click on a link) skip this event
-    // and always open the browser, so Rewind's pages use no href links.
+    // and always open the browser, so Rewind's pages use no href links, and
+    // keyboard.js ignores clicks on any that slip in.
     private static void StayInsideRewind(UrlLoadingEventArgs e)
     {
         if (e.UrlLoadingStrategy != UrlLoadingStrategy.OpenInWebView)

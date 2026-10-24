@@ -22,6 +22,13 @@ export function start(shell) {
       focusBeforeDialog = e.target;
     }
   });
+
+  // SEC-6: BlazorWebView opens the default browser for a middle-click, Ctrl+click or
+  // Shift+click on an href link, and MainForm can't stop it. Rewind's pages use no href
+  // links; if one slips in anyway, clicking it does nothing. Capturing runs this before
+  // Blazor's own link handling, which then leaves the click alone.
+  document.addEventListener('click', ignoreHrefLinks, true);
+  document.addEventListener('auxclick', ignoreHrefLinks, true); // the middle button
 }
 
 // The dialog host calls this once a dialog closes. As in Windows 98, the focus goes back to
@@ -55,4 +62,10 @@ function keepTabInDialog(e) {
     next = (here + 1) % stops.length;
   }
   stops[next].focus();
+}
+
+function ignoreHrefLinks(e) {
+  if (e.target instanceof Element && e.target.closest('a[href]')) {
+    e.preventDefault();
+  }
 }

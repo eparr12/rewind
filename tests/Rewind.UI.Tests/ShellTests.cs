@@ -1,8 +1,10 @@
 using Bunit;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Rewind.Core.Devices;
+using Rewind.Core.Sounds;
 using Rewind.UI.Dialogs;
 using Rewind.UI.Errors;
 using Rewind.UI.Screens;
@@ -24,6 +26,8 @@ public sealed class ShellTests : BunitContext
         Services.AddSingleton<IScanner>(scanner);
         Services.AddSingleton(_dialogs);
         Services.AddSingleton(new ErrorHub(NullLogger<ErrorHub>.Instance));
+        Services.AddSingleton<ISoundPlayer>(sounds);
+        Services.AddSingleton<IHostApplicationLifetime>(new FakeApplicationLifetime());
 
         // On its first render, the shell imports keyboard.js and starts its F-key listener, and
         // a dialog that closes hands the focus back through it (UI-3).
@@ -52,6 +56,23 @@ public sealed class ShellTests : BunitContext
         await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F2"));
 
         Assert.True(cut.HasComponent<Checkout>());
+    }
+
+    // SEC-6: BlazorWebView opens the default browser for a middle-click on an href link, and
+    // MainForm can't stop it, so no screen may have one.
+    [Theory]
+    [InlineData("F1")]
+    [InlineData("F2")]
+    [InlineData("F3")]
+    [InlineData("F4")]
+    [InlineData("F5")]
+    public async Task OnFunctionKey_AnyScreen_HasNoHrefLinks(string key)
+    {
+        var cut = Render<Shell>();
+
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey(key));
+
+        Assert.Empty(cut.FindAll("a[href]"));
     }
 
     [Fact]
