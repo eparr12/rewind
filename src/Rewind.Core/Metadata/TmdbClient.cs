@@ -2,8 +2,6 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Net.Mime;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -23,13 +21,13 @@ namespace Rewind.Core.Metadata;
 public sealed partial class TmdbClient
 {
     /// <summary>How long Rewind waits for any one answer from TMDB before asking the clerk to try later.</summary>
-    public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+    public static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>
     /// The biggest answer Rewind reads. A movie's details with its whole cast and crew come to tens
     /// of kilobytes, and a poster to about 30, so anything this big is wrong (SEC-5).
     /// </summary>
-    public const int MaxAnswerBytes = 4 * 1024 * 1024;
+    public const int MaxAnswerBytes = WebAnswers.MaxBytes;
 
     /// <summary>How many of a movie's top-billed actors Rewind keeps (wall sheet R4).</summary>
     public const int CastSize = 5;
@@ -77,7 +75,7 @@ public sealed partial class TmdbClient
         ArgumentNullException.ThrowIfNull(http);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(logger);
-        http.Timeout = Timeout;
+        http.Timeout = RequestTimeout;
         http.MaxResponseContentBufferSize = MaxAnswerBytes;
         _http = http;
         _options = options.Value;
@@ -91,7 +89,7 @@ public sealed partial class TmdbClient
     public async Task<TmdbSearch> SearchAsync(string title, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(title);
-        if (Clean(title, MaxNameLength) is not { } query)
+        if (WebAnswers.Clean(title, MaxNameLength) is not { } query)
         {
             return new TmdbSearch(TmdbStatus.Ok, []);
         }
@@ -127,7 +125,7 @@ public sealed partial class TmdbClient
         }
 
         // Movies.Title can't be blank, so a movie without one can't be added.
-        if (Clean(reply.Title, MaxNameLength) is not { } title)
+        if (WebAnswers.Clean(reply.Title, MaxNameLength) is not { } title)
         {
             LogUntitled(_logger, tmdbId);
             return new TmdbDetails(TmdbStatus.NotFound, null);
@@ -141,7 +139,7 @@ public sealed partial class TmdbClient
             reply.Runtime > 0 ? reply.Runtime : null, // TMDB sends 0 when it doesn't know (DATA-3)
             UsRating(reply.ReleaseDates),
             Directors(reply.Credits),
-            Clean(reply.Overview, MaxOverviewLength),
+            WebAnswers.Clean(reply.Overview, MaxOverviewLength),
             TrustedPosterPath(reply.PosterPath),
             TopCast(reply.Credits),
             Genres(reply.Genres)));
@@ -198,7 +196,7 @@ public sealed partial class TmdbClient
             using var response = await _http.SendAsync(request, cancellationToken);
             switch (response.StatusCode)
             {
-                case HttpStatusCode.OK when !IsTmdbJson(response.Content.Headers.ContentType):
+                case HttpStatusCode.OK when !WebAnswers.IsJsonInUtf8(response.Content.Headers.ContentType):
                     LogNotJson(_logger, response.Content.Headers.ContentType?.MediaType);
                     return (TmdbStatus.TryLater, null);
                 case HttpStatusCode.OK:
@@ -216,25 +214,16 @@ public sealed partial class TmdbClient
         }
         catch (Exception e) when (!cancellationToken.IsCancellationRequested && e is HttpRequestException or TaskCanceledException or JsonException)
         {
-            // Offline, no answer within Timeout, an answer over MaxAnswerBytes, or JSON that isn't
-            // TMDB's. The clerk is asked to try again later.
+            // Offline, no answer within RequestTimeout, an answer over MaxAnswerBytes, or JSON that
+            // isn't TMDB's. The clerk is asked to try again later.
             LogNoAnswer(_logger, e);
             return (TmdbStatus.TryLater, null);
         }
     }
 
-    // SEC-5: an answer is read only when it's JSON in UTF-8, as TMDB sends it. A Wi-Fi sign-in page
-    // answers 200 OK too, in HTML, sometimes in a character set .NET can't decode, and reading that
-    // would throw an exception the catch above doesn't expect.
-    // Media types and character sets are both case-insensitive.
-    private static bool IsTmdbJson(MediaTypeHeaderValue? contentType) =>
-        contentType is { MediaType: { } mediaType }
-        && string.Equals(mediaType, MediaTypeNames.Application.Json, StringComparison.OrdinalIgnoreCase)
-        && (contentType.CharSet is null || string.Equals(contentType.CharSet, Encoding.UTF8.WebName, StringComparison.OrdinalIgnoreCase));
-
     private TmdbMatch? ToMatch(SearchHit hit) =>
-        hit.Id > 0 && Clean(hit.Title, MaxNameLength) is { } title
-            ? new TmdbMatch(hit.Id, title, YearOf(hit.ReleaseDate), Clean(hit.Overview, MaxOverviewLength), TrustedPosterPath(hit.PosterPath))
+        hit.Id > 0 && WebAnswers.Clean(hit.Title, MaxNameLength) is { } title
+            ? new TmdbMatch(hit.Id, title, YearOf(hit.ReleaseDate), WebAnswers.Clean(hit.Overview, MaxOverviewLength), TrustedPosterPath(hit.PosterPath))
             : null;
 
     // TMDB sends an unknown release date as "" (DATA-3).
@@ -257,18 +246,18 @@ public sealed partial class TmdbClient
     {
         var names = (credits?.Crew ?? [])
             .Where(person => person.Job == DirectorJob)
-            .Select(person => Clean(person.Name, MaxNameLength))
+            .Select(person => WebAnswers.Clean(person.Name, MaxNameLength))
             .OfType<string>()
             .Distinct(StringComparer.Ordinal)
             .ToList();
-        return names.Count == 0 ? null : Clean(string.Join(", ", names), MaxNameLength);
+        return names.Count == 0 ? null : WebAnswers.Clean(string.Join(", ", names), MaxNameLength);
     }
 
     // TMDB numbers the billing from 0. A blank name is left out, and the next actor takes its place.
     private static List<string> TopCast(CreditsReply? credits) =>
         (credits?.Cast ?? [])
             .OrderBy(actor => actor.Order)
-            .Select(actor => Clean(actor.Name, MaxNameLength))
+            .Select(actor => WebAnswers.Clean(actor.Name, MaxNameLength))
             .OfType<string>()
             .Take(CastSize)
             .ToList();
@@ -277,7 +266,7 @@ public sealed partial class TmdbClient
     private static List<TmdbGenre> Genres(List<GenreReply>? genres) =>
         (genres ?? [])
             .Where(genre => genre.Id > 0)
-            .Select(genre => Clean(genre.Name, MaxNameLength) is { } name ? new TmdbGenre(genre.Id, name) : null)
+            .Select(genre => WebAnswers.Clean(genre.Name, MaxNameLength) is { } name ? new TmdbGenre(genre.Id, name) : null)
             .OfType<TmdbGenre>()
             .DistinctBy(genre => genre.TmdbId)
             .ToList();
@@ -327,25 +316,6 @@ public sealed partial class TmdbClient
         PosterSize.Thumb => "w154",
         _ => throw new ArgumentOutOfRangeException(nameof(size), size, "Rewind has no such poster size."),
     };
-
-    // Text is trimmed and capped, and blank text is unknown, so null (DATA-3, SEC-5). A cut never
-    // splits a character that takes two UTF-16 units, such as an emoji.
-    private static string? Clean(string? text, int maxLength)
-    {
-        var trimmed = text?.Trim();
-        if (string.IsNullOrEmpty(trimmed))
-        {
-            return null;
-        }
-
-        if (trimmed.Length <= maxLength)
-        {
-            return trimmed;
-        }
-
-        var cut = char.IsHighSurrogate(trimmed[maxLength - 1]) ? maxLength - 1 : maxLength;
-        return trimmed[..cut].TrimEnd();
-    }
 
     // [0-9A-Za-z], never \w: in .NET, \w matches letters and digits in every script (SEC-5).
     [GeneratedRegex("^/[0-9A-Za-z]{1,64}\\.jpg$")]

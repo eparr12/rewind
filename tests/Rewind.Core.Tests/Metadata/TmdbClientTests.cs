@@ -122,7 +122,8 @@ public sealed class TmdbClientTests : IDisposable
         Assert.Empty(search.Matches);
     }
 
-    // What HttpClient throws when the register is offline, and when TMDB takes longer than Timeout.
+    // What HttpClient throws when the register is offline, and when TMDB takes longer than
+    // RequestTimeout.
     public static TheoryData<Exception> NoAnswer => new()
     {
         new HttpRequestException("No such host is known."),
