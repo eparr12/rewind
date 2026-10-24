@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Rewind.Core.Catalog;
 
 namespace Rewind.Core.Metadata;
 
@@ -48,10 +49,6 @@ public sealed partial class TmdbClient
 
     private static readonly Uri Api = new("https://api.themoviedb.org/3/");
     private static readonly Uri Images = new("https://image.tmdb.org/t/p/");
-
-    // The US ratings Rewind keeps. TMDB's list also has NR, "No rating information", which is
-    // unknown and so NULL (DATA-3), as is anything else, such as a TV rating.
-    private static readonly string[] UsRatings = ["G", "PG", "PG-13", "R", "NC-17"];
 
     // TMDB writes its names in snake_case, such as release_date. The one name the policy can't
     // make, iso_3166_1, has its own attribute below.
@@ -238,7 +235,7 @@ public sealed partial class TmdbClient
         (releaseDates?.Results ?? [])
             .Where(country => country.Iso31661 == UnitedStates)
             .SelectMany(country => country.ReleaseDates ?? [])
-            .Select(release => Array.Find(UsRatings, rating => string.Equals(rating, release.Certification?.Trim(), StringComparison.OrdinalIgnoreCase)))
+            .Select(release => UsRatings.Find(release.Certification))
             .FirstOrDefault(rating => rating is not null);
 
     // Some movies have two, such as The Matrix.
