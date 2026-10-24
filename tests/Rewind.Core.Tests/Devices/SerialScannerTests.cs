@@ -129,6 +129,21 @@ public sealed class SerialScannerTests
     }
 
     [Fact(Timeout = TimeoutMilliseconds)]
+    public async Task StartAsync_UnpluggedButDriverKeepsPort_ShowsScannerMissing()
+    {
+        // The TMSL-77's driver keeps its port open, listed and silent after an unplug.
+        var ct = TestContext.Current.CancellationToken;
+        _locator.Port = ScannerPort;
+        using var scanner = NewScanner();
+        await StartReadingAsync(scanner, ct);
+
+        _locator.Port = null; // only Plug and Play shows the scanner has gone
+        await AdvanceAsync(SerialScanner.PresenceCheckInterval, ct);
+
+        Assert.Equal(ScannerStatus.Missing, _hub.Status);
+    }
+
+    [Fact(Timeout = TimeoutMilliseconds)]
     public async Task StartAsync_ScannerStaysPluggedIn_StaysReady()
     {
         var ct = TestContext.Current.CancellationToken;
