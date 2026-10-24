@@ -37,3 +37,23 @@ dotnet ef migrations script Initial AddCases -p src/Rewind.Core -s src/Rewind.Re
 The script covers the migrations after the first name, up to the second, so use the migration before yours in place of `Initial`. Read the script before you commit. SQLite can't change most columns in place, so EF Core rebuilds the table: it copies every row into an `ef_temp_` table, drops the old one and renames the copy. Check that the copy carries every column across: EF Core can read a renamed property as one column dropped and another added, which empties it.
 
 The tools work on a scratch `design.db` and never touch `C:\Rewind`. Rewind applies new migrations itself when it starts, after a backup. Until a migration has run on the register, `dotnet ef migrations remove -p src/Rewind.Core -s src/Rewind.Register` takes it back out. Once it has run there, never edit it; add another migration instead.
+
+### If a migration was interrupted
+
+EF Core holds a lock while it migrates: a row in the `__EFMigrationsLock` table. If Rewind closes in the middle of a migration, after a crash or a power cut, SQLite rolls the migration back, but the row stays. The next start then waits a minute and fails, and the log in `C:\Rewind\logs` says the migration lock was still held. Each start after that makes another backup and fails the same way, until the lock is cleared:
+
+1. Make sure no copy of Rewind is running: Task Manager lists none named `Rewind.Register.exe`. A copy that's still migrating holds the lock for real, and clearing it would let two copies migrate at once.
+2. Open the database in the SQLite shell: `sqlite3.exe`, from the sqlite-tools zip for Windows on [sqlite.org/download.html](https://sqlite.org/download.html), with no installer needed.
+
+   ```
+   sqlite3 C:\Rewind\data\rewind.db
+   ```
+
+3. Clear the lock, then leave the shell:
+
+   ```
+   DELETE FROM "__EFMigrationsLock";
+   .quit
+   ```
+
+4. Start Rewind. It backs up the database again and migrates it.

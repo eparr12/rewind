@@ -11,6 +11,15 @@ internal sealed class WatchedTimeProvider : FakeTimeProvider
 {
     private readonly Channel<TimeSpan> _timers = Channel.CreateUnbounded<TimeSpan>();
 
+    public WatchedTimeProvider()
+    {
+    }
+
+    public WatchedTimeProvider(DateTimeOffset startDateTime)
+        : base(startDateTime)
+    {
+    }
+
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {
         var timer = base.CreateTimer(callback, state, dueTime, period);

@@ -4,7 +4,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
-using Microsoft.Extensions.Time.Testing;
 using Rewind.Core.Data;
 
 namespace Rewind.Core.Tests;
@@ -14,7 +13,7 @@ namespace Rewind.Core.Tests;
 /// over real SQLite files (TEST-3), and the clock is fake (TEST-4). Every test makes its own,
 /// so tests never share a database (TEST-7).
 /// </summary>
-public sealed class TempRewind : IAsyncDisposable
+internal sealed class TempRewind : IAsyncDisposable
 {
     // Movie night: 10:15 PM on October 23, 2026, on a register clock four hours behind UTC.
     private static readonly DateTimeOffset MovieNight = new(2026, 10, 24, 2, 15, 0, TimeSpan.Zero);
@@ -27,7 +26,7 @@ public sealed class TempRewind : IAsyncDisposable
 
     public RewindPaths Paths { get; } = new() { Root = Path.Combine(Path.GetTempPath(), $"rewind-test-{Guid.NewGuid():N}") };
 
-    public FakeTimeProvider Time { get; } = new(MovieNight);
+    public WatchedTimeProvider Time { get; } = new(MovieNight);
 
     public Backups Backups => new(Options.Create(Paths), Time);
 
