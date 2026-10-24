@@ -20,8 +20,11 @@ public sealed class DialogService(ISoundPlayer sounds)
     /// <summary>
     /// Shows a dialog and completes when it closes: true for OK, false for Cancel or Esc.
     /// A new dialog replaces one that's still open, which then counts as cancelled.
-    /// Warnings and errors play the error chord, as Windows 98's message boxes did.
     /// </summary>
+    /// <remarks>
+    /// Warnings and errors play the error chord, as Windows 98's message boxes did, so a screen
+    /// that shows one never plays <see cref="Sound.Error"/> itself.
+    /// </remarks>
     public Task<bool> ShowAsync(Dialog dialog)
     {
         ArgumentNullException.ThrowIfNull(dialog);

@@ -10,8 +10,10 @@ namespace Rewind.Core.Devices;
 /// raises <see cref="Scanned"/>. It also keeps the scanner's status for the status bar (OBS-6).
 /// </summary>
 /// <remarks>
-/// Every barcode Rewind recognizes gets the scan beep as it's read, as at a real register. A
-/// screen that refuses a scan, such as Checkout with a factory UPC, adds the error chord itself.
+/// Every barcode Rewind recognizes gets the scan beep as it's read, as at a real register, and
+/// an unknown one gets the error chord. A screen that refuses a barcode it recognizes, such as
+/// Checkout with a factory UPC, shows an error dialog, which adds the chord. A screen ignores an
+/// unknown barcode (HW-5) rather than show a dialog for it, which would play the chord again.
 /// </remarks>
 public sealed partial class ScannerHub(ISoundPlayer sounds, ILogger<ScannerHub> logger) : IScanner
 {
