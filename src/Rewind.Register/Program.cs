@@ -46,8 +46,14 @@ internal static class Program
             .Bind(builder.Configuration.GetSection(DisplayOptions.SectionName))
             .Validate(display => display.Zoom >= DisplayOptions.NormalZoom, "Display:Zoom must be 1 or more: 1 for normal size, 2 for double.")
             .ValidateOnStart(); // NET-11
-        services.AddSerilog((provider, logging) =>
-            ConfigureLogging(logging, provider.GetRequiredService<IOptions<RewindPaths>>().Value));
+        services.AddOptions<LogOptions>()
+            .Bind(builder.Configuration.GetSection(LogOptions.SectionName))
+            .Validate(log => Enum.IsDefined(log.MinimumLevel), "Log:MinimumLevel must be Debug, Information, Warning or Error.")
+            .ValidateOnStart(); // NET-11
+        services.AddSerilog((provider, logging) => ConfigureLogging(
+            logging,
+            provider.GetRequiredService<IOptions<RewindPaths>>().Value,
+            provider.GetRequiredService<IOptions<LogOptions>>().Value));
         services.AddSingleton<ISoundPlayer, NAudioPlayer>();
         services.AddSingleton<IDeviceLocator, WmiDeviceLocator>();
         services.AddSingleton<DialogService>();
@@ -80,12 +86,12 @@ internal static class Program
         Application.Run(host.Services.GetRequiredService<MainForm>());
     }
 
-    // OBS-3: Rewind's own Information and up, but only warnings and errors from Microsoft's
-    // libraries, because EF Core logs every SQL command as Information. The host's lifetime
-    // lines stay, so each start and Shut Down is easy to find in the file.
-    private static void ConfigureLogging(LoggerConfiguration logging, RewindPaths paths) =>
+    // OBS-3: Rewind's own entries from Log:MinimumLevel up, but only warnings and errors from
+    // Microsoft's libraries, because EF Core logs every SQL command as Information. The host's
+    // lifetime lines stay, so each start and Shut Down is easy to find in the file.
+    private static void ConfigureLogging(LoggerConfiguration logging, RewindPaths paths, LogOptions log) =>
         logging
-            .MinimumLevel.Information()
+            .MinimumLevel.Is(log.MinimumLevel)
             .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
             .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
             .WriteTo.File(

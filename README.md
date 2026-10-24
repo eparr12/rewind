@@ -33,6 +33,18 @@ Rewind is laid out for 1024 × 768 (UI-8). On a bigger monitor, set the zoom in 
 "Display": { "Zoom": 2 }
 ```
 
+## Logs
+
+Rewind writes one log file a day to `C:\Rewind\logs`, such as `rewind-20261023.log`, and deletes each one 30 days later (OBS-2). It logs at Information: starts, Shut Downs, devices coming and going, and every error with its details.
+
+To troubleshoot, set the level to Debug in `appsettings.json`, which on the register sits next to `Rewind.Register.exe`. Debug adds detail such as every scan and every sound that fails to play. Set it back to Information afterwards: the next release's `appsettings.json` replaces the register's anyway.
+
+```json
+"Log": { "MinimumLevel": "Debug" }
+```
+
+The other levels are Information, Warning and Error. Rewind won't start with one it doesn't know, and since that stops its logger too, the reason shows up only in Windows' Event Viewer, under Windows Logs > Application.
+
 ## Change the database
 
 The schema changes only through EF Core migrations (DATA-5). The tools install once per PC with `dotnet tool install --global dotnet-ef`. After changing an entity or its configuration, add a migration from the repo root, then print the SQL it will run:
