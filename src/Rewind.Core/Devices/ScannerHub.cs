@@ -40,7 +40,9 @@ public sealed partial class ScannerHub(ISoundPlayer sounds, ILogger<ScannerHub> 
         var scan = Barcodes.Classify(raw);
         if (scan.Kind == ScanKind.Unknown)
         {
-            LogUnknown(logger, scan.Code);
+            // Code is empty for a scan too long to sort, so the log gets the scan as it arrived
+            // instead: its start, up to the longest barcode Rewind reads (SEC-5), and its length.
+            LogUnknown(logger, raw[..Math.Min(raw.Length, Barcodes.MaxLength)], raw.Length);
             sounds.Play(Sound.Error);
         }
         else
@@ -93,8 +95,8 @@ public sealed partial class ScannerHub(ISoundPlayer sounds, ILogger<ScannerHub> 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Scanned {Kind} {Code}")]
     private static partial void LogScanned(ILogger logger, ScanKind kind, string code);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Ignored an unknown barcode: {Code}")]
-    private static partial void LogUnknown(ILogger logger, string code);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Ignored an unknown barcode: {Barcode} ({Length} characters)")]
+    private static partial void LogUnknown(ILogger logger, string barcode, int length);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "A screen threw while handling a {Kind} scan; the scanner carries on")]
     private static partial void LogScanHandlerFailed(ILogger logger, Exception exception, ScanKind kind);

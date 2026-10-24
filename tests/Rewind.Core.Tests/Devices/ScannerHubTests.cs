@@ -55,6 +55,18 @@ public sealed class ScannerHubTests
     }
 
     [Fact]
+    public void Receive_TooLongToSort_LogsItsStartAndLength()
+    {
+        var hub = NewHub();
+        var sent = new string('7', Barcodes.MaxLength) + "-AND-MORE";
+
+        hub.Receive(sent);
+
+        var entry = Assert.Single(_logger.Entries);
+        Assert.Equal($"Ignored an unknown barcode: {sent[..Barcodes.MaxLength]} ({sent.Length} characters)", entry.Message);
+    }
+
+    [Fact]
     public void Receive_HandlerThrows_StillRaisesScannedForTheRest()
     {
         var hub = NewHub();
