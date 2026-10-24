@@ -1,0 +1,14 @@
+P:System.Threading.Tasks.Task`1.Result;NET-6: await the task instead
+M:System.Threading.Tasks.Task.Wait;NET-6: await the task instead
+M:System.Threading.Tasks.Task.Wait(System.Int32);NET-6: await the task instead
+M:System.Threading.Tasks.Task.Wait(System.Int32,System.Threading.CancellationToken);NET-6: await the task instead
+M:System.Threading.Tasks.Task.Wait(System.Threading.CancellationToken);NET-6: await the task instead
+M:System.Threading.Tasks.Task.Wait(System.TimeSpan);NET-6: await the task instead
+M:System.Threading.Tasks.Task.Wait(System.TimeSpan,System.Threading.CancellationToken);NET-6: await the task instead
+M:System.Runtime.CompilerServices.TaskAwaiter.GetResult;NET-6: await the task instead
+M:System.Runtime.CompilerServices.TaskAwaiter`1.GetResult;NET-6: await the task instead
+P:System.DateTime.Now;NET-8: read the time from the injected TimeProvider
+P:System.DateTime.UtcNow;NET-8: read the time from the injected TimeProvider
+P:System.DateTime.Today;NET-8: read the time from the injected TimeProvider
+P:System.DateTimeOffset.Now;NET-8: read the time from the injected TimeProvider
+P:System.DateTimeOffset.UtcNow;NET-8: read the time from the injected TimeProvider
