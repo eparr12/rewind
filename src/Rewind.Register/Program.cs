@@ -7,6 +7,7 @@ using Rewind.Core.Devices;
 using Rewind.Core.Sounds;
 using Rewind.Register.Devices;
 using Rewind.Register.Sounds;
+using Rewind.UI;
 using Rewind.UI.Dialogs;
 using Rewind.UI.Errors;
 using Serilog;
@@ -21,6 +22,11 @@ internal static class Program
     private const string LogFile = "rewind-.log";
     private const string LogLine =
         "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}";
+
+    // The exit code when Rewind can't start, which tells the launcher to leave it down rather
+    // than bring the same box back (Build Plan 6.2). Not 1: Task Manager's End task and
+    // taskkill /F leave 1, and after those the launcher should start Rewind again.
+    private const int CouldNotStart = 2;
 
     private static readonly TimeSpan LogsKept = TimeSpan.FromDays(30);
 
@@ -64,17 +70,12 @@ internal static class Program
 #endif
         services.AddSingleton<MainForm>();
 
-        using var host = builder.Build();
-
-        // OBS-5: exceptions outside Blazor end up here. Blazor's own never do, because
-        // BlazorWebView doesn't pass them on; the ErrorBoundaries in the shell and App catch
-        // those. These are hooked up before the host starts, so a failed migration at startup
-        // is logged too.
-        var errors = host.Services.GetRequiredService<ErrorHub>();
-        Application.ThreadException += (_, e) => errors.Report(e.Exception);
-        AppDomain.CurrentDomain.UnhandledException += (_, e) => errors.Fatal(e.ExceptionObject as Exception);
-
-        host.Start(); // backs up and migrates the database before the window opens
+        using var host = TryBuild(builder);
+        if (host is null || !TryStart(host))
+        {
+            Environment.ExitCode = CouldNotStart;
+            return;
+        }
 
         // Shut Down calls StopApplication, and this then stops every hosted service, such as
         // the scanner's reader. MainForm closes only once they all have (ApplicationStopped),
@@ -85,6 +86,53 @@ internal static class Program
         // WinForms owns this thread until the window closes; then the host is disposed.
         Application.Run(host.Services.GetRequiredService<MainForm>());
     }
+
+    // Building the host builds the logger, from the Paths and Log settings, so when one of
+    // those is what's wrong, nothing can be logged and only the box says why.
+    private static IHost? TryBuild(HostApplicationBuilder builder)
+    {
+        try
+        {
+            return builder.Build();
+        }
+        catch (Exception e) // OBS-5: whatever it is, Rewind can't start
+        {
+            ShowStartupError(e);
+            return null;
+        }
+    }
+
+    private static bool TryStart(IHost host)
+    {
+        // OBS-5: exceptions outside Blazor end up here. Blazor's own never do, because
+        // BlazorWebView doesn't pass them on; the ErrorBoundaries in the shell and App catch
+        // those.
+        var errors = host.Services.GetRequiredService<ErrorHub>();
+        Application.ThreadException += (_, e) => errors.Report(e.Exception);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => errors.Fatal(e.ExceptionObject as Exception);
+
+        try
+        {
+            host.Start(); // checks the settings (NET-11), then backs up and migrates the database
+            return true;
+        }
+        catch (Exception e) // OBS-5: whatever it is, Rewind can't start
+        {
+            errors.CouldNotStart(e);
+            ShowStartupError(e);
+            return false;
+        }
+    }
+
+    // OBS-5: when Rewind can't start, such as with a setting that fails validation, the reason
+    // goes in a plain message box, UI-5's one exception, since the shell that shows Rewind's own
+    // dialogs never started. Otherwise Rewind would just close, and only Event Viewer would say why.
+    private static void ShowStartupError(Exception exception) =>
+        MessageBox.Show(
+            $"Rewind can't start:\n\n{exception.Message}",
+            Store.Name,
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Error);
 
     // OBS-3: Rewind's own entries from Log:MinimumLevel up, but only warnings and errors from
     // Microsoft's libraries, because EF Core logs every SQL command as Information. The host's

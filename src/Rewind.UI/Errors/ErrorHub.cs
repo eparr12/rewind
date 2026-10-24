@@ -7,7 +7,8 @@ namespace Rewind.UI.Errors;
 /// ErrorBoundary catches its exceptions, and App's catches the rest of the shell's. Program.cs
 /// sends this hub what reaches Application.ThreadException, which only WinForms code such as
 /// MainForm can throw and which the shell answers with the same dialog, and what reaches
-/// AppDomain.UnhandledException, which can only be logged.
+/// AppDomain.UnhandledException, which can only be logged. Program.cs also sends it why Rewind
+/// couldn't start, and shows the same reason in a plain message box.
 /// </summary>
 /// <remarks>
 /// BlazorWebView itself never passes an exception on to either event. One that no ErrorBoundary
@@ -31,15 +32,23 @@ public sealed partial class ErrorHub(ILogger<ErrorHub> logger)
     }
 
     /// <summary>
-    /// Logs an exception that nothing caught, such as one on a background thread or a failed
-    /// migration at startup. The process ends right after, and on the register the launcher
-    /// starts Rewind again.
+    /// Logs an exception that nothing caught, such as one on a background thread. The process
+    /// ends right after, and on the register the launcher starts Rewind again.
     /// </summary>
     public void Fatal(Exception? exception) => LogFatal(logger, exception);
+
+    /// <summary>
+    /// Logs why Rewind couldn't start, such as a setting that fails validation or a migration
+    /// that fails. Program.cs shows the reason in a message box, then Rewind closes.
+    /// </summary>
+    public void CouldNotStart(Exception exception) => LogCouldNotStart(logger, exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Unhandled exception on the WinForms thread; going back to Checkout")]
     private static partial void LogCrashed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Critical, Message = "Unhandled exception; Rewind is closing")]
     private static partial void LogFatal(ILogger logger, Exception? exception);
+
+    [LoggerMessage(Level = LogLevel.Critical, Message = "Rewind couldn't start; it shows why in a message box, then closes")]
+    private static partial void LogCouldNotStart(ILogger logger, Exception exception);
 }

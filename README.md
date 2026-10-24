@@ -57,7 +57,7 @@ To troubleshoot, set the level to Debug in `appsettings.json`, which on the regi
 "Log": { "MinimumLevel": "Debug" }
 ```
 
-The other levels are Information, Warning and Error. Rewind won't start with one it doesn't know, and since that stops its logger too, the reason shows up only in Windows' Event Viewer, under Windows Logs > Application.
+The other levels are Information, Warning and Error. Rewind won't start with one it doesn't know: a message box says why, then Rewind closes. That reason never reaches the log, because the log needs the setting to start.
 
 ## Test
 
@@ -83,7 +83,7 @@ The tools work on a scratch `design.db` and never touch `C:\Rewind`. Rewind appl
 
 ### If a migration was interrupted
 
-EF Core holds a lock while it migrates: a row in the `__EFMigrationsLock` table. If Rewind closes in the middle of a migration, after a crash or a power cut, SQLite rolls the migration back, but the row stays. The next start then waits a minute and fails, and the log in `C:\Rewind\logs` says the migration lock was still held. Each start after that makes another backup and fails the same way, until the lock is cleared:
+EF Core holds a lock while it migrates: a row in the `__EFMigrationsLock` table. If Rewind closes in the middle of a migration, after a crash or a power cut, SQLite rolls the migration back, but the row stays. The next start then waits a minute and fails: a message box says the migration lock was still held, and so does the log in `C:\Rewind\logs`. Each start after that makes another backup and fails the same way, until the lock is cleared:
 
 1. Make sure no copy of Rewind is running: Task Manager lists none named `Rewind.Register.exe`. A copy that's still migrating holds the lock for real, and clearing it would let two copies migrate at once.
 2. Open the database in the SQLite shell: `sqlite3.exe`, from the sqlite-tools zip for Windows on [sqlite.org/download.html](https://sqlite.org/download.html), with no installer needed.

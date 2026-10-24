@@ -44,6 +44,8 @@ If it was Checkout itself that went wrong, Checkout stays closed and says **"Che
 
 If the message says Rewind **will be shut down**, press **Enter** and Rewind closes. Tell the Store Manager, who can start it again.
 
+If a plain box says Rewind **can't start**, press **Enter**, then tell the Store Manager what it said. Rewind can't fix that one by itself.
+
 If Rewind closes by itself, without a message, wait a moment. It starts again on its own.
 
 ## Closing up
