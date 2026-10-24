@@ -16,11 +16,13 @@ namespace Rewind.Register;
 
 internal static class Program
 {
-    // OBS-2: one file a day, such as rewind-20261023.log, kept for 30 days.
+    // OBS-2: one file a day, such as rewind-20261023.log, each kept for 30 days. The store
+    // doesn't open every day, so the limit is days, not a number of files.
     private const string LogFile = "rewind-.log";
-    private const int LogFilesKept = 30;
     private const string LogLine =
         "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}";
+
+    private static readonly TimeSpan LogsKept = TimeSpan.FromDays(30);
 
     [STAThread]
     private static void Main()
@@ -91,5 +93,6 @@ internal static class Program
                 outputTemplate: LogLine,
                 formatProvider: CultureInfo.InvariantCulture, // the same file on any PC (CA1305)
                 rollingInterval: RollingInterval.Day,
-                retainedFileCountLimit: LogFilesKept);
+                retainedFileCountLimit: null, // Serilog keeps 31 files unless told otherwise
+                retainedFileTimeLimit: LogsKept);
 }
