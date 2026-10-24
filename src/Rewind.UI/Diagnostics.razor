@@ -26,8 +26,8 @@
     private async Task ShowDialogsAsync()
     {
         var ok = await Dialogs.ShowAsync(new Dialog(
-            "Rewind Video", "Be kind: rewind the tape before you return it?", DialogIcon.Warning, CanCancel: true));
-        await Dialogs.ShowAsync(new Dialog("Rewind Video", ok ? "You pressed OK." : "You cancelled."));
+            Store.Name, "Be kind: rewind the tape before you return it?", DialogIcon.Warning, CanCancel: true));
+        await Dialogs.ShowAsync(new Dialog(Store.Name, ok ? "You pressed OK." : "You cancelled."));
     }
 
     // The screen's ErrorBoundary catches this one.

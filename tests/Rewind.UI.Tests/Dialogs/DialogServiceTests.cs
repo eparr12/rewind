@@ -5,8 +5,8 @@ namespace Rewind.UI.Tests.Dialogs;
 
 public sealed class DialogServiceTests
 {
-    private static readonly Dialog Question = new("Rewind Video", "Rewind the tape?", DialogIcon.Warning, CanCancel: true);
-    private static readonly Dialog Note = new("Rewind Video", "Due back tonight.");
+    private static readonly Dialog Question = new(Store.Name, "Rewind the tape?", DialogIcon.Warning, CanCancel: true);
+    private static readonly Dialog Note = new(Store.Name, "Due back tonight.");
 
     private readonly FakeSoundPlayer _sounds = new();
 

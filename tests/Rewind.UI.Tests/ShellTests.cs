@@ -45,7 +45,7 @@ public sealed class ShellTests : BunitContext
     public async Task OnFunctionKey_DialogOpen_StaysOnCheckout()
     {
         var cut = Render<Shell>();
-        await cut.InvokeAsync(() => { _ = _dialogs.ShowAsync(new Dialog("Rewind Video", "Due back tonight.")); });
+        await cut.InvokeAsync(() => { _ = _dialogs.ShowAsync(new Dialog(Store.Name, "Due back tonight.")); });
 
         await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F2"));
 

@@ -20,7 +20,7 @@ internal sealed class MainForm : Form
 
     public MainForm(IServiceProvider services, IHostApplicationLifetime lifetime)
     {
-        Text = "Rewind Video";
+        Text = Store.Name;
         FormBorderStyle = FormBorderStyle.None; // borderless before maximized,
         WindowState = FormWindowState.Maximized; // so the window covers the taskbar
         BackColor = Color.Teal; // a Windows 98 desktop while the web view loads
