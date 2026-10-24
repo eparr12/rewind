@@ -1,0 +1,118 @@
+@* The Windows 98 picker (Build Plan 2.3): TMDB's matches in a 98.css list, each with its poster,
+   year and story, since titles repeat across remakes and the clerk confirms every match by eye.
+   It opens with the first row focused. The arrow keys move between the rows (keyboard.js), and
+   Enter, a double-click or Add Movie adds the highlighted one. Esc closes it. *@
+<div class="tmdb-picker" @onkeydown="OnKeyDownAsync">
+    <div class="sunken-panel tmdb-picker-list">
+        <table class="interactive">
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Year</th>
+                    <th>Story</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (var i = 0; i < Matches.Count; i++)
+                {
+                    var row = i;
+                    var match = Matches[row];
+                    <tr class="@(row == _highlighted ? "highlighted" : null)"
+                        tabindex="@(row == _highlighted ? 0 : -1)"
+                        aria-selected="@(row == _highlighted ? "true" : "false")"
+                        @ref="_rows[row]"
+                        @onfocus="() => Highlight(row)"
+                        @ondblclick="() => PickAsync(row)"
+                        @onkeydown="e => OnRowKeyDownAsync(e, row)">
+                        <td>
+                            <div class="tmdb-picker-title">
+                                @* As a Windows 98 list shows an icon beside each name. *@
+                                @if (_posters[row] is { } poster)
+                                {
+                                    <img src="@poster" width="46" height="69" alt="" />
+                                }
+                                else
+                                {
+                                    <span class="tmdb-picker-no-poster"></span>
+                                }
+                                <span>@match.Title</span>
+                            </div>
+                        </td>
+                        <td>@match.Year</td>
+                        <td class="tmdb-picker-story"><div>@match.Overview</div></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <div class="field-row tmdb-picker-buttons">
+        <button class="default" @onclick="() => PickAsync(_highlighted)">Add Movie</button>
+        <button @onclick="OnCancel">Cancel</button>
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<TmdbMatch>? _shown;
+    private ElementReference[] _rows = [];
+    private string?[] _posters = [];
+    private int _highlighted;
+
+    /// <summary>TMDB's matches, best first. The screen shows the picker only when there's at least one.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<TmdbMatch> Matches { get; set; } = [];
+
+    /// <summary>Called with the match the clerk picked.</summary>
+    [Parameter]
+    public EventCallback<TmdbMatch> OnPick { get; set; }
+
+    /// <summary>Called when the clerk closes the picker without picking.</summary>
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    // Each poster's src is made once per list, not on every render: the highlight moves with
+    // every arrow key. A new list starts again at its first row.
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(Matches, _shown))
+        {
+            return;
+        }
+
+        _shown = Matches;
+        _rows = new ElementReference[Matches.Count];
+        _posters = Matches.Select(match => match.Poster is { } poster ? PosterImage.Source(poster) : null).ToArray();
+        _highlighted = 0;
+    }
+
+    // UI-3: the arrow keys and Enter work at once, without a click on the list first.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _rows.Length > 0)
+        {
+            await _rows[_highlighted].FocusAsync();
+        }
+    }
+
+    // The highlight follows the focus, which a click or keyboard.js's arrow keys move.
+    private void Highlight(int row) => _highlighted = row;
+
+    private Task PickAsync(int row) => OnPick.InvokeAsync(Matches[row]);
+
+    // UI-3: Enter on the list presses Add Movie, the default button, as in a Windows 98 dialog.
+    private async Task OnRowKeyDownAsync(KeyboardEventArgs e, int row)
+    {
+        if (e.Key == "Enter")
+        {
+            await PickAsync(row);
+        }
+    }
+
+    // UI-3: Esc cancels, from the list or from either button.
+    private async Task OnKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            await OnCancel.InvokeAsync();
+        }
+    }
+}

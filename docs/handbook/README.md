@@ -22,7 +22,17 @@ You can also click a tab, or press **Tab** until it has a dotted line around it,
 - **Enter** presses the button with the dotted line around it.
 - **Esc** means Cancel.
 
-Checkout, Return, Ask the Clerk and Intake are still being built. This page will explain them when they're ready.
+Checkout, Return and Ask the Clerk are still being built. This page will explain them when they're ready.
+
+## Adding a movie
+
+Press **F4** for Intake.
+
+1. Type the title from the DVD case, then press **Enter**. Rewind looks it up on TMDB, a big movie website.
+2. Lots of movies share a name, so find the right one by its poster and year. Press **↓** and **↑** to move through the list, or click one.
+3. Press **Enter** to add it. Rewind shows its poster, its rating and who's in it. You don't need to close that: just type the next title and press **Enter**.
+
+Can't find it? Type more of the title and search again. **Esc** closes the list.
 
 ## Scanning
 

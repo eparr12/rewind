@@ -24,6 +24,18 @@ public sealed class RewindPaths
     /// <summary>The folder that holds the log files (OBS-2).</summary>
     public string Logs => Path.Combine(Root, "logs");
 
+    /// <summary>
+    /// The folder that holds the secrets, such as TMDB's token. On the register, only the Counter
+    /// account can read it (SEC-1).
+    /// </summary>
+    public string Keys => Path.Combine(Root, "keys");
+
     /// <summary>The live database file.</summary>
     public string Database => Path.Combine(Data, "rewind.db");
+
+    /// <summary>The folder that holds each movie's poster at the size the register shows.</summary>
+    public string Posters => Path.Combine(Data, "posters");
+
+    /// <summary>The folder that holds each movie's small poster, for the phone catalog.</summary>
+    public string Thumbs => Path.Combine(Data, "thumbs");
 }

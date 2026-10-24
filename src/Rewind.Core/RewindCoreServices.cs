@@ -4,6 +4,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Rewind.Core.Data;
 using Rewind.Core.Devices;
+using Rewind.Core.Intake;
+using Rewind.Core.Metadata;
 
 namespace Rewind.Core;
 
@@ -57,6 +59,33 @@ public static class RewindCoreServices
         services.AddSingleton<IScanner>(provider => provider.GetRequiredService<ScannerHub>());
         services.AddSingleton<ISerialPorts, SystemSerialPorts>();
         services.AddHostedService<SerialScanner>();
+        return services;
+    }
+
+    /// <summary>
+    /// Adds intake: TMDB's settings and client, the posters folder, and the service the Intake
+    /// screen finds and adds movies with. TMDB's token is a secret, so the host reads it from
+    /// somewhere outside the repo (SEC-1).
+    /// </summary>
+    public static IServiceCollection AddRewindIntake(this IServiceCollection services, IConfiguration configuration)
+    {
+        // A missing token is allowed: only intake needs TMDB, and it says so (GEN-7).
+        services.AddOptions<TmdbOptions>()
+            .Bind(configuration.GetSection(TmdbOptions.SectionName))
+            .Validate(tmdb => TmdbOptions.IsWellFormed(tmdb.AccessToken), "Tmdb:AccessToken must be TMDB's API Read Access Token alone, with no spaces, line breaks or \"Bearer\" in front.")
+            .ValidateOnStart(); // NET-11
+
+        // TmdbClient sets its own timeout and cap on answers. SEC-7: the HTTP client factory logs
+        // every header at Trace, and the host holds it to warnings. The factory hides the headers'
+        // values by default, and this keeps them all hidden whatever a later version's default, so
+        // the token stays out of the log even if someone lifts that limit.
+        services.AddHttpClient<TmdbClient>()
+            .RedactLoggedHeaders(_ => true);
+        services.AddSingleton<Posters>();
+
+        // Transient, like the TmdbClient it holds, so each screen gets its own, and the HTTP
+        // client factory can renew its connections between them.
+        services.AddTransient<IMovieIntake, MovieIntake>();
         return services;
     }
 }

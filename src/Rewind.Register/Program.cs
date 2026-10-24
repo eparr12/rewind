@@ -1,4 +1,5 @@
 using System.Globalization;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -28,6 +29,9 @@ internal static class Program
     // taskkill /F leave 1, and after those the launcher should start Rewind again.
     private const int CouldNotStart = 2;
 
+    // SEC-1: the register keeps its secrets, such as TMDB's token, in this file in the keys folder.
+    private const string SecretsFile = "secrets.json";
+
     private static readonly TimeSpan LogsKept = TimeSpan.FromDays(30);
 
     [STAThread]
@@ -48,6 +52,7 @@ internal static class Program
         var services = builder.Services;
         services.AddRewindCore(builder.Configuration); // first, so the database is ready before anything else starts
         services.AddRewindScanner(builder.Configuration); // then the devices, once the database is ready
+        services.AddRewindIntake(builder.Configuration);
         services.AddOptions<DisplayOptions>()
             .Bind(builder.Configuration.GetSection(DisplayOptions.SectionName))
             .Validate(display => display.Zoom >= DisplayOptions.NormalZoom, "Display:Zoom must be 1 or more: 1 for normal size, 2 for double.")
@@ -87,12 +92,14 @@ internal static class Program
         Application.Run(host.Services.GetRequiredService<MainForm>());
     }
 
-    // Building the host builds the logger, from the Paths and Log settings, so when one of
-    // those is what's wrong, nothing can be logged and only the box says why.
+    // Reading the secrets and building the host come before anything can be logged, since the
+    // logger is built from the Paths and Log settings. So when a secrets file isn't valid JSON, or
+    // one of those settings is what's wrong, only the box says why.
     private static IHost? TryBuild(HostApplicationBuilder builder)
     {
         try
         {
+            AddSecrets(builder.Configuration);
             return builder.Build();
         }
         catch (Exception e) // OBS-5: whatever it is, Rewind can't start
@@ -100,6 +107,19 @@ internal static class Program
             ShowStartupError(e);
             return null;
         }
+    }
+
+    // SEC-1: secrets never sit in the repo, or next to Rewind.Register.exe, where each release's
+    // files replace the last one's. The register keeps them in keys\secrets.json under Paths:Root,
+    // and a Debug build on a development PC also reads dotnet user-secrets, which win. Either may
+    // be missing: without TMDB's token, Rewind runs and intake says it can't reach TMDB (GEN-7).
+    private static void AddSecrets(ConfigurationManager configuration)
+    {
+        var paths = configuration.GetSection(RewindPaths.SectionName).Get<RewindPaths>() ?? new RewindPaths();
+        configuration.AddJsonFile(Path.Combine(paths.Keys, SecretsFile), optional: true);
+#if DEBUG
+        configuration.AddUserSecrets(typeof(Program).Assembly, optional: true);
+#endif
     }
 
     private static bool TryStart(IHost host)
@@ -135,12 +155,14 @@ internal static class Program
             MessageBoxIcon.Error);
 
     // OBS-3: Rewind's own entries from Log:MinimumLevel up, but only warnings and errors from
-    // Microsoft's libraries, because EF Core logs every SQL command as Information. The host's
-    // lifetime lines stay, so each start and Shut Down is easy to find in the file.
+    // Microsoft's libraries, because EF Core logs every SQL command as Information, and the HTTP
+    // client factory every request. The host's lifetime lines stay, so each start and Shut Down
+    // is easy to find in the file.
     private static void ConfigureLogging(LoggerConfiguration logging, RewindPaths paths, LogOptions log) =>
         logging
             .MinimumLevel.Is(log.MinimumLevel)
             .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+            .MinimumLevel.Override("System.Net.Http.HttpClient", LogEventLevel.Warning)
             .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
             .WriteTo.File(
                 Path.Combine(paths.Logs, LogFile),

@@ -79,6 +79,80 @@ body {
   margin-top: 24px;
 }
 
+/* F4 Intake: the title box and a line saying what to do, then the picker or the movie that was
+   added (Build Plan 2.3). */
+.intake-search input {
+  width: 320px;
+}
+
+.intake-movie-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.intake-movie-body p {
+  margin: 0 0 8px;
+}
+
+/* The picker: a list tall enough for a poster on each row, which scrolls under its header. */
+.tmdb-picker-list {
+  height: 500px;
+  scroll-padding-top: 17px; /* 98.css's header height, so the row the arrow keys reach shows in full */
+}
+
+.tmdb-picker-list table {
+  width: 100%;
+}
+
+.tmdb-picker-list td {
+  padding-top: 2px;
+  padding-bottom: 2px;
+  vertical-align: top;
+}
+
+.tmdb-picker-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.tmdb-picker-title img,
+.tmdb-picker-no-poster {
+  flex: none;
+  width: 46px;
+  height: 69px;
+}
+
+/* 98.css keeps a list's text on one line. Titles and stories wrap instead, and a story stops
+   after four lines. */
+.tmdb-picker-title span {
+  max-width: 240px;
+  white-space: normal;
+}
+
+.tmdb-picker-story {
+  white-space: normal;
+}
+
+.tmdb-picker-story > div {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+/* UI-2: the row with the focus gets Windows 98's dotted outline, not the browser's modern ring. */
+.tmdb-picker-list tr:focus {
+  outline: 1px dotted #fff;
+  outline-offset: -2px;
+}
+
+.tmdb-picker-buttons {
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
 /* Debug builds only: the scan simulator's row, between the screen and the status bar (TEST-5). */
 .scan-simulator {
   margin: 4px 3px;

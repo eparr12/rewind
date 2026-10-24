@@ -12,7 +12,7 @@ Its five sound files aren't in Git (GIT-6), so on a new PC, first copy them into
 dotnet run --project src/Rewind.Register
 ```
 
-That's a Debug build, made for trying Rewind without the counter hardware: the scan simulator sits above the status bar (see [Barcode scanner](#barcode-scanner)), and the Store Manager screen (F5) has a Diagnostics panel for trying sounds, dialogs and crashes.
+That's a Debug build, made for trying Rewind without the counter hardware: the scan simulator sits above the status bar (see [Barcode scanner](#barcode-scanner)), and the Store Manager screen (F5) has a Diagnostics panel for trying sounds, dialogs and crashes. Intake (F4) also needs TMDB's token; see [TMDB](#tmdb).
 
 Rewind keeps its database, backups and logs under `C:\Rewind`. To use another folder, set the `Paths__Root` environment variable to a full path, such as `D:\RewindDev`.
 
@@ -38,6 +38,26 @@ The scanner keeps its own settings, so a new PC needs only the driver.
 - **Settings,** for a new scanner or after a factory reset: scan that page's Virtual COM barcode, then these from the printed manual: **Add CR** (`090200.`), **Good Read Beeper OFF** (`0502100.`), so only Rewind beeps, and **Enable UPC-E0 Expand** (`0212031.`). Expansion is off from the factory, and without it a UPC-E, the 8-digit short form of a UPC-A, arrives as 8 digits, which Rewind treats as unknown.
 - **Factory reset:** **Restore All Factory Defaults** (`0D0100.`) puts it back in keyboard mode with no suffix.
 - **Never scan** "remove the initial zero" (`0211030.`): it shortens a UPC-A to 11 digits, which Rewind treats as unknown.
+
+## TMDB
+
+Intake finds each movie on [TMDB](https://www.themoviedb.org/), using TMDB's **API Read Access Token**: the long one on the API page of the TMDB account's settings, not the 32-character API Key. The token is a secret, so it never goes in Git or in `appsettings.json` (SEC-1). Rewind starts without it, and Intake then says it can't reach TMDB.
+
+- **On a development PC,** keep it in dotnet user-secrets, which Debug builds read:
+
+  ```
+  dotnet user-secrets set Tmdb:AccessToken <token> --project src/Rewind.Register
+  ```
+
+- **On the register,** keep it in `C:\Rewind\keys\secrets.json`, which every build reads. Only the Counter account should be able to open the `keys` folder.
+
+  ```json
+  { "Tmdb": { "AccessToken": "<token>" } }
+  ```
+
+Rewind reads the token once, as it starts, so restart it after setting or changing the token. It won't start with a `secrets.json` that isn't valid JSON, or with a token that has a space in it, such as `Bearer` pasted in front: a message box says why. When TMDB refuses the token, Intake says the token isn't set up, and the log says TMDB refused it.
+
+Rewind saves each movie's poster in `C:\Rewind\data`, named for the movie's TMDB ID: `posters\948.jpg` at 342 pixels wide for the register's screens, and `thumbs\948.jpg` at 154 for the phone catalog. Posters aren't in Git (GIT-6) or in the backups, which hold only the database.
 
 ## Screen size
 
