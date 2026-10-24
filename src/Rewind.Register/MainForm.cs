@@ -2,6 +2,7 @@ using System.ComponentModel;
 using Microsoft.AspNetCore.Components.WebView;
 using Microsoft.AspNetCore.Components.WebView.WindowsForms;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Microsoft.Web.WebView2.WinForms;
 using Rewind.UI;
 
@@ -16,14 +17,18 @@ internal sealed class MainForm : Form
     private const string HostPagePath = @"wwwroot\index.html";
     private const string AppSelector = "#app";
 
+    // A Windows 98 desktop shows until the shell draws over it: first the form's background,
+    // then WebView2's, which would otherwise flash white before the page loads.
+    private static readonly Color Desktop = Color.Teal;
+
     private bool _stopping;
 
-    public MainForm(IServiceProvider services, IHostApplicationLifetime lifetime)
+    public MainForm(IServiceProvider services, IHostApplicationLifetime lifetime, IOptions<DisplayOptions> display)
     {
         Text = Store.Name;
         FormBorderStyle = FormBorderStyle.None; // borderless before maximized,
         WindowState = FormWindowState.Maximized; // so the window covers the taskbar
-        BackColor = Color.Teal; // a Windows 98 desktop while the web view loads
+        BackColor = Desktop;
 
         var web = new BlazorWebView
         {
@@ -31,6 +36,8 @@ internal sealed class MainForm : Form
             HostPage = HostPagePath,
             Services = services, // BlazorWebView needs the container itself
         };
+        web.WebView.DefaultBackgroundColor = Desktop;
+        web.WebView.ZoomFactor = display.Value.Zoom; // UI-8
         web.RootComponents.Add<App>(AppSelector); // the shell, inside the ErrorBoundary of last resort
         web.BlazorWebViewInitialized += (_, e) => LockDown(e.WebView);
         web.UrlLoading += (_, e) => StayInsideRewind(e);

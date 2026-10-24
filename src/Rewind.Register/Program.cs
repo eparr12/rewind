@@ -40,6 +40,10 @@ internal static class Program
         var services = builder.Services;
         services.AddRewindCore(builder.Configuration); // first, so the database is ready before anything else starts
         services.AddRewindScanner(builder.Configuration); // then the devices, once the database is ready
+        services.AddOptions<DisplayOptions>()
+            .Bind(builder.Configuration.GetSection(DisplayOptions.SectionName))
+            .Validate(display => display.Zoom >= DisplayOptions.NormalZoom, "Display:Zoom must be 1 or more: 1 for normal size, 2 for double.")
+            .ValidateOnStart(); // NET-11
         services.AddSerilog((provider, logging) =>
             ConfigureLogging(logging, provider.GetRequiredService<IOptions<RewindPaths>>().Value));
         services.AddSingleton<ISoundPlayer, NAudioPlayer>();

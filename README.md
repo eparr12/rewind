@@ -25,6 +25,14 @@ In Debug builds, the row above the status bar is the scan simulator (TEST-5): ty
     - **Factory reset:** **Restore All Factory Defaults** (`0D0100.`) puts it back in keyboard mode with no suffix.
     - **Never scan** "remove the initial zero" (`0211030.`): it shortens a UPC-A to 11 digits, which Rewind treats as unknown.
 
+## Screen size
+
+Rewind is laid out for 1024 × 768 (UI-8). On a bigger monitor, set the zoom in `src/Rewind.Register/appsettings.json` to a whole number, such as 2 to draw everything twice as large. Whole numbers keep the pixel fonts sharp.
+
+```json
+"Display": { "Zoom": 2 }
+```
+
 ## Change the database
 
 The schema changes only through EF Core migrations (DATA-5). The tools install once per PC with `dotnet tool install --global dotnet-ef`. After changing an entity or its configuration, add a migration from the repo root, then print the SQL it will run:
