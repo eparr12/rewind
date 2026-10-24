@@ -31,6 +31,6 @@ public sealed class StoreSettingsTests
 
         db.StoreSettings.Add(new StoreSettings { Id = 2, StoreName = "Rewind Video 2" });
 
-        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync(ct));
+        await SqliteAssert.RefusesAsync(SqliteConstraint.Check, () => db.SaveChangesAsync(ct));
     }
 }

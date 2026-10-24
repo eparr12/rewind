@@ -1,4 +1,3 @@
-using Microsoft.EntityFrameworkCore;
 using Rewind.Core.Members;
 
 namespace Rewind.Core.Tests.Members;
@@ -17,6 +16,6 @@ public sealed class MemberTests
 
         db.Members.Add(new Member { Name = "Mom", CardBarcode = "MEM-001" });
 
-        await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync(ct));
+        await SqliteAssert.RefusesAsync(SqliteConstraint.Unique, () => db.SaveChangesAsync(ct));
     }
 }
