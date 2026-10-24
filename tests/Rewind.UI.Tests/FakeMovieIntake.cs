@@ -38,4 +38,15 @@ internal sealed class FakeMovieIntake : IMovieIntake
         _adds.Add(tmdbId);
         return Add;
     }
+
+    // The Intake screen moves to these in the next pull request (ADR-0005), and this fake answers
+    // them then. Until it does, a call means the screen changed without its tests.
+    public Task<MoviePick> PickAsync(int tmdbId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("The Intake screen doesn't pick through PickAsync yet.");
+
+    public HandEntry EnterByHand(string title, string? year, string? runtimeMinutes, string? rating) =>
+        throw new NotSupportedException("The Intake screen doesn't enter movies by hand yet.");
+
+    public Task<Shelving> ShelveAsync(string storeLabel, string? factoryUpc, IReadOnlyList<CaseMovieEntry> movies, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("The Intake screen doesn't shelve cases yet.");
 }

@@ -256,7 +256,7 @@ public sealed class TmdbClientTests : IDisposable
 
         var movie = Assert.IsType<TmdbMovie>(details.Movie);
         Assert.Equal((TmdbJson.HalloweenId, "Halloween", 1978, 91), (movie.TmdbId, movie.Title, movie.Year, movie.RuntimeMinutes));
-        Assert.Equal([new TmdbGenre(27, "Horror"), new TmdbGenre(53, "Thriller")], movie.Genres);
+        Assert.Equal([new TmdbGenre(TmdbJson.HorrorId, "Horror"), new TmdbGenre(TmdbJson.ThrillerId, "Thriller")], movie.Genres);
         Assert.Equal(TmdbJson.HalloweenPoster, movie.PosterPath);
     }
 
@@ -384,11 +384,11 @@ public sealed class TmdbClientTests : IDisposable
     [Fact]
     public async Task GetMovieAsync_GenreListedTwice_KeepsItOnce()
     {
-        _tmdb.AnswerJson(FakeTmdb.MovieFor(TmdbJson.HalloweenId), TmdbJson.Movie(genres: [(27, "Horror"), (27, "Horror")]));
+        _tmdb.AnswerJson(FakeTmdb.MovieFor(TmdbJson.HalloweenId), TmdbJson.Movie(genres: [(TmdbJson.HorrorId, "Horror"), (TmdbJson.HorrorId, "Horror")]));
 
         var details = await Client().GetMovieAsync(TmdbJson.HalloweenId, TestContext.Current.CancellationToken);
 
-        Assert.Equal([new TmdbGenre(27, "Horror")], details.Movie?.Genres);
+        Assert.Equal([new TmdbGenre(TmdbJson.HorrorId, "Horror")], details.Movie?.Genres);
     }
 
     // SEC-5: a poster path goes into a URL, so only TMDB's own form is trusted.

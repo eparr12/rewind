@@ -8,7 +8,8 @@ namespace Rewind.Core.Metadata;
 /// <summary>
 /// What Rewind's web API clients, <see cref="TmdbClient"/> and <see cref="UpcItemDbClient"/>, do
 /// alike with the answers they read, which are all untrusted (SEC-5): how big one may be, which ones
-/// are read at all, and how their text is kept.
+/// are read at all, and how their text is kept. Intake cleans a title typed in by hand with
+/// <see cref="Clean"/> too, so it's kept like TMDB's.
 /// </summary>
 internal static class WebAnswers
 {

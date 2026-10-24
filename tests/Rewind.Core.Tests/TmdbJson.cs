@@ -15,6 +15,10 @@ internal static class TmdbJson
     public const int Halloween2018Id = 424139;
     public const int HalloweenStoreId = 1446523;
 
+    // TMDB's IDs for Halloween (1978)'s genres.
+    public const int HorrorId = 27;
+    public const int ThrillerId = 53;
+
     /// <summary>
     /// A search for Halloween: the 1978 original, the 2018 sequel, and Halloween Store, which TMDB
     /// sends with an empty release date and, here, no poster.
@@ -139,7 +143,7 @@ internal static class TmdbJson
         ("US", "R"),
     ];
 
-    private static readonly (int Id, string? Name)[] HalloweenGenres = [(27, "Horror"), (53, "Thriller")];
+    private static readonly (int Id, string? Name)[] HalloweenGenres = [(HorrorId, "Horror"), (ThrillerId, "Thriller")];
 
     private static string Country(IGrouping<string, (string Country, string? Certification)> releases) =>
         $$"""
