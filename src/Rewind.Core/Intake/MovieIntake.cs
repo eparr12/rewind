@@ -194,10 +194,11 @@ public sealed partial class MovieIntake(
             LogShelved(logger, label, titles);
         }
 
-        // NET-12, not NET-7: the case is on the shelf now, so its posters are saved even if the
-        // clerk has just left the screen, and the token isn't passed along. Cancelled from here, a
-        // saved case would come back as an exception, and its label as in use at the next scan. A
-        // few hundred KB to the register's own disk isn't worth stopping for.
+        // NET-7's exception for a committed write: the case is on the shelf now, so its posters are
+        // saved even if the clerk has just left the screen, and the token isn't passed along.
+        // Cancelled from here, a saved case would come back as an exception, and its label as in
+        // use at the next scan (NET-12). A few hundred KB to the register's own disk isn't worth
+        // stopping for.
         foreach (var fetched in movies.OfType<CaseMovieEntry.Fetched>())
         {
             await SavePostersAsync(fetched.Details.TmdbId, fetched.PostersBySize, CancellationToken.None);
