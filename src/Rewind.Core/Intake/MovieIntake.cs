@@ -49,33 +49,6 @@ public sealed partial class MovieIntake(
     }
 
     /// <inheritdoc />
-    public async Task<MovieAdd> AddAsync(int tmdbId, CancellationToken cancellationToken)
-    {
-        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        if (await CardAsync(db, tmdbId, cancellationToken) is { } owned)
-        {
-            LogAlreadyOwned(logger, tmdbId, owned.MovieId);
-            return new MovieAdd(AddStatus.AlreadyOwned, owned);
-        }
-
-        var details = await tmdb.GetMovieAsync(tmdbId, cancellationToken);
-        if (details.Movie is not { } found)
-        {
-            return new MovieAdd(StatusFor(details.Status), null);
-        }
-
-        // The movie first, then its posters. A movie whose poster is missing is a case Rewind
-        // handles already (see SavePostersAsync), but a poster whose movie failed to save would
-        // never be cleaned up. A retry after a poster fails finds the movie already added.
-        var genres = await KnownGenresAsync(db, [found], cancellationToken);
-        db.Movies.Add(ToMovie(found, time.GetUtcNow().UtcDateTime, genres)); // NET-8, DATA-8
-        await db.SaveChangesAsync(cancellationToken); // DATA-7: the movie, its cast and its genres together
-        LogAdded(logger, tmdbId, found.Title);
-        await SavePostersAsync(found.TmdbId, await DownloadPostersAsync(found, cancellationToken), cancellationToken);
-        return new MovieAdd(AddStatus.Added, await CardAsync(db, tmdbId, cancellationToken));
-    }
-
-    /// <inheritdoc />
     public async Task<MoviePick> PickAsync(int tmdbId, CancellationToken cancellationToken)
     {
         if (await OwnedAsync(tmdbId, cancellationToken) is { } owned)
@@ -268,34 +241,10 @@ public sealed partial class MovieIntake(
     private static Task<bool> LabelTakenAsync(RewindDb db, string label, CancellationToken cancellationToken) =>
         db.Cases.AnyAsync(c => c.StoreLabel == label, cancellationToken);
 
-    // DATA-12: read untracked, straight into the record the screen shows. The poster comes from
-    // its file, so the card shows what was saved. One query, said out loud, or EF Core logs a
-    // warning about loading two collections at once: with five actors and a few genres, the rows
-    // its joins repeat are few.
-    private async Task<MovieCard?> CardAsync(RewindDb db, int tmdbId, CancellationToken cancellationToken)
-    {
-        var card = await db.Movies
-            .AsNoTracking()
-            .AsSingleQuery()
-            .Where(m => m.TmdbId == tmdbId)
-            .Select(m => new MovieCard(
-                m.Id,
-                m.Title,
-                m.Year,
-                m.RuntimeMinutes,
-                m.Rating,
-                m.Director,
-                m.Overview,
-                m.Cast.OrderBy(c => c.BillingOrder).Select(c => c.Name).ToList(),
-                m.Genres.OrderBy(g => g.Name).Select(g => g.Name).ToList()))
-            .SingleOrDefaultAsync(cancellationToken);
-        return card is null
-            ? null
-            : card with { Poster = await posters.ReadAsync(tmdbId, PosterSize.Register, cancellationToken) };
-    }
-
-    // DATA-12, as CardAsync reads it: untracked, straight into the entry the screen lists, in one
-    // query, with the poster from its file.
+    // DATA-12: read untracked, straight into the entry the screen lists, with the poster from its
+    // file, so the list shows what was saved. One query, said out loud, or EF Core logs a warning
+    // about loading two collections at once: with five actors and a few genres, the rows its joins
+    // repeat are few.
     private async Task<CaseMovieEntry.Owned?> OwnedAsync(int tmdbId, CancellationToken cancellationToken)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
@@ -346,11 +295,10 @@ public sealed partial class MovieIntake(
         return held;
     }
 
-    // A poster that can't be saved, or isn't because its caller was cancelled, leaves the movie
-    // without its file for now (GEN-7). PosterFile still names it, so the TMDB refresh (Build Plan
-    // 4.5) can download it, as it will every poster that's missing after a restore. A save fails
-    // when the data folder's permissions are wrong, or when antivirus is still reading the new file
-    // as it's renamed.
+    // A poster that can't be saved leaves the movie without its file for now (GEN-7). PosterFile
+    // still names it, so the TMDB refresh (Build Plan 4.5) can download it, as it will every poster
+    // that's missing after a restore. A save fails when the data folder's permissions are wrong, or
+    // when antivirus is still reading the new file as it's renamed.
     private async Task SavePostersAsync(int tmdbId, IReadOnlyDictionary<PosterSize, byte[]> held, CancellationToken cancellationToken)
     {
         foreach (var (size, jpeg) in held)
@@ -448,22 +396,12 @@ public sealed partial class MovieIntake(
     private static string TitleAndYear(CaseMovieEntry movie) =>
         movie.Year is { } year ? string.Create(CultureInfo.InvariantCulture, $"{movie.Title} ({year})") : movie.Title;
 
-    private static AddStatus StatusFor(TmdbStatus status) => status switch
-    {
-        TmdbStatus.NotSetUp => AddStatus.NotSetUp,
-        TmdbStatus.TryLater => AddStatus.TryLater,
-        _ => AddStatus.NotFound,
-    };
-
     private static PickStatus PickStatusFor(TmdbStatus status) => status switch
     {
         TmdbStatus.NotSetUp => PickStatus.NotSetUp,
         TmdbStatus.TryLater => PickStatus.TryLater,
         _ => PickStatus.NotFound,
     };
-
-    [LoggerMessage(Level = LogLevel.Information, Message = "Added TMDB movie {TmdbId}, {Title}, to the collection")]
-    private static partial void LogAdded(ILogger logger, int tmdbId, string title);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Put case {StoreLabel} on the shelf, holding {Movies}")]
     private static partial void LogShelved(ILogger logger, string storeLabel, string movies);
