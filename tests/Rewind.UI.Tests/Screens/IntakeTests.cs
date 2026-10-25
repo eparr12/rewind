@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Bunit;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
@@ -7,6 +8,7 @@ using Rewind.Core.Devices;
 using Rewind.Core.Intake;
 using Rewind.Core.Metadata;
 using Rewind.Core.Scans;
+using Rewind.Core.Sounds;
 using Rewind.UI.Dialogs;
 using Rewind.UI.Screens;
 
@@ -17,19 +19,43 @@ public sealed class IntakeTests : BunitContext
     private static readonly TmdbMatch Halloween1978 = new(948, "Halloween", 1978, "A masked killer comes home.", null);
     private static readonly TmdbMatch Halloween2018 = new(424139, "Halloween", 2018, "Forty years on.", null);
 
-    private static readonly MovieCard Halloween = new(
+    // When TMDB answered each pick, which the pick holds until the label scan saves it.
+    private static readonly DateTime PickedAt = new(2026, 10, 24, 22, 15, 0, DateTimeKind.Utc);
+
+    // Halloween (1978) as its pick holds it: new to the collection, fetched from TMDB with its poster.
+    private static readonly CaseMovieEntry Halloween = new CaseMovieEntry.Fetched(
+        new TmdbMovie(
+            TmdbId: 948,
+            Title: "Halloween",
+            Year: 1978,
+            RuntimeMinutes: 91,
+            Rating: "R",
+            Director: "John Carpenter",
+            Overview: "A masked killer comes home.",
+            PosterPath: "/wijlZ3HaYMvlDTPqJoTCWKFkCPU.jpg",
+            Cast: ["Donald Pleasence", "Jamie Lee Curtis", "Nancy Kyes", "P. J. Soles", "Charles Cyphers"],
+            Genres: [new TmdbGenre(27, "Horror"), new TmdbGenre(53, "Thriller")]),
+        new Dictionary<PosterSize, byte[]> { [PosterSize.Register] = [0xFF, 0xD8, 0xFF, 0xE0] },
+        PickedAt);
+
+    // Halloween (1978) once the collection has it, as a second edition's pick finds it.
+    private static readonly CaseMovieEntry HalloweenOwned = new CaseMovieEntry.Owned(
         MovieId: 1,
+        TmdbId: 948,
         Title: "Halloween",
         Year: 1978,
         RuntimeMinutes: 91,
         Rating: "R",
         Director: "John Carpenter",
-        Overview: "A masked killer comes home.",
         Cast: ["Donald Pleasence", "Jamie Lee Curtis", "Nancy Kyes", "P. J. Soles", "Charles Cyphers"],
-        Genres: ["Horror", "Thriller"])
-    {
-        Poster = [0xFF, 0xD8, 0xFF, 0xE0],
-    };
+        Genres: ["Horror", "Thriller"],
+        Poster: [0xFF, 0xD8, 0xFF, 0xE0]);
+
+    // Its 2018 sequel, new to the collection, without a poster.
+    private static readonly CaseMovieEntry HalloweenSequel = new CaseMovieEntry.Fetched(
+        new TmdbMovie(424139, "Halloween", 2018, 106, "R", "David Gordon Green", "Forty years on.", null, ["Jamie Lee Curtis"], [new TmdbGenre(27, "Horror")]),
+        new Dictionary<PosterSize, byte[]>(),
+        PickedAt);
 
     // Tommy Boy on DVD, as UPCitemdb names it, and the movie TMDB has for it.
     private const string TommyBoyUpc = "032429258373";
@@ -38,31 +64,46 @@ public sealed class IntakeTests : BunitContext
     private static readonly BarcodeTitle TommyBoyFound = new(TommyBoyUpc, UpcStatus.Found, "Tommy Boy (DVD)", "Tommy Boy", null, null);
     private static readonly TmdbMatch TommyBoy1995 = new(11381, "Tommy Boy", 1995, "A party animal hits the road to save the family business.", null);
 
-    private static readonly MovieCard TommyBoy = new(
-        MovieId: 2,
-        Title: "Tommy Boy",
-        Year: 1995,
-        RuntimeMinutes: 97,
-        Rating: "PG-13",
-        Director: "Peter Segal",
-        Overview: "A party animal hits the road to save the family business.",
-        Cast: ["Chris Farley", "David Spade"],
-        Genres: ["Comedy"]);
+    private static readonly CaseMovieEntry TommyBoy = new CaseMovieEntry.Fetched(
+        new TmdbMovie(
+            TmdbId: 11381,
+            Title: "Tommy Boy",
+            Year: 1995,
+            RuntimeMinutes: 97,
+            Rating: "PG-13",
+            Director: "Peter Segal",
+            Overview: "A party animal hits the road to save the family business.",
+            PosterPath: null,
+            Cast: ["Chris Farley", "David Spade"],
+            Genres: [new TmdbGenre(35, "Comedy")]),
+        new Dictionary<PosterSize, byte[]>(),
+        PickedAt);
+
+    // The next two store labels on the sheet.
+    private const string Label = "RV-00042";
+    private const string SecondLabel = "RV-00043";
+
+    // What the prompt says once the case holds a movie: what to do next.
+    private const string LabelPrompt =
+        "Peel the next store label, stick it on the case and scan it. Box set? Type the next movie's title first.";
 
     private readonly FakeMovieIntake _intake = new();
     private readonly FakeBarcodeTitles _titles = new();
     private readonly FakeScanner _scanner = new();
-    private readonly DialogService _dialogs = new(new FakeSoundPlayer());
+    private readonly FakeSoundPlayer _sounds = new();
+    private readonly DialogService _dialogs;
 
     // 6:15 PM on Saturday, October 24, 2026, on a register clock four hours behind UTC (TEST-4).
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 10, 24, 22, 15, 0, TimeSpan.Zero));
 
     public IntakeTests()
     {
+        _dialogs = new DialogService(_sounds);
         _time.SetLocalTimeZone(TimeZoneInfo.CreateCustomTimeZone("Register", TimeSpan.FromHours(-4), "Register", "Register"));
         Services.AddSingleton<IMovieIntake>(_intake);
         Services.AddSingleton<IBarcodeTitles>(_titles);
         Services.AddSingleton<IScanner>(_scanner);
+        Services.AddSingleton<ISoundPlayer>(_sounds);
         Services.AddSingleton<TimeProvider>(_time);
         Services.AddSingleton(_dialogs);
     }
@@ -174,50 +215,50 @@ public sealed class IntakeTests : BunitContext
     }
 
     [Fact]
-    public async Task KeyDownEnter_OnTheFirstMatch_AddsIt()
+    public async Task KeyDownEnter_OnTheFirstMatch_PicksIt()
     {
         _intake.Search = Found(Halloween1978, Halloween2018);
-        _intake.Add = Task.FromResult(new MovieAdd(AddStatus.Added, Halloween));
+        _intake.Pick = Picked(Halloween);
         var cut = Render<Intake>();
         await SearchAsync(cut, "Halloween");
 
         await cut.Find(".tmdb-picker tbody tr").KeyDownAsync(new KeyboardEventArgs { Key = "Enter" });
 
-        Assert.Equal([948], _intake.Adds);
+        Assert.Equal([948], _intake.Picks);
     }
 
-    // Two adds of one movie at once would both find it missing, and the second save would break
-    // Movies.TmdbId's unique index.
+    // Two picks of one movie at once would both find the case without it, and it would be listed
+    // twice.
     [Fact]
-    public async Task KeyDownEnter_TwiceWhileAdding_AddsOnce()
+    public async Task KeyDownEnter_TwiceWhilePicking_PicksOnce()
     {
-        var added = new TaskCompletionSource<MovieAdd>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var picked = new TaskCompletionSource<MoviePick>(TaskCreationOptions.RunContinuationsAsynchronously);
         _intake.Search = Found(Halloween1978);
-        _intake.Add = added.Task;
+        _intake.Pick = picked.Task;
         var cut = Render<Intake>();
         await SearchAsync(cut, "Halloween");
         var first = PickFirstAsync(cut);
         var second = PickFirstAsync(cut);
 
-        added.SetResult(new MovieAdd(AddStatus.Added, Halloween));
+        picked.SetResult(new MoviePick(PickStatus.Fetched, Halloween));
         await Task.WhenAll(first, second);
 
-        Assert.Equal([948], _intake.Adds);
+        Assert.Equal([948], _intake.Picks);
     }
 
-    // The Build Plan 2.3 check, as the clerk sees it.
+    // The Build Plan 2.3 check, as the clerk sees it before the label scan saves it (ADR-0005).
     [Fact]
     public async Task Pick_Halloween_ShowsItsRatingDirectorAndCast()
     {
         _intake.Search = Found(Halloween1978);
-        _intake.Add = Task.FromResult(new MovieAdd(AddStatus.Added, Halloween));
+        _intake.Pick = Picked(Halloween);
         var cut = Render<Intake>();
         await SearchAsync(cut, "Halloween");
 
         await PickFirstAsync(cut);
 
-        var movie = cut.Find(".intake-movie");
-        Assert.Equal("Halloween (1978)", movie.QuerySelector("legend")?.TextContent);
+        var movie = cut.Find(".case-contents .case-movie");
+        Assert.Equal("Halloween (1978)", movie.QuerySelector(".case-movie-title")?.TextContent);
         Assert.Contains("Rated R · 91 minutes · Horror, Thriller", movie.TextContent, StringComparison.Ordinal);
         Assert.Contains("Directed by John Carpenter", movie.TextContent, StringComparison.Ordinal);
         Assert.Contains(
@@ -227,35 +268,97 @@ public sealed class IntakeTests : BunitContext
         Assert.Equal("data:image/jpeg;base64,/9j/4A==", movie.QuerySelector("img")?.GetAttribute("src"));
     }
 
+    // The title box is ready for a box set's next movie, and the prompt says the label comes next.
     [Fact]
     public async Task Pick_MovieAdded_ClearsTheTitleForTheNextOne()
     {
         _intake.Search = Found(Halloween1978);
-        _intake.Add = Task.FromResult(new MovieAdd(AddStatus.Added, Halloween));
+        _intake.Pick = Picked(Halloween);
         var cut = Render<Intake>();
         await SearchAsync(cut, "Halloween");
 
         await PickFirstAsync(cut);
 
-        Assert.Equal(
-            "Added to the collection. Scan the next DVD, or type its title and press Enter.",
-            cut.Find(".intake-prompt").TextContent);
+        Assert.Equal(LabelPrompt, cut.Find(".intake-prompt").TextContent);
         Assert.Equal("", cut.Find("#intake-title").GetAttribute("value") ?? "");
     }
 
+    // A second edition joins the movie the collection has (Overview: intake), and the list says so
+    // for that movie alone: here a box set's first disc, beside a second that's new.
     [Fact]
-    public async Task Pick_MovieAlreadyOwned_SaysSo()
+    public async Task Pick_OwnedMovie_SaysTheCaseJoinsIt()
     {
-        _intake.Search = Found(Halloween1978);
-        _intake.Add = Task.FromResult(new MovieAdd(AddStatus.AlreadyOwned, Halloween));
+        _intake.Search = Found(Halloween1978, Halloween2018);
+        _intake.Pick = Picked(HalloweenOwned);
         var cut = Render<Intake>();
+        await SearchAsync(cut, "Halloween");
+        await PickFirstAsync(cut);
+        _intake.Pick = Picked(HalloweenSequel);
+        await SearchAsync(cut, "Halloween");
+
+        await cut.FindAll(".tmdb-picker tbody tr")[1].KeyDownAsync(new KeyboardEventArgs { Key = "Enter" });
+
+        Assert.Equal(
+            [true, false],
+            cut.FindAll(".case-movie").Select(movie => movie.TextContent.Contains("Already in the collection; this case joins it", StringComparison.Ordinal)));
+    }
+
+    // ADR-0005: the case lists each movie once, and TMDB isn't asked for it again. The picker stays
+    // open, for the clerk to pick the match they meant.
+    [Fact]
+    public async Task Pick_MovieAlreadyInTheCase_SaysSo()
+    {
+        _intake.Search = Found(Halloween1978, Halloween2018);
+        _intake.Pick = Picked(Halloween);
+        var cut = Render<Intake>();
+        await SearchAsync(cut, "Halloween");
+        await PickFirstAsync(cut);
         await SearchAsync(cut, "Halloween");
 
         await PickFirstAsync(cut);
 
-        Assert.Equal(
-            "That movie is already in the collection. Scan the next DVD, or type its title and press Enter.",
-            cut.Find(".intake-prompt").TextContent);
+        Assert.Equal("Halloween (1978) is already in this case.", cut.Find(".intake-prompt").TextContent);
+        Assert.Single(cut.FindAll(".case-movie"));
+        Assert.Single(cut.FindAll(".tmdb-picker"));
+        Assert.Equal([948], _intake.Picks);
+    }
+
+    // The match the clerk meant goes in the case, and the prompt moves on to the label.
+    [Fact]
+    public async Task Pick_OtherMatchAfterOneAlreadyInTheCase_SaysTheLabelIsNext()
+    {
+        var cut = await RenderWithHalloweenPickedTwiceAsync();
+        _intake.Pick = Picked(HalloweenSequel);
+
+        await cut.FindAll(".tmdb-picker tbody tr")[1].KeyDownAsync(new KeyboardEventArgs { Key = "Enter" });
+
+        Assert.Equal(LabelPrompt, cut.Find(".intake-prompt").TextContent);
+    }
+
+    [Fact]
+    public async Task KeyDownEscape_InThePickerAfterOneAlreadyInTheCase_SaysTheLabelIsNext()
+    {
+        var cut = await RenderWithHalloweenPickedTwiceAsync();
+
+        await cut.Find(".tmdb-picker").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
+
+        Assert.Equal(LabelPrompt, cut.Find(".intake-prompt").TextContent);
+    }
+
+    // Build Plan 2.4's double feature: a title typed while the case holds a movie is the second
+    // movie of the same case, so it joins the list and the barcode stays.
+    [Fact]
+    public async Task Pick_SecondTitleWhileCaseIsOpen_ListsTwoMovies()
+    {
+        var cut = await RenderWithTommyBoyPickedAsync();
+        _intake.Search = Found(Halloween1978);
+        _intake.Pick = Picked(Halloween);
+        await SearchAsync(cut, "Halloween");
+
+        await PickFirstAsync(cut);
+
+        Assert.Equal(["Tommy Boy (1995)", "Halloween (1978)"], cut.FindAll(".case-movie-title").Select(title => title.TextContent));
+        Assert.Equal("This DVD's barcode: 032429258373", cut.Find(".intake-barcode").TextContent);
     }
 
     // The picker stays, so the clerk can try again or pick another match.
@@ -263,7 +366,7 @@ public sealed class IntakeTests : BunitContext
     public async Task Pick_TmdbDoesNotAnswer_KeepsThePickerOpen()
     {
         _intake.Search = Found(Halloween1978);
-        _intake.Add = Task.FromResult(new MovieAdd(AddStatus.TryLater, null));
+        _intake.Pick = Task.FromResult(new MoviePick(PickStatus.TryLater, null));
         var cut = Render<Intake>();
         await SearchAsync(cut, "Halloween");
 
@@ -285,32 +388,32 @@ public sealed class IntakeTests : BunitContext
         await cut.Find(".tmdb-picker").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
 
         Assert.Empty(cut.FindAll(".tmdb-picker"));
-        Assert.Empty(_intake.Adds);
+        Assert.Empty(_intake.Picks);
     }
 
-    // UI-3: Esc waits for a pick being added, as Enter does. Closing the list would look like a
-    // cancel, and then the movie would appear anyway.
+    // UI-3: Esc waits for a pick being fetched, as Enter does. Closing the list would look like a
+    // cancel, and then the movie would go in the case anyway.
     [Fact]
-    public async Task KeyDownEscape_WhileAdding_KeepsThePickerOpen()
+    public async Task KeyDownEscape_WhilePicking_KeepsThePickerOpen()
     {
-        var (cut, added, pick) = await StartAddingAsync();
+        var (cut, picked, pick) = await StartPickingAsync();
 
         await cut.Find(".tmdb-picker").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
 
         Assert.Single(cut.FindAll(".tmdb-picker"));
-        added.SetResult(new MovieAdd(AddStatus.Added, Halloween));
+        picked.SetResult(new MoviePick(PickStatus.Fetched, Halloween));
         await pick;
     }
 
     [Fact]
-    public async Task ClickCancel_WhileAdding_KeepsThePickerOpen()
+    public async Task ClickCancel_WhilePicking_KeepsThePickerOpen()
     {
-        var (cut, added, pick) = await StartAddingAsync();
+        var (cut, picked, pick) = await StartPickingAsync();
 
         await cut.FindAll(".tmdb-picker button").Single(button => button.TextContent == "Cancel").ClickAsync(new MouseEventArgs());
 
         Assert.Single(cut.FindAll(".tmdb-picker"));
-        added.SetResult(new MovieAdd(AddStatus.Added, Halloween));
+        picked.SetResult(new MoviePick(PickStatus.Fetched, Halloween));
         await pick;
     }
 
@@ -526,7 +629,7 @@ public sealed class IntakeTests : BunitContext
 
         await ScanAsync(cut, TommyBoyUpc);
 
-        Assert.Equal("TMDB has no movie called \"Tommy Boy Bonus\". Fix the title, then search again.", cut.Find(".intake-prompt").TextContent);
+        Assert.Equal("TMDB has no movie called \"Tommy Boy Bonus\". Fix the title, then search again, or enter it by hand.", cut.Find(".intake-prompt").TextContent);
     }
 
     // The barcode the screen keeps is Core's form of it, which UpcLookups and Case.FactoryUpc use.
@@ -551,19 +654,19 @@ public sealed class IntakeTests : BunitContext
         Assert.Equal("This DVD's barcode: 032429258373", cut.Find(".intake-barcode").TextContent);
     }
 
-    // Build Plan 2.4 saves the barcode on the case once the movie is added, so it stays until then.
+    // The label scan saves the barcode on the case with its movies (ADR-0005), so it stays until then.
     [Fact]
     public async Task Pick_AfterAScan_KeepsTheBarcode()
     {
         _titles.Lookup = Task.FromResult(TommyBoyFound);
         _intake.Search = Found(TommyBoy1995);
-        _intake.Add = Task.FromResult(new MovieAdd(AddStatus.Added, TommyBoy));
+        _intake.Pick = Picked(TommyBoy);
         var cut = Render<Intake>();
         await ScanAsync(cut, TommyBoyUpc);
 
         await PickFirstAsync(cut);
 
-        Assert.Single(cut.FindAll(".intake-movie"));
+        Assert.Single(cut.FindAll(".case-movie"));
         Assert.Equal("This DVD's barcode: 032429258373", cut.Find(".intake-barcode").TextContent);
     }
 
@@ -610,20 +713,17 @@ public sealed class IntakeTests : BunitContext
         Assert.Equal("This DVD's barcode: 032429258373", cut.Find(".intake-barcode").TextContent);
     }
 
-    // A title typed once a movie is added is the next DVD's, which wasn't scanned.
+    // A title typed while the case holds a movie is the next movie in the same case, such as a
+    // double feature's second (ADR-0005), so the case's barcode stays.
     [Fact]
-    public async Task Submit_TitleTypedAfterAnAdd_HasNoBarcode()
+    public async Task Submit_TitleTypedAfterAPick_KeepsTheBarcode()
     {
-        _titles.Lookup = Task.FromResult(TommyBoyFound);
-        _intake.Search = Found(TommyBoy1995);
-        _intake.Add = Task.FromResult(new MovieAdd(AddStatus.Added, TommyBoy));
-        var cut = Render<Intake>();
-        await ScanAsync(cut, TommyBoyUpc);
-        await PickFirstAsync(cut);
+        var cut = await RenderWithTommyBoyPickedAsync();
+        _intake.Search = Found(Halloween1978);
 
         await SearchAsync(cut, "Halloween");
 
-        Assert.Empty(cut.FindAll(".intake-barcode"));
+        Assert.Equal("This DVD's barcode: 032429258373", cut.Find(".intake-barcode").TextContent);
     }
 
     // A title typed after a scan names the scanned DVD, as it must when UPCitemdb has no title for
@@ -679,25 +779,39 @@ public sealed class IntakeTests : BunitContext
         Assert.Empty(cut.FindAll(".intake-barcode"));
     }
 
-    // After an add, starting over clears the movie too, back to how the screen opens.
+    // Starting over loses the open case, though nothing of it was saved, so with a movie in it Esc
+    // asks first. Cancel keeps the case as it was. The answer comes last, so Esc is awaited after it.
     [Fact]
-    public async Task KeyDownEscape_AfterAnAdd_StartsOver()
+    public async Task KeyDownEscape_WithMoviesInCase_CancelKeepsTheCase()
     {
-        _titles.Lookup = Task.FromResult(TommyBoyFound);
-        _intake.Search = Found(TommyBoy1995);
-        _intake.Add = Task.FromResult(new MovieAdd(AddStatus.Added, TommyBoy));
-        var cut = Render<Intake>();
-        await ScanAsync(cut, TommyBoyUpc);
-        await PickFirstAsync(cut);
+        var cut = await RenderWithTommyBoyPickedAsync();
+        var escape = cut.Find("#intake-title").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
 
-        await cut.Find("#intake-title").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
+        await cut.InvokeAsync(() => _dialogs.Close(ok: false));
+        await escape;
 
-        Assert.Empty(cut.FindAll(".intake-movie"));
-        Assert.Empty(cut.FindAll(".intake-barcode"));
-        Assert.Equal("Scan the DVD's barcode, or type its title and press Enter.", cut.Find(".intake-prompt").TextContent);
+        Assert.Equal(["Tommy Boy (1995)"], cut.FindAll(".case-movie-title").Select(title => title.TextContent));
+        Assert.Equal("This DVD's barcode: 032429258373", cut.Find(".intake-barcode").TextContent);
     }
 
-    // UI-3: not while TMDB is searching, as Esc doesn't close the list while a pick is being added:
+    // OK starts over, back to how the screen opens, and nothing goes on the shelf.
+    [Fact]
+    public async Task KeyDownEscape_WithMoviesInCase_OkStartsOver()
+    {
+        var cut = await RenderWithTommyBoyPickedAsync();
+        var escape = cut.Find("#intake-title").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
+
+        Assert.Equal("Start over?\n\nNothing from this case has been saved.", _dialogs.Current?.Message);
+        await cut.InvokeAsync(() => _dialogs.Close(ok: true));
+        await escape;
+
+        Assert.Empty(cut.FindAll(".case-contents"));
+        Assert.Empty(cut.FindAll(".intake-barcode"));
+        Assert.Equal("Scan the DVD's barcode, or type its title and press Enter.", cut.Find(".intake-prompt").TextContent);
+        Assert.Empty(_intake.Shelvings);
+    }
+
+    // UI-3: not while TMDB is searching, as Esc doesn't close the list while a pick is being fetched:
     // the search's answer would land on a screen that had started over.
     [Fact]
     public async Task KeyDownEscape_WhileSearching_KeepsTheDvd()
@@ -716,18 +830,18 @@ public sealed class IntakeTests : BunitContext
         Assert.Equal("Found Tommy Boy. Pick the movie, or press Esc to fix the title.", cut.Find(".intake-prompt").TextContent);
     }
 
-    // One DVD at a time: a scan in the middle of an add would start the next DVD before this one
+    // One DVD at a time: a scan in the middle of a pick would start the next DVD before this one
     // is done.
     [Fact]
-    public async Task Scanned_WhileAdding_IsIgnored()
+    public async Task Scanned_WhilePicking_IsIgnored()
     {
-        var (cut, added, pick) = await StartAddingAsync();
+        var (cut, picked, pick) = await StartPickingAsync();
 
         await ScanAsync(cut, TommyBoyUpc);
 
         Assert.Empty(_titles.Lookups);
         Assert.Empty(cut.FindAll(".intake-barcode"));
-        added.SetResult(new MovieAdd(AddStatus.Added, Halloween));
+        picked.SetResult(new MoviePick(PickStatus.Fetched, Halloween));
         await pick;
     }
 
@@ -763,12 +877,12 @@ public sealed class IntakeTests : BunitContext
         await search;
     }
 
-    // Store labels are Build Plan 2.4's, and nothing else means anything on this screen yet.
+    // HW-5: member cards and concessions are Checkout's, and an unknown code means nothing anywhere.
     [Theory]
-    [InlineData(ScanKind.StoreLabel, "RV-00042")]
     [InlineData(ScanKind.MemberCard, "MEM-001")]
+    [InlineData(ScanKind.Concession, "CON-POPCORN")]
     [InlineData(ScanKind.Unknown, "HELLO")]
-    public async Task Scanned_AnythingButAUpc_DoesNothing(ScanKind kind, string code)
+    public async Task Scanned_AnythingButAUpcOrLabel_DoesNothing(ScanKind kind, string code)
     {
         var cut = Render<Intake>();
 
@@ -778,6 +892,408 @@ public sealed class IntakeTests : BunitContext
         Assert.Empty(_titles.Lookups);
         Assert.Empty(cut.FindAll(".intake-barcode"));
         Assert.Equal("Scan the DVD's barcode, or type its title and press Enter.", cut.Find(".intake-prompt").TextContent);
+    }
+
+    // The label ends a case, so there's nothing for it to go on yet.
+    [Fact]
+    public async Task Scanned_LabelWithNoMovie_SaysToAddTheMovieFirst()
+    {
+        var cut = Render<Intake>();
+
+        await ScanLabelAsync(cut, Label);
+
+        Assert.Equal("Add the movie first, then scan the label.", cut.Find(".intake-prompt").TextContent);
+        Assert.Empty(_intake.Shelvings);
+    }
+
+    // What the prompt said about the clerk's last action lasts only until their next one.
+    [Fact]
+    public async Task Scanned_UpcAfterAnEarlyLabel_SaysWhatItFound()
+    {
+        _titles.Lookup = Task.FromResult(TommyBoyFound);
+        _intake.Search = Found(TommyBoy1995);
+        var cut = Render<Intake>();
+        await ScanLabelAsync(cut, Label);
+
+        await ScanAsync(cut, TommyBoyUpc);
+
+        Assert.Equal("Found Tommy Boy. Pick the movie, or press Esc to fix the title.", cut.Find(".intake-prompt").TextContent);
+    }
+
+    [Fact]
+    public async Task Submit_TitleAfterAnEarlyLabel_SaysToPickTheMovie()
+    {
+        _intake.Search = Found(Halloween1978);
+        var cut = Render<Intake>();
+        await ScanLabelAsync(cut, Label);
+
+        await SearchAsync(cut, "Halloween");
+
+        Assert.Equal("Pick the movie by its poster and year, then press Enter.", cut.Find(".intake-prompt").TextContent);
+    }
+
+    // Once a case is on the shelf, it's empty, so Esc starts over without asking, and the prompt
+    // stops saying what went on the shelf.
+    [Fact]
+    public async Task KeyDownEscape_AfterACaseIsShelved_SaysToScanTheNextDvd()
+    {
+        var cut = await RenderWithTommyBoyPickedAsync();
+        _intake.Shelving = Shelved(Label, TommyBoy);
+        await ScanLabelAsync(cut, Label);
+
+        var escape = cut.Find("#intake-title").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
+
+        Assert.Null(_dialogs.Current);
+        await escape;
+        Assert.Equal("Scan the DVD's barcode, or type its title and press Enter.", cut.Find(".intake-prompt").TextContent);
+    }
+
+    // A search for a box set's next movie found nothing, and the clerk scanned the label anyway. The
+    // empty search goes with the case, so the next Esc starts over, emptying the title box, rather
+    // than closing a list that isn't on screen.
+    [Fact]
+    public async Task KeyDownEscape_AfterNoMatches_StartsOver()
+    {
+        var cut = await RenderWithTommyBoyPickedAsync();
+        _intake.Search = Found();
+        await SearchAsync(cut, "Zzyzx");
+        _intake.Shelving = Shelved(Label, TommyBoy);
+        await ScanLabelAsync(cut, Label);
+
+        await cut.Find("#intake-title").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
+
+        Assert.Equal("", cut.Find("#intake-title").GetAttribute("value") ?? "");
+        Assert.Equal("Scan the DVD's barcode, or type its title and press Enter.", cut.Find(".intake-prompt").TextContent);
+    }
+
+    // ADR-0005: the label scan saves the case as the screen lists it, with its barcode, and without
+    // asking: the list is the confirmation.
+    [Fact]
+    public async Task Scanned_LabelAfterAPick_ShelvesTheCaseWithItsBarcode()
+    {
+        var cut = await RenderWithTommyBoyPickedAsync();
+        _intake.Shelving = Shelved(Label, TommyBoy);
+
+        await ScanLabelAsync(cut, Label);
+
+        var (label, barcode, movies) = Assert.Single(_intake.Shelvings);
+        Assert.Equal((Label, TommyBoyUpc), (label, barcode));
+        Assert.Equal([TommyBoy], movies);
+    }
+
+    // UI-7: the register chimes, the prompt says what went on the shelf, and the screen is ready for
+    // the next DVD.
+    [Fact]
+    public async Task Scanned_LabelShelved_ClearsTheCaseAndSaysSo()
+    {
+        _titles.Lookup = Task.FromResult(TommyBoyFound);
+        _intake.Search = Found(TommyBoy1995);
+        _intake.Pick = Picked(TommyBoy);
+        _intake.Shelving = Shelved(Label, TommyBoy);
+        var cut = Render<Intake>();
+        var titleBox = TitleBoxId(cut);
+        await ScanAsync(cut, TommyBoyUpc);
+        await PickFirstAsync(cut);
+
+        await ScanLabelAsync(cut, Label);
+
+        Assert.Equal(
+            "RV-00042 is on the shelf: Tommy Boy (1995). Scan the next DVD, or type its title and press Enter.",
+            cut.Find(".intake-prompt").TextContent);
+        Assert.Empty(cut.FindAll(".case-contents"));
+        Assert.Empty(cut.FindAll(".intake-barcode"));
+        Assert.Equal([Sound.Chime], _sounds.Played);
+        AssertFocusedLast(titleBox, focuses: 5);
+    }
+
+    // A box set's line names every movie in its case.
+    [Fact]
+    public async Task Scanned_LabelShelvedForABoxSet_NamesEachMovie()
+    {
+        var cut = await RenderWithTommyBoyPickedAsync();
+        _intake.Shelving = Shelved(Label, TommyBoy, Halloween);
+
+        await ScanLabelAsync(cut, Label);
+
+        Assert.StartsWith("RV-00042 is on the shelf: Tommy Boy (1995), Halloween (1978). ", cut.Find(".intake-prompt").TextContent, StringComparison.Ordinal);
+    }
+
+    // NET-12: a label another case has is the clerk's to fix. The error dialog says what to do, and
+    // the case stays open, so the next label shelves it.
+    [Fact]
+    public async Task Scanned_LabelInUse_KeepsTheCaseOpen()
+    {
+        var cut = await RenderWithTommyBoyPickedAsync();
+        _intake.Shelving = Task.FromResult(new Shelving(ShelveStatus.LabelInUse, null));
+        await ScanLabelAsync(cut, Label);
+        Assert.Equal("RV-00042 is already on another case.\n\nPeel the next label and scan that one.", _dialogs.Current?.Message);
+        Assert.Equal(DialogIcon.Error, _dialogs.Current?.Icon);
+        await cut.InvokeAsync(() => _dialogs.Close(ok: true));
+        _intake.Shelving = Shelved(SecondLabel, TommyBoy);
+
+        await ScanLabelAsync(cut, SecondLabel);
+
+        Assert.Equal([Label, SecondLabel], _intake.Shelvings.Select(shelving => shelving.StoreLabel));
+        Assert.Equal([TommyBoy], _intake.Shelvings[1].Movies);
+        Assert.StartsWith("RV-00043 is on the shelf", cut.Find(".intake-prompt").TextContent, StringComparison.Ordinal);
+    }
+
+    // OBS-5: the screen checks for a movie first, and its label and barcode are read as Core reads
+    // them, so Core refusing the case for any of these is a bug. It goes to the screen's
+    // ErrorBoundary, which shows the error dialog.
+    [Theory]
+    [InlineData(ShelveStatus.NoMovies)]
+    [InlineData(ShelveStatus.NotALabel)]
+    [InlineData(ShelveStatus.NotAUpc)]
+    public async Task Scanned_LabelRefusedForWhatTheScreenChecks_Throws(ShelveStatus status)
+    {
+        var cut = await RenderWithTommyBoyPickedAsync();
+        _intake.Shelving = Task.FromResult(new Shelving(status, null));
+
+        await ScanLabelAsync(cut, Label);
+
+        var thrown = await Renderer.UnhandledException.WaitAsync(TimeSpan.FromSeconds(10), Xunit.TestContext.Current.CancellationToken);
+        Assert.IsType<UnreachableException>(thrown);
+    }
+
+    // A box set's next movie is still being picked, and the label would shelve the case without it.
+    [Fact]
+    public async Task Scanned_LabelWhilePickerIsOpen_SaysToFinishFirst()
+    {
+        var cut = await RenderWithTommyBoyPickedAsync();
+        _intake.Search = Found(Halloween1978);
+        await SearchAsync(cut, "Halloween");
+
+        await ScanLabelAsync(cut, Label);
+
+        Assert.Equal("Finish adding this movie, or press Esc, then scan the label.", cut.Find(".intake-prompt").TextContent);
+        Assert.Empty(_intake.Shelvings);
+    }
+
+    [Fact]
+    public async Task Scanned_LabelWhileEnteringByHand_SaysToFinishFirst()
+    {
+        var cut = await RenderWithTommyBoyPickedAsync();
+        await OpenHandEntryAsync(cut);
+
+        await ScanLabelAsync(cut, Label);
+
+        Assert.Equal("Finish adding this movie, or press Esc, then scan the label.", cut.Find(".intake-prompt").TextContent);
+        Assert.Empty(_intake.Shelvings);
+    }
+
+    // A factory UPC would start the next DVD and lose this case, which has no label yet. The case
+    // stays as it was, and the warning says what to do.
+    [Fact]
+    public async Task Scanned_UpcWhileCaseHoldsAMovie_IsRefused()
+    {
+        var cut = await RenderWithTommyBoyPickedAsync();
+
+        await ScanAsync(cut, HalloweenUpc);
+
+        Assert.Equal(DialogIcon.Warning, _dialogs.Current?.Icon);
+        Assert.Equal("This case doesn't have its store label yet.\n\nScan the label, or press Esc to start over.", _dialogs.Current?.Message);
+        Assert.Equal([TommyBoyUpc], _titles.Lookups);
+        Assert.Equal(["Tommy Boy (1995)"], cut.FindAll(".case-movie-title").Select(title => title.TextContent));
+        Assert.Equal("This DVD's barcode: 032429258373", cut.Find(".intake-barcode").TextContent);
+    }
+
+    // One case at a time: a scan while the case is being saved would start the next one before this
+    // one is on the shelf.
+    [Fact]
+    public async Task Scanned_WhileShelving_IsIgnored()
+    {
+        var cut = await RenderWithTommyBoyPickedAsync();
+        var saved = new TaskCompletionSource<Shelving>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _intake.Shelving = saved.Task;
+        await ScanLabelAsync(cut, Label);
+
+        await ScanAsync(cut, HalloweenUpc);
+        await ScanLabelAsync(cut, SecondLabel);
+
+        Assert.Null(_dialogs.Current);
+        Assert.Equal([TommyBoyUpc], _titles.Lookups);
+        Assert.Equal([Label], _intake.Shelvings.Select(shelving => shelving.StoreLabel));
+        saved.SetResult(new Shelving(ShelveStatus.Shelved, new ShelvedCase(Label, [new ShelvedMovie("Tommy Boy", 1995)])));
+        cut.WaitForAssertion(() => Assert.Empty(cut.FindAll(".case-contents")));
+    }
+
+    // TMDB doesn't have it: the form opens in the picker's place, with the title the clerk searched
+    // for, to fix or keep.
+    [Fact]
+    public async Task EnterByHand_OpensWithTheTitlePrefilled()
+    {
+        _intake.Search = Found(Halloween1978);
+        var cut = Render<Intake>();
+        await SearchAsync(cut, "The Haddonfield Story");
+
+        await OpenHandEntryAsync(cut);
+
+        Assert.Equal("The Haddonfield Story", cut.Find("#hand-entry-title").GetAttribute("value"));
+        Assert.Empty(cut.FindAll(".tmdb-picker"));
+    }
+
+    // UI-6: while the form is open, the prompt says what to type, whatever it said before.
+    [Fact]
+    public async Task EnterByHand_Opens_SaysWhatToType()
+    {
+        var cut = Render<Intake>();
+        await ScanLabelAsync(cut, Label);
+
+        await OpenHandEntryAsync(cut);
+
+        Assert.Equal("Type what's on the case, then press Enter. Leave blank what you don't know.", cut.Find(".intake-prompt").TextContent);
+    }
+
+    // The movie Core takes goes in the case, as a pick does, and the prompt says the label comes next.
+    [Fact]
+    public async Task EnterByHand_Entered_ListsTheMovie()
+    {
+        _intake.HandEntry = new HandEntry(HandEntryStatus.Entered, new CaseMovieEntry.ByHand("The Haddonfield Story", 1985, 92, "PG"));
+        var cut = Render<Intake>();
+        await OpenHandEntryAsync(cut);
+
+        await cut.Find(".hand-entry-form").SubmitAsync();
+
+        Assert.Empty(cut.FindAll(".hand-entry"));
+        var movie = cut.Find(".case-movie");
+        Assert.Equal("The Haddonfield Story (1985)", movie.QuerySelector(".case-movie-title")?.TextContent);
+        Assert.Contains("Rated PG · 92 minutes", movie.TextContent, StringComparison.Ordinal);
+        Assert.Equal(LabelPrompt, cut.Find(".intake-prompt").TextContent);
+    }
+
+    // Core checks what was typed (NET-12), so the screen hands it over just as it was typed.
+    [Fact]
+    public async Task EnterByHand_Submit_SendsCoreWhatWasTyped()
+    {
+        var cut = Render<Intake>();
+        await OpenHandEntryAsync(cut);
+        await cut.Find("#hand-entry-title").InputAsync(" The Haddonfield Story ");
+        await cut.Find("#hand-entry-year").InputAsync("1985 ");
+        await cut.Find("#hand-entry-runtime").InputAsync("92");
+        await cut.Find("#hand-entry-rating").ChangeAsync("PG");
+
+        await cut.Find(".hand-entry-form").SubmitAsync();
+
+        Assert.Equal([(" The Haddonfield Story ", "1985 ", "92", "PG")], _intake.HandEntries);
+    }
+
+    // NET-12: what Core refuses is the clerk's to fix, so the prompt line says how, not a dialog, and
+    // the form stays open with what was typed.
+    [Theory]
+    [InlineData(HandEntryStatus.NoTitle, "Type the title.")]
+    [InlineData(HandEntryStatus.NotAYear, "The year is four digits, such as 1978, or blank.")]
+    [InlineData(HandEntryStatus.NotARuntime, "The runtime is in minutes, such as 91, or blank.")]
+    [InlineData(HandEntryStatus.NotARating, "Pick a rating from the list, or Unknown.")]
+    public async Task EnterByHand_Refused_SaysWhyInThePrompt(HandEntryStatus status, string prompt)
+    {
+        _intake.HandEntry = new HandEntry(status, null);
+        var cut = Render<Intake>();
+        await OpenHandEntryAsync(cut);
+
+        await cut.Find(".hand-entry-form").SubmitAsync();
+
+        Assert.Equal(prompt, cut.Find(".intake-prompt").TextContent);
+        Assert.Single(cut.FindAll(".hand-entry"));
+        Assert.Null(_dialogs.Current);
+    }
+
+    // Fixed and entered, the movie goes in the case, and the prompt stops saying what was wrong.
+    [Fact]
+    public async Task EnterByHand_EnteredAfterARefusal_SaysTheLabelIsNext()
+    {
+        _intake.HandEntry = new HandEntry(HandEntryStatus.NotAYear, null);
+        var cut = Render<Intake>();
+        await OpenHandEntryAsync(cut);
+        await cut.Find(".hand-entry-form").SubmitAsync();
+        _intake.HandEntry = new HandEntry(HandEntryStatus.Entered, new CaseMovieEntry.ByHand("The Haddonfield Story", 1985, null, null));
+
+        await cut.Find(".hand-entry-form").SubmitAsync();
+
+        Assert.Equal(LabelPrompt, cut.Find(".intake-prompt").TextContent);
+    }
+
+    [Fact]
+    public async Task EnterByHand_EscapeAfterARefusal_StopsSayingWhy()
+    {
+        _intake.HandEntry = new HandEntry(HandEntryStatus.NotAYear, null);
+        var cut = Render<Intake>();
+        await OpenHandEntryAsync(cut);
+        await cut.Find(".hand-entry-form").SubmitAsync();
+
+        await cut.Find("#hand-entry-year").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
+
+        Assert.Equal("Scan the DVD's barcode, or type its title and press Enter.", cut.Find(".intake-prompt").TextContent);
+    }
+
+    // UI-3: Esc cancels the form from any box, and the title box has the focus again, with the title
+    // to search again.
+    [Fact]
+    public async Task EnterByHand_Escape_ClosesTheForm()
+    {
+        var cut = Render<Intake>();
+        var titleBox = TitleBoxId(cut);
+        await cut.Find("#intake-title").InputAsync("The Haddonfield Story");
+        await OpenHandEntryAsync(cut);
+
+        await cut.Find("#hand-entry-year").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
+
+        Assert.Empty(cut.FindAll(".hand-entry"));
+        Assert.Equal("The Haddonfield Story", cut.Find("#intake-title").GetAttribute("value"));
+        AssertFocusedLast(titleBox, focuses: 3);
+    }
+
+    // UI-3: Esc closes the form from the title box too, as it closes the picker.
+    [Fact]
+    public async Task KeyDownEscape_InTheTitleBox_ClosesTheHandEntryForm()
+    {
+        var cut = Render<Intake>();
+        await OpenHandEntryAsync(cut);
+
+        await cut.Find("#intake-title").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
+
+        Assert.Empty(cut.FindAll(".hand-entry"));
+    }
+
+    // A search from the title box opens the picker in the form's place.
+    [Fact]
+    public async Task Submit_WhileEnteringByHand_OpensThePickerInstead()
+    {
+        _intake.Search = Found(Halloween1978);
+        var cut = Render<Intake>();
+        await OpenHandEntryAsync(cut);
+
+        await SearchAsync(cut, "Halloween");
+
+        Assert.Empty(cut.FindAll(".hand-entry"));
+        Assert.Single(cut.FindAll(".tmdb-picker"));
+    }
+
+    // With no movie in the case, a factory UPC starts over on the new DVD, as it does from the picker.
+    [Fact]
+    public async Task Scanned_UpcWhileEnteringByHand_StartsOverOnTheNewDvd()
+    {
+        var cut = Render<Intake>();
+        await OpenHandEntryAsync(cut);
+
+        await ScanAsync(cut, TommyBoyUpc);
+
+        Assert.Empty(cut.FindAll(".hand-entry"));
+        Assert.Equal([TommyBoyUpc], _titles.Lookups);
+    }
+
+    // UI-10: what the clerk typed is shown as text, never as markup.
+    [Fact]
+    public async Task EnterByHand_TitleWithMarkup_ShowsItAsText()
+    {
+        _intake.HandEntry = new HandEntry(HandEntryStatus.Entered, new CaseMovieEntry.ByHand("<b>Boo!</b>", null, null, null));
+        var cut = Render<Intake>();
+        await OpenHandEntryAsync(cut);
+
+        await cut.Find(".hand-entry-form").SubmitAsync();
+
+        Assert.Equal("<b>Boo!</b>", cut.Find(".case-movie-title").TextContent);
+        Assert.Empty(cut.FindAll(".case-movie b"));
     }
 
     // The scanner outlives the screen, so the screen stops listening when the clerk leaves it.
@@ -807,11 +1323,28 @@ public sealed class IntakeTests : BunitContext
     private static Task<TmdbSearch> Found(params TmdbMatch[] matches) =>
         Task.FromResult(new TmdbSearch(TmdbStatus.Ok, matches));
 
+    // A pick, as Core answers it: a movie the collection has, or one fetched from TMDB.
+    private static Task<MoviePick> Picked(CaseMovieEntry movie) =>
+        Task.FromResult(new MoviePick(movie is CaseMovieEntry.Owned ? PickStatus.Owned : PickStatus.Fetched, movie));
+
+    // A label scan's save, as Core answers once the case is on the shelf.
+    private static Task<Shelving> Shelved(string label, params CaseMovieEntry[] movies) =>
+        Task.FromResult(new Shelving(
+            ShelveStatus.Shelved,
+            new ShelvedCase(label, [.. movies.Select(movie => new ShelvedMovie(movie.Title, movie.Year))])));
+
     // A factory UPC, as the scanner's thread would raise it, then a turn of the screen's own
     // thread, so the screen has handled it before the test looks.
     private async Task ScanAsync(IRenderedComponent<Intake> cut, string upc)
     {
         _scanner.Emit(new Scan(ScanKind.Upc, upc));
+        await cut.InvokeAsync(() => { });
+    }
+
+    // A store label, as ScanAsync scans a factory UPC.
+    private async Task ScanLabelAsync(IRenderedComponent<Intake> cut, string label)
+    {
+        _scanner.Emit(new Scan(ScanKind.StoreLabel, label));
         await cut.InvokeAsync(() => { });
     }
 
@@ -830,20 +1363,50 @@ public sealed class IntakeTests : BunitContext
     private static async Task SearchAsync(IRenderedComponent<Intake> cut, string title)
     {
         await cut.Find("#intake-title").InputAsync(title);
-        await cut.Find("form").SubmitAsync();
+        await cut.Find(".intake-search").SubmitAsync();
     }
 
     private static Task PickFirstAsync(IRenderedComponent<Intake> cut) =>
         cut.Find(".tmdb-picker tbody tr").KeyDownAsync(new KeyboardEventArgs { Key = "Enter" });
 
-    // Searches, then picks Halloween (1978), whose add waits until the test sets its answer.
-    private async Task<(IRenderedComponent<Intake> Cut, TaskCompletionSource<MovieAdd> Added, Task Pick)> StartAddingAsync()
+    private static Task OpenHandEntryAsync(IRenderedComponent<Intake> cut) =>
+        cut.FindAll(".intake-search button").Single(button => button.TextContent == "Can't find it? Enter by hand").ClickAsync(new MouseEventArgs());
+
+    // The screen once Tommy Boy's barcode is scanned and the movie picked: the open case holds it,
+    // with its barcode, waiting for its label.
+    private async Task<IRenderedComponent<Intake>> RenderWithTommyBoyPickedAsync()
     {
-        var added = new TaskCompletionSource<MovieAdd>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _intake.Search = Found(Halloween1978);
-        _intake.Add = added.Task;
+        _titles.Lookup = Task.FromResult(TommyBoyFound);
+        _intake.Search = Found(TommyBoy1995);
+        _intake.Pick = Picked(TommyBoy);
+        var cut = Render<Intake>();
+        await ScanAsync(cut, TommyBoyUpc);
+        await PickFirstAsync(cut);
+        return cut;
+    }
+
+    // The screen once Halloween (1978) is in the case and the clerk has picked it again from a
+    // second search: the prompt says it's in the case already, and the picker is still open.
+    private async Task<IRenderedComponent<Intake>> RenderWithHalloweenPickedTwiceAsync()
+    {
+        _intake.Search = Found(Halloween1978, Halloween2018);
+        _intake.Pick = Picked(Halloween);
         var cut = Render<Intake>();
         await SearchAsync(cut, "Halloween");
-        return (cut, added, PickFirstAsync(cut));
+        await PickFirstAsync(cut);
+        await SearchAsync(cut, "Halloween");
+        await PickFirstAsync(cut);
+        return cut;
+    }
+
+    // Searches, then picks Halloween (1978), whose pick waits until the test sets its answer.
+    private async Task<(IRenderedComponent<Intake> Cut, TaskCompletionSource<MoviePick> Picked, Task Pick)> StartPickingAsync()
+    {
+        var picked = new TaskCompletionSource<MoviePick>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _intake.Search = Found(Halloween1978);
+        _intake.Pick = picked.Task;
+        var cut = Render<Intake>();
+        await SearchAsync(cut, "Halloween");
+        return (cut, picked, PickFirstAsync(cut));
     }
 }

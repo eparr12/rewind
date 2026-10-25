@@ -41,7 +41,7 @@ The scanner keeps its own settings, so a new PC needs only the driver.
 
 ## Intake
 
-Intake (F4) turns a DVD into a movie in the collection: a scan of the DVD's factory barcode asks UPCitemdb what the product is called, and that title is searched for on TMDB, where the clerk picks the movie.
+Intake (F4) turns a DVD into a labeled case on the shelf: a scan of the DVD's factory barcode asks UPCitemdb what the product is called, that title is searched for on TMDB, where the clerk picks the movie, or each movie of a box set, and a scan of the next store label puts the case on the shelf. Nothing is saved until that label scan ([ADR-0005](docs/adr/0005-intake-saves-at-the-label-scan.md)).
 
 ### UPCitemdb
 
@@ -51,7 +51,7 @@ Lookups go one at a time, at most 6 in any minute: a quick run of scans goes str
 
 Before searching TMDB, Rewind drops words such as DVD, Widescreen and Special Edition from the product's title, and anything in brackets, so "Tommy Boy (DVD)" becomes "Tommy Boy", and it puts a product list's "Matrix, The" back as "The Matrix". It cleans each title as it reads it from `UpcLookups`, so a better word list in `ProductTitles` cleans the answers already saved too.
 
-To try it in a Debug build, open Intake (F4), type a 12-digit UPC such as `032429258373` into the scan simulator and press Enter: the title box fills in with Tommy Boy, and the list opens. Each barcode Rewind hasn't seen before spends one of the day's 100 lookups.
+To try it in a Debug build, open Intake (F4), type a 12-digit UPC such as `032429258373` into the scan simulator and press Enter: the title box fills in with Tommy Boy, and the list opens. Press Enter on Tommy Boy, then type the store label `RV-00042` into the scan simulator and press Enter, and the case goes on the shelf. Each factory barcode Rewind hasn't seen before spends one of the day's 100 lookups.
 
 With the log at Debug (see [Logs](#logs)), each lookup has a line with the barcode, what UPCitemdb answered and how many lookups it says are left. A barcode answered from `UpcLookups` gets a line saying so, a lookup that waits its turn says for how long, and after a refusal the log says until when Rewind asks nothing.
 

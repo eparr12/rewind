@@ -31,6 +31,7 @@ export function start(dotNetShell) {
 
   document.addEventListener('keydown', keepTabInDialog);
   document.addEventListener('keydown', moveInList);
+  document.addEventListener('keydown', submitFromDropDown);
   document.addEventListener('focusin', e => {
     if (e.target instanceof Element && !e.target.closest('.dialog')) {
       focusBeforeDialog = e.target;
@@ -97,6 +98,20 @@ function moveInList(e) {
   }[e.key];
   e.preventDefault(); // move by a row, rather than scroll the list as well
   rows[next].focus(); // which scrolls the row into view
+}
+
+// UI-3: as in a Windows 98 dialog, Enter in a form's drop-down list presses the form's default
+// button, just as Enter in its text boxes does. Left to the browser, what Enter does in a
+// drop-down list is up to the platform, and on some it opens the list instead.
+function submitFromDropDown(e) {
+  const list = e.target;
+  if (e.key !== 'Enter' || !(list instanceof HTMLSelectElement) || list.form === null
+      || e.altKey || e.ctrlKey || e.shiftKey || e.metaKey) {
+    return;
+  }
+
+  e.preventDefault(); // so the list doesn't open, or submit a second time
+  list.form.requestSubmit();
 }
 
 function ignoreHrefLinks(e) {

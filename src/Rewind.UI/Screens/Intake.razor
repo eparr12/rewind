@@ -1,18 +1,25 @@
 @implements IDisposable
+@using System.Diagnostics
 @using System.Globalization
 @using Microsoft.Extensions.Logging
 @inject IScanner Scanner
 @inject IBarcodeTitles Titles
 @inject IMovieIntake Movies
 @inject DialogService Dialogs
+@inject ISoundPlayer Sounds
 @inject TimeProvider Time
 @inject ILogger<Intake> Logger
 
-@* F4 Intake, for now its first steps (Build Plan 2.2, 2.3): scan the DVD's factory UPC, and
-   UPCitemdb's title for it goes in the title box and is searched for, or type the title; then pick
-   the movie by its poster, year and story, and add it to the collection. Build Plan 2.4 adds the
-   store label after it. *@
-<form class="field-row intake-search" @onsubmit="SearchAsync" @onsubmit:preventDefault @onkeydown="OnSearchKeyDown">
+@* F4 Intake (Build Plan 2.2 to 2.4, ADR-0005): a DVD, from its factory UPC to a labeled case on
+   the shelf. Scan the UPC, and UPCitemdb's title for it goes in the title box and is searched for
+   on TMDB, or type the title. Pick the movie by its poster, year and story, or enter it by hand
+   when TMDB doesn't have it, and it goes in the case, listed under "In this case". A box set or a
+   double feature adds each of its movies the same way. Then the clerk peels the next store label,
+   sticks it on the case and scans it, and the case goes on the shelf with its movies, all in one
+   save. A case is open from its first scan or pick until that label scan, and nothing of it is
+   saved before then, so Esc starting over, or the clerk leaving the screen, loses nothing but the
+   open case. *@
+<form class="field-row intake-search" @onsubmit="SearchAsync" @onsubmit:preventDefault @onkeydown="OnSearchKeyDownAsync">
     <label for="intake-title">Title:</label>
     @* While a scan is looked up, the box is read-only rather than disabled, so it keeps the focus
        and Esc can stop the lookup. *@
@@ -20,6 +27,7 @@
            maxlength="@TmdbClient.MaxNameLength" disabled="@(Busy && !LookingUp)" readonly="@LookingUp"
            @ref="_titleBox" @bind="_title" @bind:event="oninput" />
     <button type="submit" disabled="@Busy">Search</button>
+    <button type="button" disabled="@(Busy || _handEntry)" @onclick="OpenHandEntry">Can't find it? Enter by hand</button>
 </form>
 @if (_barcode is { } barcode)
 {
@@ -27,44 +35,25 @@
 }
 <p class="intake-prompt">@Prompt</p>
 
-@if (_added?.Movie is { } movie)
+@if (_handEntry)
 {
-    <fieldset class="intake-movie">
-        <legend>@TitleAndYear(movie.Title, movie.Year)</legend>
-        <div class="intake-movie-body">
-            @if (_addedPoster is { } poster)
-            {
-                <img src="@poster" width="171" alt="" />
-            }
-            <div>
-                @if (Facts(movie) is { Length: > 0 } facts)
-                {
-                    <p>@facts</p>
-                }
-                @if (movie.Director is { } director)
-                {
-                    <p>Directed by @director</p>
-                }
-                @if (movie.Cast.Count > 0)
-                {
-                    <p>Starring @string.Join(", ", movie.Cast)</p>
-                }
-                @if (movie.Overview is { } overview)
-                {
-                    <p>@overview</p>
-                }
-            </div>
-        </div>
-    </fieldset>
+    <HandEntryForm Title="@_title" OnAdd="AddByHand" OnCancel="CloseHandEntry" />
 }
 else if (_matches is { Count: > 0 } matches)
 {
-    <TmdbPicker Matches="matches" OnPick="AddAsync" OnCancel="ClosePicker" />
+    <TmdbPicker Matches="matches" OnPick="PickAsync" OnCancel="ClosePicker" />
+}
+@if (_movies.Count > 0)
+{
+    <CaseContents Movies="_movies" />
 }
 
 @code {
     private const string ClockFormat = "h:mm tt";
     private const string DayFormat = "dddd";
+
+    private const string NextLabel =
+        "Peel the next store label, stick it on the case and scan it. Box set? Type the next movie's title first.";
 
     private static readonly Dialog NotSetUp = new(
         Store.Name,
@@ -81,8 +70,19 @@ else if (_matches is { Count: > 0 } matches)
         "TMDB has no details for that movie.\n\nPick another one, or search again.",
         DialogIcon.Warning);
 
-    // Cancelled when the clerk leaves the screen, so a lookup, a search or an add still waiting
-    // on UPCitemdb or TMDB stops.
+    private static readonly Dialog NoLabelYet = new(
+        Store.Name,
+        "This case doesn't have its store label yet.\n\nScan the label, or press Esc to start over.",
+        DialogIcon.Warning);
+
+    private static readonly Dialog StartOverWithMovies = new(
+        Store.Name,
+        "Start over?\n\nNothing from this case has been saved.",
+        DialogIcon.Warning,
+        CanCancel: true);
+
+    // Cancelled when the clerk leaves the screen, so a lookup, a search, a pick or a label scan's
+    // save still waiting on UPCitemdb, TMDB or the database stops.
     private readonly CancellationTokenSource _closing = new();
 
     private ElementReference _titleBox;
@@ -91,12 +91,21 @@ else if (_matches is { Count: > 0 } matches)
     private string _searched = "";
     private string? _busy;
     private IReadOnlyList<TmdbMatch>? _matches;
-    private MovieAdd? _added;
-    private string? _addedPoster;
 
-    // The factory UPC of the DVD being entered, in Core's form once the lookup returns, from its
-    // scan until the next scan, a title typed after an add, or Esc starting over. Build Plan 2.4
-    // saves it on the DVD's case, as Case.FactoryUpc, for the phone catalog.
+    // The open case's movies, in the order they were added (ADR-0005). Each movie added makes a new
+    // list rather than changing this one, so CaseContents can tell by reference that it changed.
+    private IReadOnlyList<CaseMovieEntry> _movies = [];
+
+    // Whether the hand-entry form is open, in the picker's place.
+    private bool _handEntry;
+
+    // What the clerk's last action came to, such as a label scanned before the movie, until their
+    // next one. It takes the prompt's place.
+    private string? _notice;
+
+    // The open case's factory UPC, in Core's form once the lookup returns, from its scan until the
+    // case's label scan or Esc starting over. The label scan saves it as Case.FactoryUpc, for the
+    // phone catalog.
     private string? _barcode;
 
     // What the scan found, until the clerk searches for a title of their own or starts over.
@@ -109,7 +118,8 @@ else if (_matches is { Count: > 0 } matches)
 
     private bool LookingUp => _stopLookup is not null;
 
-    // One line that always says what's happening or what to do next (UI-6).
+    // One line that always says what's happening or what to do next (UI-6), or answers what the
+    // clerk just did.
     private string Prompt
     {
         get
@@ -119,11 +129,14 @@ else if (_matches is { Count: > 0 } matches)
                 return busy;
             }
 
-            if (_added is { } added)
+            if (_notice is { } notice)
             {
-                return added.Status == AddStatus.AlreadyOwned
-                    ? "That movie is already in the collection. Scan the next DVD, or type its title and press Enter."
-                    : "Added to the collection. Scan the next DVD, or type its title and press Enter.";
+                return notice;
+            }
+
+            if (_handEntry)
+            {
+                return "Type what's on the case, then press Enter. Leave blank what you don't know.";
             }
 
             if (_matches is { Count: > 0 })
@@ -134,9 +147,12 @@ else if (_matches is { Count: > 0 } matches)
             }
 
             // The clerk didn't spell a title UPCitemdb gave, so it's to fix, not to check.
-            return _matches is not null
-                ? $"TMDB has no movie called \"{_searched}\". {(_lookup?.Title is null ? "Check the spelling" : "Fix the title")}, then search again."
-                : LookupPrompt;
+            if (_matches is not null)
+            {
+                return $"TMDB has no movie called \"{_searched}\". {(_lookup?.Title is null ? "Check the spelling" : "Fix the title")}, then search again, or enter it by hand.";
+            }
+
+            return _movies.Count > 0 ? NextLabel : LookupPrompt;
         }
     }
 
@@ -156,7 +172,7 @@ else if (_matches is { Count: > 0 } matches)
     protected override void OnInitialized() => Scanner.Scanned += OnScanned;
 
     // UI-3: the title box has the focus when the screen opens and after each movie, so the clerk
-    // can just type. While the picker is open, it has the focus instead.
+    // can just type. While the picker or the hand-entry form is open, it has the focus instead.
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (_focusTitle)
@@ -189,23 +205,38 @@ else if (_matches is { Count: > 0 } matches)
         }
     });
 
-    // Only a factory UPC means something here for now: the store label is Build Plan 2.4's.
+    // A factory UPC starts the next DVD, and a store label puts the open case on the shelf. Nothing
+    // else means anything here (HW-5).
     private async Task OnScanAsync(Scan scan)
     {
-        if (scan.Kind != ScanKind.Upc || _closing.IsCancellationRequested)
+        if (scan.Kind is not (ScanKind.Upc or ScanKind.StoreLabel) || _closing.IsCancellationRequested)
         {
             return; // nor does a scan that arrives as the clerk leaves the screen
         }
 
-        // One DVD at a time: a scan while one is being looked up, searched for or added, or while a
-        // dialog waits for an answer, would start the next DVD in the middle of this one.
+        // One thing at a time: a scan while a DVD is looked up, searched for or picked, while a case
+        // is being saved, or while a dialog waits for an answer, would start something new in the
+        // middle of it.
         if (Busy || Dialogs.Current is not null)
         {
-            LogScanIgnored(Logger, scan.Code);
+            LogScanIgnored(Logger, scan.Kind, scan.Code);
             return;
         }
 
-        await LookUpAsync(scan.Code);
+        _notice = null;
+        if (scan.Kind == ScanKind.StoreLabel)
+        {
+            await ShelveAsync(scan.Code);
+        }
+        else if (_movies.Count > 0)
+        {
+            await ShowAsync(NoLabelYet); // the open case stays as it was
+        }
+        else
+        {
+            await LookUpAsync(scan.Code);
+        }
+
         StateHasChanged(); // a scan isn't a UI event, so Blazor doesn't draw by itself
     }
 
@@ -216,8 +247,8 @@ else if (_matches is { Count: > 0 } matches)
         _barcode = upc;
         _lookup = null;
         _title = "";
-        _added = null;
         _matches = null;
+        _handEntry = false;
         _focusTitle = true; // so Esc reaches the form
 
         var lookup = await StoppableLookupAsync(upc);
@@ -269,7 +300,8 @@ else if (_matches is { Count: > 0 } matches)
         StateHasChanged();
     }
 
-    // Enter, or the Search button.
+    // Enter, or the Search button. A title typed while the case holds a movie is the next movie in
+    // that case, as in a box set or a double feature, so the barcode stays.
     private async Task SearchAsync()
     {
         var title = _title.Trim();
@@ -278,20 +310,15 @@ else if (_matches is { Count: > 0 } matches)
             return;
         }
 
-        // A title typed after an add is the next DVD's, and it has no barcode until one is scanned.
-        if (_added is not null)
-        {
-            _barcode = null;
-        }
-
+        _notice = null;
         _lookup = null;
         await SearchTmdbAsync(title);
     }
 
     private async Task SearchTmdbAsync(string title)
     {
-        _added = null;
         _matches = null;
+        _handEntry = false; // the picker takes its place
         if (await WhileBusyAsync("Searching TMDB...", token => Movies.SearchAsync(title, token), _closing.Token) is not { } search)
         {
             return;
@@ -308,40 +335,49 @@ else if (_matches is { Count: > 0 } matches)
         _focusTitle = _matches.Count == 0;
     }
 
-    private async Task AddAsync(TmdbMatch match)
+    // Enter, a double-click or Add Movie in the picker: the movie goes in the open case.
+    private async Task PickAsync(TmdbMatch match)
     {
         if (Busy)
         {
-            return; // a second Enter while the first pick is still being added
+            return; // a second Enter while the first pick is still being fetched
         }
 
-        var adding = $"Adding {TitleAndYear(match.Title, match.Year)}...";
-        if (await WhileBusyAsync(adding, token => Movies.AddAsync(match.TmdbId, token), _closing.Token) is not { } add)
+        _notice = null;
+
+        // ADR-0005: the case lists each movie once. An owned movie's entry carries its TMDB ID too,
+        // so the match's ID finds either kind, and TMDB isn't asked for it again. The picker stays
+        // open, for the clerk to pick another match.
+        if (_movies.FirstOrDefault(movie => movie.TmdbId == match.TmdbId) is { } listed)
+        {
+            _notice = $"{MovieTitle.WithYear(listed.Title, listed.Year)} is already in this case.";
+            return;
+        }
+
+        var adding = $"Adding {MovieTitle.WithYear(match.Title, match.Year)}...";
+        if (await WhileBusyAsync(adding, token => Movies.PickAsync(match.TmdbId, token), _closing.Token) is not { } pick)
         {
             return;
         }
 
         // The picker stays open, so the clerk can try again or pick another match.
-        if (add.Movie is null)
+        if (pick.Entry is not { } movie)
         {
-            await ShowAsync(add.Status switch
+            await ShowAsync(pick.Status switch
             {
-                AddStatus.NotSetUp => NotSetUp,
-                AddStatus.NotFound => NoDetails,
+                PickStatus.NotSetUp => NotSetUp,
+                PickStatus.NotFound => NoDetails,
                 _ => NoAnswer,
             });
             return;
         }
 
-        _added = add;
-        _addedPoster = add.Movie.Poster is { } poster ? PosterImage.Source(poster) : null;
         _matches = null;
-        _title = "";
-        _focusTitle = true; // ready for the next DVD
+        AddToCase(movie);
     }
 
-    // UI-3: while a pick is being added, Esc and Cancel do nothing, as Enter does. Closing the list
-    // would look like a cancel, and then the movie would appear anyway.
+    // UI-3: while a pick is being fetched, Esc and Cancel do nothing, as Enter does. Closing the
+    // list would look like a cancel, and then the movie would go in the case anyway.
     private void ClosePicker()
     {
         if (Busy)
@@ -349,14 +385,117 @@ else if (_matches is { Count: > 0 } matches)
             return;
         }
 
+        _notice = null;
         _matches = null;
         _focusTitle = true;
     }
 
+    // "Can't find it? Enter by hand": the form takes the picker's place, with the title box's title.
+    private void OpenHandEntry()
+    {
+        _notice = null;
+        _matches = null;
+        _handEntry = true;
+    }
+
+    // Enter, or Add to case, in the hand-entry form. Core checks what was typed (NET-12): a movie it
+    // takes goes in the case, and what it refuses is said in the prompt line, with the form kept
+    // open to fix it.
+    private void AddByHand(HandEntryForm.Typed typed)
+    {
+        _notice = null;
+        var entry = Movies.EnterByHand(typed.Title, typed.Year, typed.RuntimeMinutes, typed.Rating);
+        if (entry.Entry is { } movie)
+        {
+            _handEntry = false;
+            AddToCase(movie);
+            return;
+        }
+
+        _notice = entry.Status switch
+        {
+            HandEntryStatus.NoTitle => "Type the title.",
+            HandEntryStatus.NotAYear => "The year is four digits, such as 1978, or blank.",
+            HandEntryStatus.NotARuntime => "The runtime is in minutes, such as 91, or blank.",
+            HandEntryStatus.NotARating => "Pick a rating from the list, or Unknown.",
+            _ => throw new UnreachableException($"A movie entered by hand came back {entry.Status}, without the movie."),
+        };
+    }
+
+    // Esc or Cancel in the hand-entry form, or Esc in the title row. The title box keeps its title.
+    private void CloseHandEntry()
+    {
+        _notice = null;
+        _handEntry = false;
+        _focusTitle = true;
+    }
+
+    // The movie goes in the open case, and the title box is ready for a box set's next movie, or
+    // the clerk scans the label.
+    private void AddToCase(CaseMovieEntry movie)
+    {
+        _movies = [.. _movies, movie];
+        _title = "";
+        _focusTitle = true;
+    }
+
+    // The label scan closes the case and saves it (ADR-0005). The list on screen is the
+    // confirmation, so it saves without asking. A label scanned before the case has a movie, or
+    // while one is still being added, would shelve a case that isn't finished, so the prompt says
+    // what to do first.
+    private async Task ShelveAsync(string label)
+    {
+        if (_movies.Count == 0)
+        {
+            _notice = "Add the movie first, then scan the label.";
+            return;
+        }
+
+        if (_handEntry || _matches is { Count: > 0 })
+        {
+            _notice = "Finish adding this movie, or press Esc, then scan the label.";
+            return;
+        }
+
+        var saving = $"Putting {label} on the shelf...";
+        switch (await WhileBusyAsync(saving, token => Movies.ShelveAsync(label, _barcode, _movies, token), _closing.Token))
+        {
+            case null:
+                return; // the clerk left the screen before it was saved
+            case { Status: ShelveStatus.Shelved, Case: { } shelved }:
+                AfterShelving(shelved);
+                return;
+            case { Status: ShelveStatus.LabelInUse }:
+                // The case stays open, so the next label can be scanned.
+                await ShowAsync(new Dialog(
+                    Store.Name,
+                    $"{label} is already on another case.\n\nPeel the next label and scan that one.",
+                    DialogIcon.Error));
+                return;
+            case { Status: var status }:
+                // OBS-5: the screen checks for a movie first, the label came through
+                // Barcodes.Classify, and the barcode is in Core's form, so any other answer is a bug.
+                throw new UnreachableException($"Shelving the case came back {status}, which Intake checks for before it asks.");
+        }
+    }
+
+    // The case is on the shelf: the register chimes (UI-7), and the screen is ready for the next DVD.
+    private void AfterShelving(ShelvedCase shelved)
+    {
+        Sounds.Play(Sound.Chime);
+        var movies = string.Join(", ", shelved.Movies.Select(movie => MovieTitle.WithYear(movie.Title, movie.Year)));
+        _notice = $"{shelved.StoreLabel} is on the shelf: {movies}. Scan the next DVD, or type its title and press Enter.";
+        _movies = [];
+        _barcode = null;
+        _lookup = null;
+        _matches = null; // a search that found nothing went with the case
+        _focusTitle = true;
+    }
+
     // UI-3: Esc stops a lookup, so the clerk can type the title instead. It also closes the picker
-    // from the title box or the Search button, not only from the list, which handles its own. With
-    // neither to do, it starts over.
-    private void OnSearchKeyDown(KeyboardEventArgs e)
+    // or the hand-entry form from the title box or its buttons, not only from inside them, which
+    // handle their own. With none of that to do, it starts over.
+    private async Task OnSearchKeyDownAsync(KeyboardEventArgs e)
     {
         if (e.Key != "Escape")
         {
@@ -371,31 +510,43 @@ else if (_matches is { Count: > 0 } matches)
         {
             ClosePicker();
         }
+        else if (_handEntry)
+        {
+            CloseHandEntry();
+        }
         else
         {
-            StartOver();
+            await StartOverAsync();
         }
     }
 
     // Back to how the screen opens, so a DVD scanned by mistake doesn't lend its barcode to the
-    // next title typed. Not while a search or an add runs, as ClosePicker isn't: its answer would
-    // land on a screen that had started over.
-    private void StartOver()
+    // next title typed. A case that holds a movie is only lost once the clerk says OK, though
+    // nothing of it is saved. Not while a search, a pick or a save runs, as ClosePicker isn't: its
+    // answer would land on a screen that had started over.
+    private async Task StartOverAsync()
     {
         if (Busy)
         {
             return;
         }
 
+        _notice = null;
+        if (_movies.Count > 0 && !await ShowAsync(StartOverWithMovies))
+        {
+            return; // Cancel keeps the case as it was
+        }
+
         _barcode = null;
         _lookup = null;
-        _added = null;
+        _matches = null;
+        _movies = [];
         _title = "";
         _focusTitle = true;
     }
 
-    // Shows what Rewind is doing until UPCitemdb or TMDB answers. Null when the call was stopped,
-    // by the clerk leaving the screen or pressing Esc.
+    // Shows what Rewind is doing until UPCitemdb, TMDB or the database answers. Null when the call
+    // was stopped, by the clerk leaving the screen or pressing Esc.
     private async Task<T?> WhileBusyAsync<T>(string doing, Func<CancellationToken, Task<T>> call, CancellationToken token)
         where T : class
     {
@@ -416,7 +567,7 @@ else if (_matches is { Count: > 0 } matches)
     }
 
     // Drawn first, so the screen behind the dialog shows what happened, not what was happening.
-    private Task ShowAsync(Dialog dialog)
+    private Task<bool> ShowAsync(Dialog dialog)
     {
         StateHasChanged();
         return Dialogs.ShowAsync(dialog);
@@ -451,15 +602,4 @@ else if (_matches is { Count: > 0 } matches)
             ? $"until {clock} tomorrow"
             : $"until {back.ToString(DayFormat, CultureInfo.InvariantCulture)} at {clock}";
     }
-
-    private static string TitleAndYear(string title, int? year) => year is null ? title : $"{title} ({year})";
-
-    // Such as "Rated R · 91 minutes · Horror, Thriller". What isn't known is left out (DATA-3).
-    private static string Facts(MovieCard movie) =>
-        string.Join(" · ", new[]
-        {
-            movie.Rating is { } rating ? $"Rated {rating}" : null,
-            movie.RuntimeMinutes is { } minutes ? $"{minutes} minutes" : null,
-            movie.Genres.Count > 0 ? string.Join(", ", movie.Genres) : null,
-        }.OfType<string>());
 }
