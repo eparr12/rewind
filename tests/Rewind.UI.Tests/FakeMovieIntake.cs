@@ -53,11 +53,6 @@ internal sealed class FakeMovieIntake : IMovieIntake
         return Search;
     }
 
-    // The Intake screen picks and shelves now (ADR-0005), and AddAsync goes once nothing calls it.
-    // Until it does, a call means the screen went back to it.
-    public Task<MovieAdd> AddAsync(int tmdbId, CancellationToken cancellationToken) =>
-        throw new NotSupportedException("The Intake screen doesn't add through AddAsync any more.");
-
     public Task<MoviePick> PickAsync(int tmdbId, CancellationToken cancellationToken)
     {
         _picks.Add(tmdbId);

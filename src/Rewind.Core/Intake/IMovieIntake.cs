@@ -18,17 +18,6 @@ public interface IMovieIntake
     Task<TmdbSearch> SearchAsync(string title, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Adds the movie the clerk picked to the collection, with its details, cast, genres and
-    /// posters, all fetched from TMDB. A movie that's already in the collection is left as it is.
-    /// This is Build Plan 2.3's way, which saves at the pick. The Intake screen moves to
-    /// <see cref="PickAsync"/> and <see cref="ShelveAsync"/> next, and this goes once nothing calls
-    /// it (ADR-0005).
-    /// </summary>
-    /// <param name="tmdbId">The picked movie's TMDB ID, from its <see cref="TmdbMatch"/>.</param>
-    /// <param name="cancellationToken">Cancels the add. Nothing is saved until TMDB has answered.</param>
-    Task<MovieAdd> AddAsync(int tmdbId, CancellationToken cancellationToken);
-
-    /// <summary>
     /// Gets the movie the clerk picked ready to go in the case, and saves nothing (ADR-0005). A
     /// movie the collection already has is read from the database, without asking TMDB, so the case
     /// joins it. Any other is fetched from TMDB with its details and its posters at both saved
