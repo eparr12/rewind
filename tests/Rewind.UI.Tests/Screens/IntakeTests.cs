@@ -811,6 +811,20 @@ public sealed class IntakeTests : BunitContext
         Assert.Empty(_intake.Shelvings);
     }
 
+    // The error chord means something's wrong, and asking before starting over is routine: the
+    // clerk pressed Esc on purpose, as Store Manager's Shut Down asks without it.
+    [Fact]
+    public async Task KeyDownEscape_WithMoviesInCase_PlaysNoErrorChord()
+    {
+        var cut = await RenderWithTommyBoyPickedAsync();
+        var escape = cut.Find("#intake-title").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
+
+        await cut.InvokeAsync(() => _dialogs.Close(ok: false));
+        await escape;
+
+        Assert.DoesNotContain(Sound.Error, _sounds.Played);
+    }
+
     // UI-3: not while TMDB is searching, as Esc doesn't close the list while a pick is being fetched:
     // the search's answer would land on a screen that had started over.
     [Fact]
