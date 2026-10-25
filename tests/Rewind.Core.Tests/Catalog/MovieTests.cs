@@ -85,9 +85,47 @@ public sealed class MovieTests
         await rewind.StartAsync(ct);
         await using var db = rewind.OpenDb();
 
+        // The year and runtime rows are refused by their own CHECKs, and the rating rows by
+        // CK_Movies_Rating's IN check, since none of "", " " and NR is one of UsRatings.All.
         db.Movies.Add(new Movie { Title = "Halloween", Year = year, RuntimeMinutes = runtimeMinutes, Rating = rating });
 
         await SqliteAssert.RefusesAsync(SqliteConstraint.Check, () => db.SaveChangesAsync(ct));
+    }
+
+    [Theory]
+    [InlineData("TV-14")] // a TV rating
+    [InlineData("PG13")] // PG-13, misspelled
+    [InlineData("pg")]
+    [InlineData(" PG ")]
+    [InlineData("Unrated")] // a cover's word for no rating, which Rewind keeps as NULL
+    public async Task SaveChanges_RatingOutsideTheFive_IsRefused(string rating)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await using var db = rewind.OpenDb();
+
+        // pg and " PG " are refused too: the CHECK is exact, since readers such as the spinner's
+        // rating cap compare against UsRatings.All as written.
+        db.Movies.Add(new Movie { Title = "Halloween", Rating = rating });
+
+        await SqliteAssert.RefusesAsync(SqliteConstraint.Check, () => db.SaveChangesAsync(ct));
+    }
+
+    [Fact]
+    public async Task SaveChanges_EachUsRating_Saves()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await using var db = rewind.OpenDb();
+
+        db.Movies.AddRange(UsRatings.All.Select(rating => new Movie { Title = $"Rated {rating}", Rating = rating }));
+        await db.SaveChangesAsync(ct);
+
+        await using var fresh = rewind.OpenDb();
+        var saved = await fresh.Movies.Select(m => m.Rating).ToListAsync(ct);
+        Assert.Equal(UsRatings.All.Order(), saved.Order());
     }
 
     [Fact]
