@@ -25,7 +25,10 @@ public sealed class Movie
     /// <summary>How long it runs, in minutes. Null when unknown, never 0 (DATA-3).</summary>
     public int? RuntimeMinutes { get; set; }
 
-    /// <summary>The US rating, such as PG-13. Null when unknown, never "NR" or blank (DATA-3).</summary>
+    /// <summary>
+    /// The US rating, one of <see cref="UsRatings.All"/>, such as PG-13. Null when unknown, never
+    /// "NR" or blank (DATA-3).
+    /// </summary>
     public string? Rating { get; set; }
 
     /// <summary>The director's name. Null when unknown.</summary>

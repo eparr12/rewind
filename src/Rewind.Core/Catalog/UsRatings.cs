@@ -2,7 +2,9 @@ namespace Rewind.Core.Catalog;
 
 /// <summary>
 /// The US ratings Rewind keeps for a movie, from TMDB or typed by hand. Anything else, such as
-/// TMDB's NR ("No rating information") or a TV rating, is unknown, and so NULL (DATA-3).
+/// TMDB's NR ("No rating information") or a TV rating, is unknown, and so NULL (DATA-3). Movies'
+/// CHECK on Rating is built from <see cref="All"/>, so the two are changed together, with a
+/// migration (see <see cref="MovieConfiguration"/>).
 /// </summary>
 public static class UsRatings
 {

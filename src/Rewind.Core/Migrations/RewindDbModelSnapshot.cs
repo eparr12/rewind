@@ -164,7 +164,7 @@ namespace Rewind.Core.Migrations
 
                             t.HasCheckConstraint("CK_Movies_PosterFile", "trim(\"PosterFile\") <> ''");
 
-                            t.HasCheckConstraint("CK_Movies_Rating", "trim(\"Rating\") NOT IN ('', 'NR')");
+                            t.HasCheckConstraint("CK_Movies_Rating", "\"Rating\" IN ('G', 'PG', 'PG-13', 'R', 'NC-17')");
 
                             t.HasCheckConstraint("CK_Movies_RuntimeMinutes", "\"RuntimeMinutes\" > 0");
 

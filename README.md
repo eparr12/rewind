@@ -113,13 +113,15 @@ dotnet ef migrations add AddCases -p src/Rewind.Core -s src/Rewind.Register
 dotnet ef migrations script Initial AddCases -p src/Rewind.Core -s src/Rewind.Register
 ```
 
-The script covers the migrations after the first name, up to the second, so use the migration before yours in place of `Initial`. Read the script before you commit. SQLite can't change most columns in place, so EF Core rebuilds the table: it copies every row into an `ef_temp_` table, drops the old one and renames the copy. Check that the copy carries every column across: EF Core can read a renamed property as one column dropped and another added, which empties it.
+The script covers the migrations after the first name, up to the second, so use the migration before yours in place of `Initial`. Read the script before you commit. SQLite can't change most columns, or any CHECK, in place, so EF Core rebuilds the table: it copies every row into an `ef_temp_` table, drops the old one and renames the copy. Check that the copy carries every column across: EF Core can read a renamed property as one column dropped and another added, which empties it.
+
+EF Core builds the new table from the migration's `.Designer.cs` file, the model as it was when the migration was added, and not from `Up()`. So when the script shows a wrong rule, fix the model, then remove the migration and add it again; never edit `Up()`. A rebuild also runs as at least three transactions, because SQLite can't turn foreign keys off inside one, so the start that applies it logs a warning from EF Core, that an operation "cannot be executed in a transaction". That's expected: for HoldRatingToUsRatings it was one line, about its `PRAGMA foreign_keys = 0`.
 
 The tools work on a scratch `design.db` and never touch `C:\Rewind`. Rewind applies new migrations itself when it starts, after a backup. Until a migration has run on the register, `dotnet ef migrations remove -p src/Rewind.Core -s src/Rewind.Register` takes it back out. Once it has run there, never edit it; add another migration instead.
 
 ### If a migration was interrupted
 
-EF Core holds a lock while it migrates: a row in the `__EFMigrationsLock` table. If Rewind closes in the middle of a migration, after a crash or a power cut, SQLite rolls the migration back, but the row stays. The next start then waits a minute and fails: a message box says the migration lock was still held, and so does the log in `C:\Rewind\logs`. Each start after that makes another backup and fails the same way, until the lock is cleared:
+EF Core holds a lock while it migrates: a row in the `__EFMigrationsLock` table. If Rewind closes in the middle of a migration, after a crash or a power cut, SQLite rolls back the transaction it was in. For most migrations that's the whole migration, but a table rebuild runs as at least three, so it can stop partway (step 5). Either way the row stays. The next start then waits a minute and fails: a message box says the migration lock was still held, and so does the log in `C:\Rewind\logs`. Each start after that makes another backup and fails the same way, until the lock is cleared:
 
 1. Make sure no copy of Rewind is running: Task Manager lists none named `Rewind.Register.exe`. A copy that's still migrating holds the lock for real, and clearing it would let two copies migrate at once.
 2. Open the database in the SQLite shell: `sqlite3.exe`, from the sqlite-tools zip for Windows on [sqlite.org/download.html](https://sqlite.org/download.html), with no installer needed.
@@ -136,6 +138,14 @@ EF Core holds a lock while it migrates: a row in the `__EFMigrationsLock` table.
    ```
 
 4. Start Rewind. It backs up the database again and migrates it.
+5. If a start fails with `table "ef_temp_Movies" already exists`, or names another `ef_temp_` table, a rebuild stopped between its first and second transactions. That can be the first failure you see, with no lock to clear: when the second transaction fails without a crash, such as on a full disk, SQLite rolls it back and EF Core releases the lock, but the first transaction's `ef_temp_` table stays. The original table is untouched, because the step that replaces it is the one that didn't run. In the SQLite shell, as in step 2, drop the leftover table, with the name from the message:
+
+   ```
+   DROP TABLE "ef_temp_Movies";
+   .quit
+   ```
+
+   Then start Rewind again.
 
 ## Change the docs
 
