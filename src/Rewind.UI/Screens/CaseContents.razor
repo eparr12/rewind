@@ -1,0 +1,75 @@
+@* "In this case" on the Intake screen (Build Plan 2.4): the movies of the case being entered, in
+   the order they were added, each with its poster and what the clerk tells it apart by. Nothing
+   here is saved until the case's store label is scanned, so this list is the last check before
+   that scan (ADR-0005). The story stays in the picker, where the clerk chose by it, so that a box
+   set's list stays short. *@
+<fieldset class="case-contents">
+    <legend>In this case</legend>
+    @for (var i = 0; i < Movies.Count; i++)
+    {
+        var movie = Movies[i];
+        <div class="case-movie">
+            @if (_posters[i] is { } poster)
+            {
+                <img src="@poster" width="114" height="171" alt="" />
+            }
+            else
+            {
+                <span class="case-movie-no-poster"></span>
+            }
+            <div>
+                <p class="case-movie-title">@MovieTitle.WithYear(movie.Title, movie.Year)</p>
+                @if (Facts(movie) is { Length: > 0 } facts)
+                {
+                    <p>@facts</p>
+                }
+                @if (movie.Director is { } director)
+                {
+                    <p>Directed by @director</p>
+                }
+                @if (movie.Cast.Count > 0)
+                {
+                    <p>Starring @string.Join(", ", movie.Cast)</p>
+                }
+                @if (movie is CaseMovieEntry.Owned)
+                {
+                    <p>Already in the collection; this case joins it</p>
+                }
+            </div>
+        </div>
+    }
+</fieldset>
+
+@code {
+    private IReadOnlyList<CaseMovieEntry>? _shown;
+    private string?[] _posters = [];
+
+    /// <summary>
+    /// The case's movies, in the order they were added. The screen shows the list only when
+    /// there's at least one, and gives it a new list for each movie added.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<CaseMovieEntry> Movies { get; set; } = [];
+
+    // Each poster's src is made once per list, not on every render: the screen redraws with every
+    // key typed in its title box.
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(Movies, _shown))
+        {
+            return;
+        }
+
+        _shown = Movies;
+        _posters = Movies.Select(movie => movie.Poster is { } poster ? PosterImage.Source(poster) : null).ToArray();
+    }
+
+    // Such as "Rated R · 91 minutes · Horror, Thriller". What isn't known is left out (DATA-3).
+    private static string Facts(CaseMovieEntry movie) =>
+        string.Join(" · ", new[]
+        {
+            movie.Rating is { } rating ? $"Rated {rating}" : null,
+            movie.RuntimeMinutes is { } minutes ? $"{minutes} minutes" : null,
+            movie.Genres.Count > 0 ? string.Join(", ", movie.Genres) : null,
+        }.OfType<string>());
+}

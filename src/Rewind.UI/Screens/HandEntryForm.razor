@@ -1,0 +1,90 @@
+@using Rewind.Core.Catalog
+
+@* The hand-entry form (Build Plan 2.4): a movie TMDB doesn't have, typed in from its case, laid
+   out as a Windows 98 dialog's boxes are. What's typed goes to the screen as it is, and Core
+   checks it; the boxes only cap how much fits (SEC-5). The year and runtime are text boxes, not
+   number boxes, which would hand over "198S" as blank and so turn a slip into an unknown year.
+   Enter adds the movie from any box: a text box submits the form by itself, and keyboard.js has
+   Enter in the Rating list do the same. Esc cancels. *@
+<fieldset class="hand-entry">
+    <legend>Enter by hand</legend>
+    <form class="hand-entry-form" @onsubmit="AddAsync" @onsubmit:preventDefault @onkeydown="OnKeyDownAsync">
+        <label for="hand-entry-title">Title:</label>
+        <input id="hand-entry-title" class="hand-entry-title" type="text" autocomplete="off" spellcheck="false"
+               maxlength="@TmdbClient.MaxNameLength" @ref="_titleBox" @bind="_title" @bind:event="oninput" />
+        <label for="hand-entry-year">Year:</label>
+        <input id="hand-entry-year" class="hand-entry-number" type="text" autocomplete="off"
+               maxlength="@YearLength" @bind="_year" @bind:event="oninput" />
+        <label for="hand-entry-runtime">Runtime (minutes):</label>
+        <input id="hand-entry-runtime" class="hand-entry-number" type="text" autocomplete="off"
+               maxlength="@RuntimeLength" @bind="_runtime" @bind:event="oninput" />
+        <label for="hand-entry-rating">Rating:</label>
+        <select id="hand-entry-rating" @bind="_rating">
+            <option value="">Unknown</option>
+            @foreach (var rating in UsRatings.All)
+            {
+                <option value="@rating">@rating</option>
+            }
+        </select>
+        <div class="hand-entry-buttons">
+            <button type="submit" class="default">Add to case</button>
+            <button type="button" @onclick="OnCancel">Cancel</button>
+        </div>
+    </form>
+</fieldset>
+
+@code {
+    // A year is four digits, and the longest runtime Core takes, 600 minutes, is three.
+    private const int YearLength = 4;
+    private const int RuntimeLength = 3;
+
+    private ElementReference _titleBox;
+    private string _title = "";
+    private string _year = "";
+    private string _runtime = "";
+    private string _rating = "";
+
+    /// <summary>
+    /// The title the form opens with, from the screen's title box. It's read once, as the form
+    /// opens, so the screen redrawing never puts it back over what the clerk has typed since.
+    /// </summary>
+    [Parameter]
+    public string Title { get; set; } = "";
+
+    /// <summary>Called with what the clerk typed, when they press Enter or Add to case.</summary>
+    [Parameter]
+    public EventCallback<Typed> OnAdd { get; set; }
+
+    /// <summary>Called when the clerk closes the form without adding the movie.</summary>
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    protected override void OnInitialized() => _title = Title;
+
+    // UI-3: the clerk can type straight away, or fix the title the title box gave.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await _titleBox.FocusAsync();
+        }
+    }
+
+    private Task AddAsync() => OnAdd.InvokeAsync(new Typed(_title, _year, _runtime, _rating));
+
+    // UI-3: Esc cancels, from any box or button.
+    private async Task OnKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            await OnCancel.InvokeAsync();
+        }
+    }
+
+    /// <summary>What the clerk typed, just as they typed it, for Core to check.</summary>
+    /// <param name="Title">The title.</param>
+    /// <param name="Year">The year it came out, or blank.</param>
+    /// <param name="RuntimeMinutes">How long it runs, in minutes, or blank.</param>
+    /// <param name="Rating">The US rating picked from the list, or blank for Unknown.</param>
+    public sealed record Typed(string Title, string Year, string RuntimeMinutes, string Rating);
+}

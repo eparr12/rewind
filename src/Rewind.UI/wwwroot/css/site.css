@@ -79,20 +79,65 @@ body {
   margin-top: 24px;
 }
 
-/* F4 Intake: the title box and a line saying what to do, then the picker or the movie that was
-   added (Build Plan 2.3). */
+/* F4 Intake: the title box and a line saying what to do, then the picker or the hand-entry form,
+   then the movies of the case being entered (Build Plan 2.3, 2.4). */
 .intake-search input {
   width: 320px;
 }
 
-.intake-movie-body {
+/* The hand-entry form: the labels in one column and their boxes in the next, as in a Windows 98
+   dialog. */
+.hand-entry-form {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  align-items: center;
+  justify-items: start;
+  gap: 6px 8px;
+}
+
+.hand-entry-title {
+  width: 320px;
+}
+
+.hand-entry-number {
+  width: 48px;
+}
+
+.hand-entry-buttons {
+  display: flex;
+  grid-column: 2;
+  gap: 6px;
+}
+
+/* "In this case": each movie's poster beside what tells it apart. A third of the register's
+   poster size, so a double feature fits on a 1024 by 768 screen (UI-8). */
+.case-contents {
+  margin-top: 8px;
+}
+
+.case-movie {
   display: flex;
   align-items: flex-start;
   gap: 12px;
 }
 
-.intake-movie-body p {
+.case-movie + .case-movie {
+  margin-top: 8px;
+}
+
+.case-movie img,
+.case-movie-no-poster {
+  flex: none;
+  width: 114px;
+  height: 171px;
+}
+
+.case-movie p {
   margin: 0 0 8px;
+}
+
+.case-movie-title {
+  font-weight: bold;
 }
 
 /* The picker: a list tall enough for a poster on each row, which scrolls under its header. */

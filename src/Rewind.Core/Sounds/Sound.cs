@@ -8,7 +8,7 @@ public enum Sound
     /// <summary>A barcode Rewind knows was read: the scan beep.</summary>
     Scan,
 
-    /// <summary>A sale is complete: the register chime.</summary>
+    /// <summary>A sale completes, or a case goes on the shelf at intake: the register chime.</summary>
     Chime,
 
     /// <summary>
