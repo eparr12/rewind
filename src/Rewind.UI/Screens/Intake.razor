@@ -75,10 +75,13 @@ else if (_matches is { Count: > 0 } matches)
         "This case doesn't have its store label yet.\n\nScan the label, or press Esc to start over.",
         DialogIcon.Warning);
 
+    // Info, not Warning: a warning plays the error chord, which means something's wrong, and asking
+    // before starting over is routine, since the clerk pressed Esc on purpose. Store Manager asks
+    // before Shut Down the same way.
     private static readonly Dialog StartOverWithMovies = new(
         Store.Name,
         "Start over?\n\nNothing from this case has been saved.",
-        DialogIcon.Warning,
+        DialogIcon.Info,
         CanCancel: true);
 
     // Cancelled when the clerk leaves the screen, so a lookup, a search, a pick or a label scan's
