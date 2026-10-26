@@ -10,6 +10,7 @@
     <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
     <PackageReference Include="System.IO.Ports" />
+    <PackageReference Include="ZXing.Net" />
   </ItemGroup>
 
 </Project>
