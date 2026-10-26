@@ -36,9 +36,13 @@ public sealed class RewindCoreServicesTests
     [Fact]
     public async Task AddRewindCore_AnyHost_ProvidesLabelSheets()
     {
+        // Resolving it checks Paths:Root, and the default, C:\Rewind, is a full path only on Windows,
+        // while CI runs on Linux. Nothing is opened under the temp folder.
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddRewindCore(new ConfigurationBuilder().Build());
+        services.AddRewindCore(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { [$"{RewindPaths.SectionName}:Root"] = Path.GetTempPath() })
+            .Build());
         await using var provider = services.BuildServiceProvider();
 
         Assert.IsType<LabelSheets>(provider.GetRequiredService<ILabelSheets>());
