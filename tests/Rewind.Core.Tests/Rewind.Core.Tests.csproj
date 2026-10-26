@@ -13,6 +13,7 @@
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <PackageReference Include="xunit.v3.mtp-v2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="ZXing.Net" />
   </ItemGroup>
 
   <ItemGroup>
