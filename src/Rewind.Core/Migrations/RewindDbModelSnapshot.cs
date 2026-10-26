@@ -251,6 +251,16 @@ namespace Rewind.Core.Migrations
                     b.Property<int>("LateFeeCents")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("NextMemberCardNumber")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(1);
+
+                    b.Property<int>("NextStoreLabelNumber")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(1);
+
                     b.Property<int>("RentalPriceCents")
                         .HasColumnType("INTEGER");
 
