@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Rewind.Core.Labels;
 using Rewind.Core.Metadata;
 
 namespace Rewind.Core.Tests;
@@ -29,6 +30,22 @@ public sealed class RewindCoreServicesTests
 
         Assert.Contains(log.Entries, entry => entry.Message.Contains("Authorization", StringComparison.Ordinal));
         Assert.DoesNotContain(log.Entries, entry => entry.Message.Contains(Token, StringComparison.Ordinal));
+    }
+
+    // The Store Manager injects it. A host without it would only fail once F5 opened.
+    [Fact]
+    public async Task AddRewindCore_AnyHost_ProvidesLabelSheets()
+    {
+        // Resolving it checks Paths:Root, and the default, C:\Rewind, is a full path only on Windows,
+        // while CI runs on Linux. Nothing is opened under the temp folder.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddRewindCore(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { [$"{RewindPaths.SectionName}:Root"] = Path.GetTempPath() })
+            .Build());
+        await using var provider = services.BuildServiceProvider();
+
+        Assert.IsType<LabelSheets>(provider.GetRequiredService<ILabelSheets>());
     }
 
     // UPCitemdb's limits count every lookup the register makes, whichever screen asks.
