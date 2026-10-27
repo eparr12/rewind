@@ -54,6 +54,12 @@ export function restoreFocus() {
   }
 }
 
+// The Store Manager calls this once a sheet of labels or cards is on the page. WebView2 opens its
+// own print window, not a browser's, and site.css prints the sheet alone.
+export function print() {
+  window.print();
+}
+
 // UI-3: as in Windows 98, Tab and Shift+Tab go round an open dialog's buttons and never leave
 // it. The screen behind is inert, but Tab could still reach the scan simulator or leave the page.
 function keepTabInDialog(e) {

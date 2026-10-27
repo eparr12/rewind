@@ -1,0 +1,29 @@
+@* A sheet of store labels or member cards at its true size, in CSS inches, which are real inches on
+   paper (Build Plan 2.5). site.css lays it out at the label sheet's or the card sheet's positions and
+   prints it alone. It's black on white in a print font, since the pixel font is for the screen. *@
+@if (Sheet is { } sheet)
+{
+    <div class="print-sheet @(sheet.Kind == SheetKind.StoreLabels ? "label-sheet" : "card-sheet")">
+        @foreach (var barcode in sheet.Barcodes)
+        {
+            <div class="@(sheet.Kind == SheetKind.StoreLabels ? "sheet-label" : "sheet-card")">
+                <span class="sheet-store-name">@sheet.StoreName</span>
+                @if (sheet.Kind == SheetKind.MemberCards)
+                {
+                    <span class="sheet-card-title">Member card</span>
+                    <span class="sheet-card-name">Name</span>
+                }
+                @* Core's own markup, which holds only numbers, never the code's text (Code128.Svg). The
+                   store's name and the code are text. *@
+                @((MarkupString)barcode.Svg)
+                <span class="sheet-code">@barcode.Code</span>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>The sheet to show, from Core. The Store Manager shows this only while it has one.</summary>
+    [Parameter, EditorRequired]
+    public Sheet? Sheet { get; set; }
+}

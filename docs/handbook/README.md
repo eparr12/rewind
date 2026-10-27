@@ -6,21 +6,9 @@ Welcome to the counter! This page has everything you need to run Rewind. Keep it
 
 ## Moving around
 
-The tabs along the top are Rewind's five screens. Press a key to jump to one from anywhere:
+The tabs along the top are Rewind's five screens. Press a key to jump to one from anywhere: **F1** Checkout · **F2** Return · **F3** Ask the Clerk · **F4** Intake · **F5** Store Manager.
 
-| Key | Screen |
-| --- | --- |
-| **F1** | Checkout |
-| **F2** | Return |
-| **F3** | Ask the Clerk |
-| **F4** | Intake |
-| **F5** | Store Manager |
-
-You can also click a tab, or press **Tab** until it has a dotted line around it, then press **Enter**.
-
-- **Tab** moves to the next button or box.
-- **Enter** presses the button with the dotted line around it.
-- **Esc** means Cancel.
+You can also click a tab, or press **Tab** until it has a dotted line around it, then press **Enter**. **Tab** moves to the next button or box, **Enter** presses the one with the dotted line around it, and **Esc** means Cancel.
 
 Checkout, Return and Ask the Clerk are still being built. This page will explain them when they're ready.
 
@@ -38,6 +26,14 @@ Can't find it on TMDB? Press the **Enter by hand** button and type what's on the
 Label already used? Peel the next one and scan that.
 
 Once the list is closed, **Esc** starts over. If a movie is already in the case, Rewind asks first. Nothing is saved until you scan the label, and switching screens starts over too.
+
+## Printing labels and member cards
+
+Press **F5** and click **Print 30 labels** (on **Avery 6460** sheets) or **Print 10 member cards** (on card stock). In the print window: 1 copy, Scale 100, headers and footers off, margins as they are, never "fit to page". Press **Print**, then **Done** when the sheet is out.
+
+Didn't print, or jammed? Press **Print this sheet again**: same numbers. Only then, or two labels will share a number. Stay on this screen until it has printed.
+
+**Member cards:** cut them out, write the name on the line, and laminate.
 
 ## Scanning
 

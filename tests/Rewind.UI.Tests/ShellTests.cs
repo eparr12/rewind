@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Rewind.Core.Devices;
 using Rewind.Core.Intake;
+using Rewind.Core.Labels;
 using Rewind.Core.Metadata;
 using Rewind.Core.Sounds;
 using Rewind.UI.Dialogs;
@@ -35,6 +36,7 @@ public sealed class ShellTests : BunitContext
         Services.AddSingleton<IHostApplicationLifetime>(new FakeApplicationLifetime());
         Services.AddSingleton<IMovieIntake>(new FakeMovieIntake());
         Services.AddSingleton<IBarcodeTitles>(_titles);
+        Services.AddSingleton<ILabelSheets>(new FakeLabelSheets());
         Services.AddSingleton(TimeProvider.System);
 
         // On its first render, the shell imports keyboard.js and starts its F-key listener, and

@@ -1,13 +1,54 @@
+@implements IDisposable
+@using System.Diagnostics
 @using Microsoft.Extensions.Hosting
 @inject IHostApplicationLifetime Lifetime
 @inject DialogService Dialogs
+@inject ILabelSheets Sheets
+@inject IJSRuntime JS
 
-<p>Members, prices, concessions and Close Out arrive in Phase 3.</p>
-<button @onclick="ShutDownAsync">Shut Down</button>
-
-@if (BuildInfo.IsDebug)
+@* F5 Store Manager. It prints sheets of numbered store labels and member cards (Build Plan 2.5). Core
+   numbers and draws each sheet and spends its numbers as it's made (ADR-0006). The sheet then takes the
+   screen's place at its true size while WebView2's print window prints it, and stays there, to print
+   again if it jammed, until Done. Leaving the screen drops the sheet. *@
+@if (_sheet is { } sheet)
 {
-    <Diagnostics />
+    @* tabindex="-1": a click on the sheet keeps the keyboard here, so Esc still works. *@
+    <div class="sheet-view" tabindex="-1" @onkeydown="OnSheetKeyDownAsync">
+        <p>@SheetLine(sheet)</p>
+        <div class="field-row">
+            <button disabled="@Busy" @onclick="PrintAgain">Print this sheet again</button>
+            <button class="default" disabled="@Busy" @ref="_done" @onclick="DoneAsync">Done</button>
+        </div>
+        <PrintableSheet Sheet="sheet" />
+    </div>
+}
+else
+{
+    <p>Members, prices, concessions and Close Out arrive in Phase 3.</p>
+    <fieldset class="labels-and-cards">
+        <legend>Labels and cards</legend>
+        @if (_next is not { } next)
+        {
+            <p>Reading the next numbers...</p>
+        }
+        else
+        {
+            <div class="field-row">
+                <span class="labels-and-cards-next">Next store label: @next.StoreLabel</span>
+                <button disabled="@Busy" @ref="_printLabels" @onclick="PrintLabelsAsync">Print @LabelSheets.LabelsPerSheet labels</button>
+            </div>
+            <div class="field-row">
+                <span class="labels-and-cards-next">Next member card: @next.MemberCard</span>
+                <button disabled="@Busy" @ref="_printCards" @onclick="PrintCardsAsync">Print @LabelSheets.CardsPerSheet member cards</button>
+            </div>
+        }
+    </fieldset>
+    <button @onclick="ShutDownAsync">Shut Down</button>
+
+    @if (BuildInfo.IsDebug)
+    {
+        <Diagnostics />
+    }
 }
 
 @code {
@@ -19,6 +60,189 @@
         "Are you sure you want to shut down Rewind?\n\nNobody can rent or return a movie until Rewind starts again.",
         DialogIcon.Info,
         CanCancel: true);
+
+    private static readonly Dialog OutOfStoreLabels = new(
+        Store.Name,
+        "Rewind has used all 99,999 store label numbers.\n\nTell the Store Manager.",
+        DialogIcon.Error);
+
+    private static readonly Dialog OutOfMemberCards = new(
+        Store.Name,
+        "Rewind has used all 999 member card numbers.\n\nTell the Store Manager.",
+        DialogIcon.Error);
+
+    // Cancelled when the clerk leaves the screen, so a read or a sheet still waiting on the database stops.
+    private readonly CancellationTokenSource _closing = new();
+
+    private ElementReference _printLabels;
+    private ElementReference _printCards;
+    private ElementReference _done;
+
+    // The codes the next sheets start at, or null while they're read.
+    private NextCodes? _next;
+
+    // The sheet on screen, or null when the screen shows its own controls.
+    private Sheet? _sheet;
+
+    // The sheet the print window last opened for. As DialogHost focuses OK once per dialog, the window
+    // opens once per sheet, not on every render. Print this sheet again forgets it.
+    private Sheet? _printed;
+
+    private bool _reserving;
+    private bool _printing;
+    private bool _focusDone;
+
+    // The kind of sheet whose print button gets the focus once the screen's controls are back (UI-3).
+    private SheetKind? _focusPrint;
+
+    // While a sheet is being made or printed, nothing else starts: a second click would make a second
+    // sheet. ADR-0006's guard against repeated numbers is Core's transaction; this is only manners.
+    private bool Busy => _reserving || _printing;
+
+    protected override async Task OnInitializedAsync() => _next = await ReadNextAsync();
+
+    // The print window prints what's on the page, so it opens here, once the sheet has rendered, not from
+    // the click that made it.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_sheet is { } sheet && !ReferenceEquals(sheet, _printed))
+        {
+            _printed = sheet;
+            await PrintAsync();
+            if (_closing.IsCancellationRequested)
+            {
+                return; // the clerk left the screen while the print window was open
+            }
+
+            _printing = false;
+            _focusDone = true;
+            StateHasChanged();
+            return;
+        }
+
+        // UI-3: Done has the focus once the sheet has printed, so Enter or Esc leaves it, and once the
+        // screen's controls are back, the button that printed the sheet has it again.
+        if (_focusDone)
+        {
+            _focusDone = false;
+            await _done.FocusAsync();
+        }
+        else if (_focusPrint is { } kind && _next is not null)
+        {
+            _focusPrint = null;
+            await (kind == SheetKind.StoreLabels ? _printLabels : _printCards).FocusAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        _closing.Cancel();
+        _closing.Dispose();
+    }
+
+    private Task PrintLabelsAsync() => ReserveAsync(Sheets.ReserveLabelsAsync, OutOfStoreLabels);
+
+    private Task PrintCardsAsync() => ReserveAsync(Sheets.ReserveCardsAsync, OutOfMemberCards);
+
+    // ARCH-5: one call to Core, which numbers and draws the sheet and spends its numbers (ADR-0006).
+    private async Task ReserveAsync(Func<CancellationToken, Task<SheetReservation>> reserve, Dialog outOfNumbers)
+    {
+        if (Busy)
+        {
+            return; // a second click while the first sheet is being made
+        }
+
+        _reserving = true;
+        SheetReservation reservation;
+        try
+        {
+            reservation = await reserve(_closing.Token);
+        }
+        catch (OperationCanceledException) when (_closing.IsCancellationRequested)
+        {
+            return; // the clerk left the screen
+        }
+        finally
+        {
+            _reserving = false;
+        }
+
+        switch (reservation)
+        {
+            case { Status: SheetStatus.Reserved, Sheet: { } sheet }:
+                _sheet = sheet;
+                _printing = true; // OnAfterRenderAsync opens the print window once the sheet is drawn
+                return;
+            case { Status: SheetStatus.OutOfNumbers }:
+                StateHasChanged(); // drawn first, so the buttons behind the dialog aren't left disabled
+                await Dialogs.ShowAsync(outOfNumbers);
+                return;
+            default:
+                throw new UnreachableException($"Making a sheet came back {reservation.Status} without a sheet.");
+        }
+    }
+
+    // The same sheet again, for one that jammed or didn't print, so no numbers are spent (ADR-0006).
+    private void PrintAgain()
+    {
+        if (Busy)
+        {
+            return;
+        }
+
+        _printed = null;
+        _printing = true;
+    }
+
+    // Done, or Esc: back to the screen's controls, with the next codes read again.
+    private async Task DoneAsync()
+    {
+        if (Busy || _sheet is not { } sheet)
+        {
+            return; // not while the print window is open
+        }
+
+        _focusPrint = sheet.Kind;
+        _sheet = null;
+        _printed = null;
+        _next = null;
+        _next = await ReadNextAsync();
+    }
+
+    // UI-3: Esc is Done, the sheet's one way out.
+    private async Task OnSheetKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            await DoneAsync();
+        }
+    }
+
+    // Null when the clerk left the screen before the codes were read.
+    private async Task<NextCodes?> ReadNextAsync()
+    {
+        try
+        {
+            return await Sheets.PeekAsync(_closing.Token);
+        }
+        catch (OperationCanceledException) when (_closing.IsCancellationRequested)
+        {
+            return null;
+        }
+    }
+
+    // UI-9: keyboard.js opens WebView2's print window, and site.css prints the sheet alone.
+    private async Task PrintAsync()
+    {
+        await using var keyboard = await JS.InvokeAsync<IJSObjectReference>("import", KeyboardModule.Path);
+        await keyboard.InvokeVoidAsync("print");
+    }
+
+    // What the sheet's line says while the print window is open, and after. After, it never says the sheet
+    // printed: the print window doesn't tell Rewind whether it printed, failed or was cancelled (ADR-0006).
+    private string SheetLine(Sheet sheet) => _printing
+        ? $"Printing {sheet.First} to {sheet.Last}..."
+        : $"{sheet.First} to {sheet.Last}. Didn't print, or jammed? Press Print this sheet again.";
 
     // The host tells MainForm to close, so Rewind.UI never touches WinForms (ARCH-2).
     private async Task ShutDownAsync()
