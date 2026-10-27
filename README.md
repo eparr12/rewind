@@ -104,6 +104,15 @@ dotnet format --verify-no-changes
 
 `dotnet test` runs the Core tests (xUnit, over real SQLite files in a temporary folder) and the screen tests (bUnit). CI runs both commands on every push, and also builds and runs the firmware parser's C tests with gcc and checks `keyboard.js` with Node; [ci.yml](.github/workflows/ci.yml) has those commands.
 
+To check the label and card sheets without a printer:
+
+1. Run Rewind with a scratch `Paths__Root`, press F5 and click **Print 30 labels**. In the print window, pick **Save as PDF**, with Scale 100, headers and footers off and the margins as they are, and save the PDF outside the repo. Microsoft Print to PDF doesn't work from Rewind's print window: it says "Print failed", or prints nothing.
+2. Open it at 100%: it's one Letter page, with three columns of ten barcodes, centered 1.5, 4.25 and 7 in from the left edge, in rows 1 in apart, the first about 1 in from the top.
+3. Scan a barcode off the screen, zoomed in if it won't read: the status bar says `RV-00001 · Store label`. **Print 10 member cards** should give `MEM-001 · Member card`, with cut lines 0.75 in from the left and right edges and 0.5 in from the top and bottom, and a Name line above each barcode.
+4. Do it again with `$env:Display__Zoom = '2'` set first: the PDF should come out the same size, since printing ignores the screen's zoom.
+
+The first time a printer prints labels, print a sheet on plain paper and hold it over a label sheet against a window, to check each barcode sits inside its label. Then print one real sheet and scan a label before printing more: the status bar should say **Store label**, and **Member card** for the first card printed.
+
 ## Change the database
 
 The schema changes only through EF Core migrations (DATA-5). The tools install once per PC with `dotnet tool install --global dotnet-ef`. After changing an entity or its configuration, add a migration from the repo root, then print the SQL it will run:

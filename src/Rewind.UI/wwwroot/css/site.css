@@ -79,6 +79,111 @@ body {
   margin-top: 24px;
 }
 
+/* F5 Store Manager: the next store label and member card, each with its print button
+   (Build Plan 2.5). */
+.labels-and-cards {
+  margin-bottom: 12px;
+}
+
+.labels-and-cards-next {
+  width: 160px; /* so both rows' buttons line up */
+}
+
+/* A sheet of store labels or member cards, at its true size in CSS inches, which are real inches on
+   paper: 96 CSS pixels to the inch, whatever the screen's zoom. On screen it's a white page under its
+   buttons, and the panel scrolls; nothing is scaled. The sheet prints its own margins, at the label
+   sheet's positions, so the page has none. */
+@page {
+  size: letter;
+  margin: 0;
+}
+
+.print-sheet {
+  box-sizing: border-box;
+  display: grid;
+  width: 8.5in; /* US Letter */
+  height: 11in;
+  margin-top: 8px;
+  background: #fff;
+  color: #000;
+  font-family: Arial, sans-serif; /* a print font: the pixel font is for the screen */
+}
+
+/* Avery 6460 removable labels, in the Avery 5160 layout: 30 labels of 2.625 × 1 in, 3 across and 10
+   down, with 0.5 in above and below, 0.1875 in at each side, and 0.125 in between the columns. A
+   barcode centered on a label starts 0.4 in from the paper's edge, plus 2.75 in per column: a whole
+   number of dots at 300 and 600 dpi, as Code128's module widths are. */
+.label-sheet {
+  padding: 0.5in 0.1875in;
+  grid-template-columns: repeat(3, 2.625in);
+  grid-auto-rows: 1in; /* no gap between rows, so the bottom margin comes out at 0.5 in too */
+  column-gap: 0.125in;
+}
+
+/* 10 member cards of 3.5 × 2 in, the business-card size, 2 across and 5 down, with 0.5 in above and
+   below and 0.75 in at each side, on card stock. */
+.card-sheet {
+  padding: 0.5in 0.75in;
+  grid-template-columns: repeat(2, 3.5in);
+  grid-auto-rows: 2in;
+}
+
+.sheet-label,
+.sheet-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* A barcode's size is its own, from Code128; this only stops it sitting on a line of text. */
+.print-sheet svg {
+  display: block;
+}
+
+.sheet-store-name {
+  margin-bottom: 0.03in;
+  font-size: 7pt;
+}
+
+.sheet-code {
+  margin-top: 0.02in;
+  font-size: 10pt;
+}
+
+/* The line each card is cut out on. Touching cards share it. */
+.sheet-card {
+  box-sizing: border-box;
+  border: 0.25pt solid #000;
+}
+
+.sheet-card .sheet-store-name {
+  font-size: 14pt;
+  font-weight: bold;
+}
+
+.sheet-card-title {
+  margin-bottom: 0.1in;
+  font-size: 10pt;
+}
+
+/* The line the clerk writes the member's name on, as wide as the barcode (Code128's
+   MemberCardWidthInches): a marker's room above it, and a gap below to keep the ink off the bars. */
+.sheet-card-name {
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  width: 2.64in;
+  height: 0.3in;
+  margin-bottom: 0.1in;
+  border-bottom: 0.75pt solid #000;
+  font-size: 8pt;
+}
+
+.sheet-card .sheet-code {
+  font-size: 12pt;
+}
+
 /* F4 Intake: the title box and a line saying what to do, then the picker or the hand-entry form,
    then the movies of the case being entered (Build Plan 2.3, 2.4). */
 .intake-search input {
@@ -201,4 +306,36 @@ body {
 /* Debug builds only: the scan simulator's row, between the screen and the status bar (TEST-5). */
 .scan-simulator {
   margin: 4px 3px;
+}
+
+/* Printing: only the sheet, on one Letter page, with its top left corner at the paper's. */
+@media print {
+  /* Left at 100%, the shell would be a page tall, and a pixel more would print a blank second page. */
+  html,
+  body,
+  #app,
+  .shell {
+    height: auto;
+  }
+
+  body {
+    visibility: hidden;
+  }
+
+  /* 98.css positions the open screen's panel, and site.css scrolls it, so the panel would hold the
+     sheet and clip it to its own box. Static and unclipped, it leaves the sheet's place to the page. */
+  .shell-panel[role="tabpanel"] {
+    position: static;
+    overflow: visible;
+  }
+
+  /* Absolute, not fixed: Chromium prints a fixed element on every page, so a sheet that overflowed
+     by a pixel would print twice. */
+  .print-sheet {
+    position: absolute;
+    top: 0;
+    left: 0;
+    margin: 0;
+    visibility: visible;
+  }
 }
