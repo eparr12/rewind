@@ -3,13 +3,14 @@ using Microsoft.Extensions.Logging;
 namespace Rewind.UI.Errors;
 
 /// <summary>
-/// Handles the exceptions that escape Blazor (OBS-5). Blazor's own never come here: a screen's
-/// ErrorBoundary catches its exceptions, and App's catches the rest of the shell's. Program.cs
+/// Handles the exceptions that escape Blazor (OBS-5), and those that no ErrorBoundary should get. A
+/// screen's ErrorBoundary catches its exceptions, and App's catches the rest of the shell's. Program.cs
 /// sends this hub what reaches Application.ThreadException, which only WinForms code such as
 /// MainForm can throw and which the shell answers with the same dialog, and what reaches
 /// AppDomain.UnhandledException, which can only be logged. Program.cs also sends it why Rewind
 /// couldn't start, and shows the same reason in a plain message box. A screen sends it what a
-/// background event of its own throws once the clerk has left it.
+/// background event of its own throws once the clerk has left it, and the status bar sends it what
+/// its lookups throw.
 /// </summary>
 /// <remarks>
 /// BlazorWebView itself never passes an exception on to either event. One that no ErrorBoundary
@@ -19,11 +20,18 @@ namespace Rewind.UI.Errors;
 /// Once the component has been disposed, there's no ErrorBoundary to hand it to:
 /// DispatchExceptionAsync throws, and the Task faults with nobody to see it. So a screen sends
 /// such an exception here instead, with <see cref="ReportFromClosedScreen"/>.
+/// <para>
+/// The status bar's lookups come here even while it's open, with <see cref="ReportFromComponent"/>.
+/// Its only ErrorBoundary is App's, which replaces the whole shell, and shuts Rewind down when the
+/// shell hasn't finished starting: too much over a name. Here, the shell shows the error dialog and
+/// carries on, and the next scan looks again.
+/// </para>
 /// </remarks>
 public sealed partial class ErrorHub(ILogger<ErrorHub> logger)
 {
     /// <summary>
-    /// Raised after an exception on the WinForms thread, or from a screen the clerk has left, is logged.
+    /// Raised after an exception on the WinForms thread, from a screen the clerk has left, or from the
+    /// status bar, is logged.
     /// </summary>
     public event Action? Crashed;
 
@@ -50,6 +58,18 @@ public sealed partial class ErrorHub(ILogger<ErrorHub> logger)
     }
 
     /// <summary>
+    /// Logs an exception from a component's background event that no ErrorBoundary should get, such as
+    /// the status bar's lookup (see the remarks), then raises <see cref="Crashed"/>, as
+    /// <see cref="Report"/> does. The log names the component (OBS-3), such as nameof(StatusBar), and
+    /// says only what this hub does with the exception, since the component may be gone with the shell.
+    /// </summary>
+    public void ReportFromComponent(string component, Exception exception)
+    {
+        LogComponentCrashed(logger, exception, component);
+        Crashed?.Invoke();
+    }
+
+    /// <summary>
     /// Logs an exception that nothing caught, such as one on a background thread. The process
     /// ends right after, and on the register the launcher starts Rewind again.
     /// </summary>
@@ -66,6 +86,9 @@ public sealed partial class ErrorHub(ILogger<ErrorHub> logger)
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Unhandled exception from {Screen} after the clerk left it; going back to Checkout")]
     private static partial void LogClosedScreenCrashed(ILogger logger, Exception exception, string screen);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Unhandled exception from {Component}; reported to the shell")]
+    private static partial void LogComponentCrashed(ILogger logger, Exception exception, string component);
 
     [LoggerMessage(Level = LogLevel.Critical, Message = "Unhandled exception; Rewind is closing")]
     private static partial void LogFatal(ILogger logger, Exception? exception);

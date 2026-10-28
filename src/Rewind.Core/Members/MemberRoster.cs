@@ -28,6 +28,21 @@ public sealed partial class MemberRoster(IDbContextFactory<RewindDb> dbFactory, 
     }
 
     /// <inheritdoc />
+    public async Task<MemberRow?> FindByCardAsync(string cardBarcode, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(cardBarcode);
+
+        var card = Barcodes.Classify(cardBarcode);
+        if (card.Kind != ScanKind.MemberCard)
+        {
+            return null;
+        }
+
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        return await FindByCardAsync(db, card.Code, cancellationToken);
+    }
+
+    /// <inheritdoc />
     public async Task<MemberChange> AddAsync(string name, string cardBarcode, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(name);

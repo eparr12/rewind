@@ -396,10 +396,88 @@ public sealed class MemberRosterTests
         Assert.Equal([dad], members);
     }
 
+    [Fact]
+    public async Task FindByCardAsync_CardOfAMember_FindsThem()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var grandma = await AddMemberAsync(rewind, "Grandma", Card, ct);
+        await AddMemberAsync(rewind, "Dad", "MEM-002", ct);
+
+        var member = await Roster(rewind).FindByCardAsync(Card, ct);
+
+        Assert.Equal(grandma, member);
+    }
+
+    // A deactivated member keeps their card (DATA-4), so it's still theirs.
+    [Fact]
+    public async Task FindByCardAsync_CardOfAnInactiveMember_FindsThem()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var dad = await AddMemberAsync(rewind, "Dad", Card, ct, isActive: false);
+
+        var member = await Roster(rewind).FindByCardAsync(Card, ct);
+
+        Assert.Equal(dad, member);
+    }
+
+    [Fact]
+    public async Task FindByCardAsync_CardNobodyHas_FindsNobody()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddMemberAsync(rewind, "Grandma", Card, ct);
+
+        var member = await Roster(rewind).FindByCardAsync("MEM-002", ct);
+
+        Assert.Null(member);
+    }
+
+    // Barcodes reads a scan in any case, as the scanner's settings may send it.
+    [Fact]
+    public async Task FindByCardAsync_CardInLowerCase_FindsTheMember()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var grandma = await AddMemberAsync(rewind, "Grandma", Card, ct);
+
+        var member = await Roster(rewind).FindByCardAsync("mem-001", ct);
+
+        Assert.Equal(grandma, member);
+    }
+
+    // Only a member card can be anyone's, so nothing else needs the database.
+    [Theory]
+    [InlineData("RV-00042")] // a store label
+    [InlineData("036000291452")] // a factory UPC
+    [InlineData("CON-POPCORN")] // a snack
+    [InlineData("MEM-01")] // a digit short
+    public async Task FindByCardAsync_NotAMemberCard_FindsNobody(string barcode)
+    {
+        var member = await WithNoDatabase().FindByCardAsync(barcode, TestContext.Current.CancellationToken);
+
+        Assert.Null(member);
+    }
+
+    [Fact]
+    public async Task FindByCardAsync_Null_IsRefused()
+    {
+        // NET-1: null on purpose, past the compiler's check, since this tests what FindByCardAsync does with one.
+        var find = () => WithNoDatabase().FindByCardAsync(null!, TestContext.Current.CancellationToken);
+
+        var refusal = await Assert.ThrowsAsync<ArgumentNullException>(find);
+        Assert.Equal("cardBarcode", refusal.ParamName);
+    }
+
     private static MemberRoster Roster(TempRewind rewind, IDbContextFactory<RewindDb>? dbFactory = null) =>
         new(dbFactory ?? rewind.DbFactory, NullLogger<MemberRoster>.Instance);
 
-    // A null is refused before the database is opened.
+    // For what's answered before the database is opened, such as a null.
     private static MemberRoster WithNoDatabase() => new(new NoDatabase(), NullLogger<MemberRoster>.Instance);
 
     // A member added before the test, saved straight to the database.

@@ -18,6 +18,16 @@ internal sealed class FakeScanner : IScanner
     /// <summary>Raises a scan, as the scanner's thread would.</summary>
     public void Emit(Scan scan) => Scanned?.Invoke(scan);
 
+    /// <summary>
+    /// Takes the listeners there are now, for a scan the scanner's thread raised just before one of them
+    /// stopped listening, which reaches that listener after it stopped.
+    /// </summary>
+    public Action<Scan> RaisedBeforeStopping()
+    {
+        var listeners = Scanned;
+        return scan => listeners?.Invoke(scan);
+    }
+
     /// <summary>Changes the status, as the serial reader would.</summary>
     public void SetStatus(ScannerStatus status)
     {

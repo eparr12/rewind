@@ -3,9 +3,9 @@ using Rewind.Core.Members;
 namespace Rewind.UI.Tests;
 
 /// <summary>
-/// The members' Core service as the Members tab's tests set it up (ADR-0003). It holds members as Core
-/// would and answers each change as Core does, unless the test gives an answer of its own, which can be
-/// a task that hasn't finished. It records each change it's asked for.
+/// The members' Core service as the Members tab's and the status bar's tests set it up (ADR-0003). It
+/// holds members as Core would and answers each call as Core does, unless the test gives an answer of
+/// its own, which can be a task that hasn't finished. It records each change it's asked for.
 /// </summary>
 internal sealed class FakeMemberRoster : IMemberRoster
 {
@@ -16,6 +16,9 @@ internal sealed class FakeMemberRoster : IMemberRoster
 
     /// <summary>What a read of the members answers instead of <see cref="Rows"/>, such as a read that hasn't finished.</summary>
     public Task<IReadOnlyList<MemberRow>>? Listing { get; set; }
+
+    /// <summary>What a card's lookup answers instead of looking in <see cref="Rows"/>, such as a lookup that hasn't finished.</summary>
+    public Task<MemberRow?>? Finding { get; set; }
 
     /// <summary>What an add answers instead of saving, such as a card in use.</summary>
     public Task<MemberChange>? Adding { get; set; }
@@ -33,6 +36,12 @@ internal sealed class FakeMemberRoster : IMemberRoster
     {
         LastToken = cancellationToken;
         return Listing ?? Task.FromResult<IReadOnlyList<MemberRow>>([.. Rows]);
+    }
+
+    public Task<MemberRow?> FindByCardAsync(string cardBarcode, CancellationToken cancellationToken)
+    {
+        LastToken = cancellationToken;
+        return Finding ?? Task.FromResult(Rows.SingleOrDefault(row => row.CardBarcode == cardBarcode));
     }
 
     public Task<MemberChange> AddAsync(string name, string cardBarcode, CancellationToken cancellationToken)

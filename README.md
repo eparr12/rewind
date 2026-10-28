@@ -37,7 +37,7 @@ Rewind reads a USB barcode scanner in serial (COM) mode and finds it by its USB 
 
 Device Manager shows them in the scanner's Properties, on the Details tab under Hardware Ids, as `USB\VID_2DD6&PID_212A`. A scanner with its own USB serial port ignores the baud rate; a USB-to-serial bridge passes it on.
 
-The status bar shows the last scan and whether the scanner is ready, missing or busy. Busy usually means another program, such as PuTTY, has the port open.
+The status bar shows the last scan, with the member's name when it's someone's member card, and whether the scanner is ready, missing or busy. Busy usually means another program, such as PuTTY, has the port open.
 
 In Debug builds, the row above the status bar is the scan simulator (TEST-5): type what a barcode holds, such as `RV-00042`, and press Enter. It arrives just like a real scan.
 
@@ -121,7 +121,7 @@ To check the label and card sheets without a printer:
 
 1. Run Rewind with a scratch `Paths__Root`, press F5 and click **Print 30 labels**. In the print window, pick **Save as PDF**, with Scale 100, headers and footers off and the margins as they are, and save the PDF outside the repo. Microsoft Print to PDF doesn't work from Rewind's print window: it says "Print failed", or prints nothing.
 2. Open it at 100%: it's one Letter page, with three columns of ten barcodes, centered 1.5, 4.25 and 7 in from the left edge, in rows 1 in apart, the first about 1 in from the top.
-3. Scan a barcode off the screen, zoomed in if it won't read: the status bar says `RV-00001 · Store label`. **Print 10 member cards** should give `MEM-001 · Member card`, with cut lines 0.75 in from the left and right edges and 0.5 in from the top and bottom, and a Name line above each barcode.
+3. Scan a barcode off the screen, zoomed in if it won't read: the status bar says `RV-00001 · Store label`. **Print 10 member cards** should give `MEM-001 · Member card`, with cut lines 0.75 in from the left and right edges and 0.5 in from the top and bottom, and a Name line above each barcode. A card someone already has shows their name instead.
 4. Do it again with `$env:Display__Zoom = '2'` set first: the PDF should come out the same size, since printing ignores the screen's zoom.
 
 The first time a printer prints labels, print a sheet on plain paper and hold it over a label sheet against a window, to check each barcode sits inside its label. Then print one real sheet and scan a label before printing more: the status bar should say **Store label**, and **Member card** for the first card printed.
