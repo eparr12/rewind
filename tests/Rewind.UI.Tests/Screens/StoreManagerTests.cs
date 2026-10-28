@@ -3,11 +3,13 @@ using Bunit;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
 using Rewind.Core.Devices;
 using Rewind.Core.Labels;
 using Rewind.Core.Members;
 using Rewind.Core.Sounds;
 using Rewind.UI.Dialogs;
+using Rewind.UI.Errors;
 using Rewind.UI.Screens;
 
 namespace Rewind.UI.Tests.Screens;
@@ -30,6 +32,7 @@ public sealed class StoreManagerTests : BunitContext
         Services.AddSingleton<ILabelSheets>(_sheets);
         Services.AddSingleton<IMemberRoster>(new FakeMemberRoster()); // for the Members tab
         Services.AddSingleton<IScanner>(new FakeScanner());
+        Services.AddSingleton(new ErrorHub(NullLogger<ErrorHub>.Instance));
 
         // A sheet opens the print window through keyboard.js (UI-9). Each test that prints sets up how
         // the window answers, so a print nobody expected fails the test.

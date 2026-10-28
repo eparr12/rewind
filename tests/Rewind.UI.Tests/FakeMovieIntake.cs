@@ -47,6 +47,9 @@ internal sealed class FakeMovieIntake : IMovieIntake
     /// <summary>The token the last count was given.</summary>
     public CancellationToken LastCountToken { get; private set; }
 
+    /// <summary>The token the last label scan's save was given.</summary>
+    public CancellationToken LastShelveToken { get; private set; }
+
     /// <summary>The titles searched for, oldest first.</summary>
     public IReadOnlyList<string> Searches => _searches;
 
@@ -80,6 +83,7 @@ internal sealed class FakeMovieIntake : IMovieIntake
     public async Task<Shelving> ShelveAsync(string storeLabel, string? factoryUpc, IReadOnlyList<CaseMovieEntry> movies, CancellationToken cancellationToken)
     {
         _shelvings.Add((storeLabel, factoryUpc, movies));
+        LastShelveToken = cancellationToken;
         var shelving = await Shelving;
         if (shelving.Status == ShelveStatus.Shelved)
         {

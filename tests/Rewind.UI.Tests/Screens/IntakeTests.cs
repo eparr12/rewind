@@ -10,6 +10,7 @@ using Rewind.Core.Metadata;
 using Rewind.Core.Scans;
 using Rewind.Core.Sounds;
 using Rewind.UI.Dialogs;
+using Rewind.UI.Errors;
 using Rewind.UI.Screens;
 
 namespace Rewind.UI.Tests.Screens;
@@ -92,12 +93,18 @@ public sealed class IntakeTests : BunitContext
     private readonly FakeScanner _scanner = new();
     private readonly FakeSoundPlayer _sounds = new();
     private readonly DialogService _dialogs;
+    private readonly ListLogger<ErrorHub> _errorLog = new();
+    private readonly ErrorHub _errors;
+    private bool _crashed;
 
     // 6:15 PM on Saturday, October 24, 2026, on a register clock four hours behind UTC (TEST-4).
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 10, 24, 22, 15, 0, TimeSpan.Zero));
 
     public IntakeTests()
     {
+        _errors = new ErrorHub(_errorLog);
+        _errors.Crashed += () => _crashed = true;
+        Services.AddSingleton(_errors);
         _dialogs = new DialogService(_sounds);
         _time.SetLocalTimeZone(TimeZoneInfo.CreateCustomTimeZone("Register", TimeSpan.FromHours(-4), "Register", "Register"));
         Services.AddSingleton<IMovieIntake>(_intake);
@@ -1413,6 +1420,72 @@ public sealed class IntakeTests : BunitContext
         await DisposeComponentsAsync();
 
         Assert.True(_titles.LastToken.IsCancellationRequested);
+    }
+
+    // The cancellation leaving causes goes nowhere: WhileBusyAsync catches it before the scan's own
+    // handler, which would otherwise send it to ErrorHub as an error from a closed screen.
+    [Fact]
+    public async Task Dispose_WhileLookingUp_RaisesNothingOnceCancelled()
+    {
+        _titles.Lookup = new TaskCompletionSource<BarcodeTitle>().Task;
+        var cut = Render<Intake>();
+        await ScanAsync(cut, TommyBoyUpc);
+
+        await DisposeComponentsAsync(); // the lookup ends at once, cancelled, as the real one does
+        await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind the screen's own continuation
+
+        Assert.False(Renderer.UnhandledException.IsCompleted);
+        Assert.False(_crashed);
+    }
+
+    // The same for a label scan's save, whose fake, unlike the lookup's, waits for the test to cancel it.
+    // An await added to the scan path outside WhileBusyAsync would send this cancellation to ErrorHub.
+    [Fact]
+    public async Task Dispose_WhileShelving_RaisesNothingOnceCancelled()
+    {
+        var shelving = new TaskCompletionSource<Shelving>();
+        var cut = await RenderWithTommyBoyPickedAsync();
+        _intake.Shelving = shelving.Task;
+        await ScanLabelAsync(cut, Label);
+        await DisposeComponentsAsync();
+
+        shelving.SetCanceled(_intake.LastShelveToken); // as EF Core ends a save whose token was cancelled
+        await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind the screen's own continuation
+
+        Assert.False(Renderer.UnhandledException.IsCompleted);
+        Assert.False(_crashed);
+    }
+
+    // #35: a save that fails after the clerk left has no screen to show it on, so it goes to ErrorHub,
+    // which logs it, naming the screen (OBS-3), and shows the error dialog (OBS-5). A label scan's save
+    // can fail that late: once it has committed, Core finishes it whatever the clerk does (NET-7).
+    [Fact]
+    public async Task Dispose_WhileShelving_ReportsAFailureToErrorHub()
+    {
+        var shelving = new TaskCompletionSource<Shelving>();
+        var cut = await RenderWithTommyBoyPickedAsync();
+        _intake.Shelving = shelving.Task;
+        await ScanLabelAsync(cut, Label);
+        await DisposeComponentsAsync();
+
+        shelving.SetException(new InvalidOperationException("The save failed."));
+        await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind the screen's own continuation
+
+        Assert.True(_crashed);
+        Assert.Equal(["Unhandled exception from Intake after the clerk left it; going back to Checkout"], _errorLog.Entries.Select(entry => entry.Message));
+    }
+
+    // While the screen is open, a failure goes to its ErrorBoundary, as before, not to ErrorHub.
+    [Fact]
+    public async Task Scan_LookupFails_HandsItToTheErrorBoundary()
+    {
+        _titles.Lookup = Task.FromException<BarcodeTitle>(new InvalidOperationException("The lookup failed."));
+        var cut = Render<Intake>();
+
+        await ScanAsync(cut, TommyBoyUpc);
+
+        Assert.True(Renderer.UnhandledException.IsCompleted);
+        Assert.False(_crashed);
     }
 
     // A count still being read when the clerk leaves stops too.

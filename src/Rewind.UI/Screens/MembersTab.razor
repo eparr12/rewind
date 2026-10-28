@@ -4,6 +4,7 @@
 @inject IMemberRoster Roster
 @inject DialogService Dialogs
 @inject ISoundPlayer Sounds
+@inject ErrorHub Errors
 
 @* F5's Members tab (Build Plan 3.1): the family's members, each with the card printed for them. Type a
    new member's name, then scan their card, and they're added. Rename fixes a typo, since someone new is
@@ -138,8 +139,11 @@ else
     // scanner's thread, and an exception in here would only fault the Task that InvokeAsync returns,
     // which nobody awaits, so it goes to DispatchExceptionAsync and the screen's ErrorBoundary. That
     // makes it a fire-and-forget task, which ComponentBase never sees, so the clerk leaving mid-save is
-    // caught here. Handed on, it would fault the task all the same: once the tab is gone,
-    // DispatchExceptionAsync throws, since the renderer has no component to give it to.
+    // caught here. Once the tab is gone, DispatchExceptionAsync throws, since the renderer has no
+    // component to give an exception to, so a real error after the clerk left goes to ErrorHub
+    // instead, which logs it and shows the error dialog (OBS-5). One thrown while the tab is open is
+    // handed on in the same turn of the renderer's thread, as a probe showed, so it reaches the
+    // ErrorBoundary before the tab can be disposed.
     private void OnScanned(Scan scan) => _ = InvokeAsync(async () =>
     {
         try
@@ -149,6 +153,10 @@ else
         catch (OperationCanceledException) when (_closing.IsCancellationRequested)
         {
             // the clerk left the tab while the member was being added
+        }
+        catch (Exception e) when (_closing.IsCancellationRequested)
+        {
+            Errors.ReportFromClosedScreen(nameof(MembersTab), e);
         }
         catch (Exception e)
         {
