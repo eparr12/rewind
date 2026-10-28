@@ -8,13 +8,24 @@ Rewind runs on Windows 10 or 11 with the [.NET 10 SDK](https://dotnet.microsoft.
 
 Its five sound files aren't in Git (GIT-6), so on a new PC, first copy them into `src/Rewind.Register/Sounds`; [its README](src/Rewind.Register/Sounds/README.md) lists them. Without them Rewind still runs, silently, and logs a warning for each missing sound.
 
+In PowerShell, from the repo root:
+
 ```
+$env:Paths__Root = 'C:\RewindDev'
 dotnet run --project src/Rewind.Register
 ```
 
 That's a Debug build, made for trying Rewind without the counter hardware: the scan simulator sits above the status bar (see [Barcode scanner](#barcode-scanner)), and the Store Manager screen (F5) has a Diagnostics panel for trying sounds, dialogs and crashes. Intake (F4) also needs TMDB's token; see [TMDB](#tmdb).
 
-Rewind keeps its database, backups and logs under `C:\Rewind`. To use another folder, set the `Paths__Root` environment variable to a full path, such as `D:\RewindDev`.
+Rewind keeps its database, backups and logs under one folder: `C:\Rewind`, or the full path in the `Paths__Root` environment variable. `C:\Rewind` is the register's own folder, with the store's real data, so a Debug build refuses it: without `Paths__Root`, it says "Rewind can't start" and closes. Set `Paths__Root` in the same window as `dotnet run`. Visual Studio's Run button sees it only if Visual Studio was started from that window, such as with `devenv Rewind.slnx` in a Developer PowerShell.
+
+Until the mini PC arrives, the store itself runs from `main` on the development PC, in a window where `Paths__Root` isn't set. Installing tagged releases, as [Release to the register](#release-to-the-register) describes, starts with the mini PC.
+
+```
+dotnet run -c Release --project src/Rewind.Register
+```
+
+`$env:Paths__Root` lasts as long as its PowerShell window. A Release build started from a window that set it would run movie night on the test folder, with nothing to stop it, so first run `Remove-Item Env:Paths__Root`, or use another window.
 
 ## Barcode scanner
 
@@ -65,11 +76,13 @@ Intake finds each movie on [TMDB](https://www.themoviedb.org/), using TMDB's **A
   dotnet user-secrets set Tmdb:AccessToken <token> --project src/Rewind.Register
   ```
 
-- **On the register,** keep it in `C:\Rewind\keys\secrets.json`, which every build reads. Only the Counter account should be able to open the `keys` folder.
+- **On the register,** keep it in `C:\Rewind\keys\secrets.json`. Only the Counter account should be able to open the `keys` folder.
 
   ```json
   { "Tmdb": { "AccessToken": "<token>" } }
   ```
+
+Every build reads `keys\secrets.json` under its own root. So a Debug build on `C:\RewindDev` reads `C:\RewindDev\keys\secrets.json`, which is the easy way to give a test folder the token without user-secrets. When both have it, user-secrets win.
 
 Rewind reads the token once, as it starts, so restart it after setting or changing the token. It won't start with a `secrets.json` that isn't valid JSON, or with a token that has a space in it, such as `Bearer` pasted in front: a message box says why. When TMDB refuses the token, Intake says the token isn't set up, and the log says TMDB refused it.
 
