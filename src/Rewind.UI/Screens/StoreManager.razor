@@ -6,10 +6,11 @@
 @inject ILabelSheets Sheets
 @inject IJSRuntime JS
 
-@* F5 Store Manager. It prints sheets of numbered store labels and member cards (Build Plan 2.5). Core
-   numbers and draws each sheet and spends its numbers as it's made (ADR-0006). The sheet then takes the
-   screen's place at its true size while WebView2's print window prints it, and stays there, to print
-   again if it jammed, until Done. Leaving the screen drops the sheet. *@
+@* F5 Store Manager, in Windows 98 tabs. Labels and cards prints sheets of numbered store labels and
+   member cards (Build Plan 2.5). Core numbers and draws each sheet and spends its numbers as it's made
+   (ADR-0006). The sheet then takes the screen's place at its true size while WebView2's print window
+   prints it, and stays there, to print again if it jammed, until Done. Leaving the screen drops the
+   sheet. Members keeps the family's members (Build Plan 3.1). *@
 @if (_sheet is { } sheet)
 {
     @* tabindex="-1": a click on the sheet keeps the keyboard here, so Esc still works. *@
@@ -24,25 +25,45 @@
 }
 else
 {
-    <p>Members, prices, concessions and Close Out arrive in Phase 3.</p>
-    <fieldset class="labels-and-cards">
-        <legend>Labels and cards</legend>
-        @if (_next is not { } next)
+    @* Drawn as the shell's tabs are: each is a Tab stop, Enter opens it (UI-3), and none has an href
+       (SEC-6). *@
+    <menu role="tablist" class="store-manager-tabs">
+        @foreach (var tab in Tabs)
         {
-            <p>Reading the next numbers...</p>
+            <li role="tab" aria-selected="@AriaSelected(tab)">
+                <a tabindex="0" @onclick="() => _tab = tab" @onkeydown="e => OnTabKeyDown(e, tab)">@TabName(tab)</a>
+            </li>
         }
-        else
-        {
-            <div class="field-row">
-                <span class="labels-and-cards-next">Next store label: @next.StoreLabel</span>
-                <button disabled="@Busy" @ref="_printLabels" @onclick="PrintLabelsAsync">Print @LabelSheets.LabelsPerSheet labels</button>
-            </div>
-            <div class="field-row">
-                <span class="labels-and-cards-next">Next member card: @next.MemberCard</span>
-                <button disabled="@Busy" @ref="_printCards" @onclick="PrintCardsAsync">Print @LabelSheets.CardsPerSheet member cards</button>
-            </div>
-        }
-    </fieldset>
+    </menu>
+    <div class="window store-manager-panel" role="tabpanel">
+        <div class="window-body">
+            @if (_tab == Tab.Members)
+            {
+                <MembersTab />
+            }
+            else
+            {
+                <fieldset class="labels-and-cards">
+                    <legend>Labels and cards</legend>
+                    @if (_next is not { } next)
+                    {
+                        <p>Reading the next numbers...</p>
+                    }
+                    else
+                    {
+                        <div class="field-row">
+                            <span class="labels-and-cards-next">Next store label: @next.StoreLabel</span>
+                            <button disabled="@Busy" @ref="_printLabels" @onclick="PrintLabelsAsync">Print @LabelSheets.LabelsPerSheet labels</button>
+                        </div>
+                        <div class="field-row">
+                            <span class="labels-and-cards-next">Next member card: @next.MemberCard</span>
+                            <button disabled="@Busy" @ref="_printCards" @onclick="PrintCardsAsync">Print @LabelSheets.CardsPerSheet member cards</button>
+                        </div>
+                    }
+                </fieldset>
+            }
+        </div>
+    </div>
     <button @onclick="ShutDownAsync">Shut Down</button>
 
     @if (BuildInfo.IsDebug)
@@ -71,6 +92,9 @@ else
         "Rewind has used all 999 member card numbers.\n\nTell the Store Manager.",
         DialogIcon.Error);
 
+    // F5's tabs, in their order on screen. Labels and cards opens first, as F5 did before it had tabs.
+    private static readonly Tab[] Tabs = [Tab.LabelsAndCards, Tab.Members];
+
     // Cancelled when the clerk leaves the screen, so a read or a sheet still waiting on the database stops.
     // That raises nothing, so nothing here catches it: ComponentBase ignores a task that was cancelled,
     // from a lifecycle method or an event handler (Microsoft Learn, "ASP.NET Core Blazor synchronization
@@ -82,6 +106,8 @@ else
     private ElementReference _printLabels;
     private ElementReference _printCards;
     private ElementReference _done;
+
+    private Tab _tab = Tab.LabelsAndCards;
 
     // The codes the next sheets start at, or null while they're read.
     private NextCodes? _next;
@@ -239,5 +265,31 @@ else
         {
             Lifetime.StopApplication();
         }
+    }
+
+    // UI-3: Enter clicks a link only when it has an href, so the tabs handle Enter themselves, as the
+    // shell's do.
+    private void OnTabKeyDown(KeyboardEventArgs e, Tab tab)
+    {
+        if (e.Key == "Enter")
+        {
+            _tab = tab;
+        }
+    }
+
+    // 98.css draws the open tab for aria-selected="true", which needs the string, as in the shell.
+    private string AriaSelected(Tab tab) => tab == _tab ? "true" : "false";
+
+    private static string TabName(Tab tab) => tab switch
+    {
+        Tab.LabelsAndCards => "Labels and cards",
+        Tab.Members => "Members",
+        _ => throw new UnreachableException($"F5 has no tab {tab}."),
+    };
+
+    private enum Tab
+    {
+        LabelsAndCards,
+        Members,
     }
 }
