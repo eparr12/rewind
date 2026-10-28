@@ -1,0 +1,330 @@
+@implements IDisposable
+@using System.Diagnostics
+@inject IScanner Scanner
+@inject IMemberRoster Roster
+@inject DialogService Dialogs
+@inject ISoundPlayer Sounds
+
+@* F5's Members tab (Build Plan 3.1): the family's members, each with the card printed for them. Type a
+   new member's name, then scan their card, and they're added. Rename fixes a typo, since someone new is
+   a new member with a card of their own. A member who stops renting is deactivated, never deleted
+   (DATA-4), and can be reactivated. A member added here goes at the end of the list, where the Store
+   Manager sees them; the next time the tab opens, Core lists everyone by name. *@
+<div class="field-row members-add">
+    <label for="members-name">New member's name:</label>
+    @* Member.MaxNameLength is Core's backstop; the box stops there first. *@
+    <input id="members-name" type="text" autocomplete="off" spellcheck="false" maxlength="@Member.MaxNameLength"
+           disabled="@_busy" @ref="_nameBox" @bind="_name" @bind:event="oninput" />
+</div>
+<p class="members-prompt">@(_notice ?? Prompt)</p>
+
+@if (_members is not { } members)
+{
+    <p>Reading the members...</p>
+}
+else if (members.Count == 0)
+{
+    <p>No members yet.</p>
+}
+else
+{
+    <div class="sunken-panel members-list">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Card</th>
+                    <th>Active</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var member in members)
+                {
+                    <tr @key="member.Id">
+                        @if (_renaming == member.Id)
+                        {
+                            <td>
+                                <input class="members-rename" type="text" autocomplete="off" spellcheck="false"
+                                       aria-label="@($"{member.Name}'s name")" maxlength="@Member.MaxNameLength" disabled="@_busy"
+                                       @ref="_renameBox" @bind="_newName" @bind:event="oninput" @onkeydown="OnRenameKeyDownAsync" />
+                            </td>
+                            <td>@member.CardBarcode</td>
+                            <td>@Active(member)</td>
+                            <td class="members-buttons">
+                                <button disabled="@_busy" @onclick="SaveRenameAsync">Save</button>
+                                <button disabled="@_busy" @onclick="CancelRename">Cancel</button>
+                            </td>
+                        }
+                        else
+                        {
+                            <td>@member.Name</td>
+                            <td>@member.CardBarcode</td>
+                            <td>@Active(member)</td>
+                            <td class="members-buttons">
+                                <button disabled="@Locked" @onclick="() => StartRename(member)">Rename</button>
+                                <button disabled="@Locked" @onclick="() => SetActiveAsync(member)">@(member.IsActive ? "Deactivate" : "Reactivate")</button>
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private const string Prompt = "Type the new member's name, then scan their card.";
+
+    // Cancelled when the clerk leaves the tab, or F5, so a read or a save still waiting on the database
+    // stops. A button's wait reaches ComponentBase, which ignores the cancellation; a scan's is a
+    // fire-and-forget task, so OnScanned catches it (see StoreManager's _closing).
+    private readonly CancellationTokenSource _closing = new();
+
+    private ElementReference _nameBox;
+    private ElementReference _renameBox;
+
+    // The members, in Core's order when the tab opened, then each member added since; null while
+    // they're read.
+    private IReadOnlyList<MemberRow>? _members;
+
+    private string _name = "";
+
+    // What the last add or rename came to, until the next one. It takes the prompt's place.
+    private string? _notice;
+
+    // While Core saves, nothing else starts, and a scan is ignored.
+    private bool _busy;
+
+    // The member whose name is being fixed, and the name as typed so far.
+    private int? _renaming;
+    private string _newName = "";
+
+    private bool _focusName = true;
+    private bool _focusRename;
+
+    // While a name is being fixed, the other rows' buttons wait.
+    private bool Locked => _busy || _renaming is not null;
+
+    protected override void OnInitialized() => Scanner.Scanned += OnScanned;
+
+    // The clerk leaving cancels the read, and that raises nothing (see _closing).
+    protected override async Task OnInitializedAsync() => _members = await Roster.ListAsync(_closing.Token);
+
+    // UI-3: the name box has the focus when the tab opens and after each change, so the Store Manager
+    // can type the next name; the rename box has it while a name is being fixed.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusRename)
+        {
+            _focusRename = false;
+            await _renameBox.FocusAsync();
+        }
+        else if (_focusName)
+        {
+            _focusName = false;
+            await _nameBox.FocusAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        Scanner.Scanned -= OnScanned;
+        _closing.Cancel();
+        _closing.Dispose();
+    }
+
+    // UI-4: a scan reaches the tab from the scanner, whatever has the focus. UI-11: it can arrive on the
+    // scanner's thread, and an exception in here would only fault the Task that InvokeAsync returns,
+    // which nobody awaits, so it goes to DispatchExceptionAsync and the screen's ErrorBoundary. That
+    // makes it a fire-and-forget task, which ComponentBase never sees, so the clerk leaving mid-save is
+    // caught here. Handed on, it would fault the task all the same: once the tab is gone,
+    // DispatchExceptionAsync throws, since the renderer has no component to give it to.
+    private void OnScanned(Scan scan) => _ = InvokeAsync(async () =>
+    {
+        try
+        {
+            await OnScanAsync(scan);
+        }
+        catch (OperationCanceledException) when (_closing.IsCancellationRequested)
+        {
+            // the clerk left the tab while the member was being added
+        }
+        catch (Exception e)
+        {
+            await DispatchExceptionAsync(e);
+        }
+    });
+
+    // Only a member card means anything here (HW-5); the status bar says what anything else was. One
+    // thing at a time: a scan while the list is read, while Core saves, while a name is being fixed or
+    // while a dialog waits for an answer would start something new in the middle of it.
+    private async Task OnScanAsync(Scan scan)
+    {
+        if (scan.Kind != ScanKind.MemberCard || _closing.IsCancellationRequested)
+        {
+            return;
+        }
+
+        if (_members is not { } members || Locked || Dialogs.Current is not null)
+        {
+            return;
+        }
+
+        await AddAsync(members, scan.Code);
+        StateHasChanged(); // a scan isn't a UI event, so Blazor doesn't draw by itself
+    }
+
+    // ARCH-5: one call to Core, which cleans the name and checks the card. The member it saved is added
+    // to the list from its answer, so nothing is read again after the save (NET-7).
+    private async Task AddAsync(IReadOnlyList<MemberRow> members, string card)
+    {
+        _busy = true;
+        StateHasChanged(); // a scan isn't a UI event, so the box shows disabled only once it's drawn
+        MemberChange change;
+        try
+        {
+            change = await Roster.AddAsync(_name, card, _closing.Token);
+        }
+        finally
+        {
+            _busy = false;
+        }
+
+        // As in F5's print flow: the clerk left while Core saved, so nothing here is shown any more,
+        // and a dialog would open over whatever screen is showing now.
+        if (_closing.IsCancellationRequested)
+        {
+            return;
+        }
+
+        switch (change)
+        {
+            case { Status: MemberChangeStatus.Saved, Member: { } added }:
+                // UI-7: the register chimes, as it does when a case goes on the shelf, so the Store
+                // Manager hears that the scan took without looking up.
+                Sounds.Play(Sound.Chime);
+                _members = [.. members, added];
+                _notice = $"Added {added.Name} with card {added.CardBarcode}.";
+                _name = "";
+                _focusName = true;
+                return;
+            case { Status: MemberChangeStatus.NoName }:
+                _notice = "No name yet. Type it, then scan the card again.";
+                _focusName = true;
+                return;
+            case { Status: MemberChangeStatus.CardInUse, Member: { } owner }:
+                StateHasChanged(); // drawn first, so the box behind the dialog isn't left disabled
+                await Dialogs.ShowAsync(CardInUse(owner));
+                _focusName = true;
+                return;
+            default:
+                // OBS-5: only a member card's scan gets here, so any other answer is a bug.
+                throw new UnreachableException($"Adding a member came back {change.Status}.");
+        }
+    }
+
+    private void StartRename(MemberRow member)
+    {
+        _renaming = member.Id;
+        _newName = member.Name;
+        _notice = null;
+        _focusRename = true;
+    }
+
+    private void CancelRename()
+    {
+        _renaming = null;
+        _notice = null;
+        _focusName = true;
+    }
+
+    // UI-3: in the rename box, Enter saves and Esc cancels.
+    private async Task OnRenameKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SaveRenameAsync();
+        }
+        else if (e.Key == "Escape")
+        {
+            CancelRename();
+        }
+    }
+
+    private async Task SaveRenameAsync()
+    {
+        if (_busy || _renaming is not { } memberId || _members is not { } members)
+        {
+            return;
+        }
+
+        _busy = true;
+        MemberChange change;
+        try
+        {
+            change = await Roster.RenameAsync(memberId, _newName, _closing.Token);
+        }
+        finally
+        {
+            _busy = false;
+        }
+
+        switch (change)
+        {
+            case { Status: MemberChangeStatus.Saved, Member: { } renamed }:
+                _members = Replace(members, renamed);
+                _renaming = null;
+                _notice = null;
+                _focusName = true;
+                return;
+            case { Status: MemberChangeStatus.NoName }:
+                _notice = "A member needs a name.";
+                _focusRename = true;
+                return;
+            default:
+                throw new UnreachableException($"Renaming a member came back {change.Status}.");
+        }
+    }
+
+    private async Task SetActiveAsync(MemberRow member)
+    {
+        if (Locked || _members is not { } members)
+        {
+            return;
+        }
+
+        _busy = true;
+        MemberChange change;
+        try
+        {
+            change = await Roster.SetActiveAsync(member.Id, !member.IsActive, _closing.Token);
+        }
+        finally
+        {
+            _busy = false;
+        }
+
+        if (change is not { Status: MemberChangeStatus.Saved, Member: { } changed })
+        {
+            throw new UnreachableException($"Changing whether a member is active came back {change.Status}.");
+        }
+
+        _members = Replace(members, changed);
+        _notice = null;
+    }
+
+    private static string Active(MemberRow member) => member.IsActive ? "Yes" : "No";
+
+    private static IReadOnlyList<MemberRow> Replace(IReadOnlyList<MemberRow> members, MemberRow changed) =>
+        [.. members.Select(member => member.Id == changed.Id ? changed : member)];
+
+    // A card belongs to one member for good, active or not (DATA-11), so a deactivated member is
+    // reactivated rather than added again.
+    private static Dialog CardInUse(MemberRow owner) => new(
+        Store.Name,
+        owner.IsActive
+            ? $"{owner.CardBarcode} is {owner.Name}'s card already.\n\nScan a card nobody has yet."
+            : $"{owner.CardBarcode} is {owner.Name}'s card already, and {owner.Name} is deactivated.\n\nReactivate {owner.Name} instead, or scan a card nobody has yet.",
+        DialogIcon.Error);
+}

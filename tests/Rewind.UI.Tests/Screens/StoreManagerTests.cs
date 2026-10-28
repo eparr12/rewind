@@ -3,7 +3,9 @@ using Bunit;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Rewind.Core.Devices;
 using Rewind.Core.Labels;
+using Rewind.Core.Members;
 using Rewind.Core.Sounds;
 using Rewind.UI.Dialogs;
 using Rewind.UI.Screens;
@@ -26,10 +28,55 @@ public sealed class StoreManagerTests : BunitContext
         Services.AddSingleton(_dialogs);
         Services.AddSingleton<ISoundPlayer>(_sounds); // Debug builds add Diagnostics, which plays sounds
         Services.AddSingleton<ILabelSheets>(_sheets);
+        Services.AddSingleton<IMemberRoster>(new FakeMemberRoster()); // for the Members tab
+        Services.AddSingleton<IScanner>(new FakeScanner());
 
         // A sheet opens the print window through keyboard.js (UI-9). Each test that prints sets up how
         // the window answers, so a print nobody expected fails the test.
         _keyboard = JSInterop.SetupModule("./_content/Rewind.UI/js/keyboard.js");
+    }
+
+    // F5 opens on Labels and cards, as it did before it had tabs.
+    [Fact]
+    public void Render_ScreenOpens_ShowsLabelsAndCards()
+    {
+        var cut = Render<StoreManager>();
+
+        Assert.Equal(["true", "false"], cut.FindAll(".store-manager-tabs li").Select(tab => tab.GetAttribute("aria-selected")));
+        Assert.Single(cut.FindAll(".labels-and-cards"));
+    }
+
+    [Fact]
+    public async Task MembersTab_Clicked_ShowsTheMembers()
+    {
+        var cut = Render<StoreManager>();
+
+        await Tab(cut, "Members").ClickAsync(new MouseEventArgs());
+
+        Assert.Single(cut.FindAll("#members-name"));
+        Assert.Empty(cut.FindAll(".labels-and-cards"));
+    }
+
+    // UI-3: Enter opens a tab, as it does on the shell's.
+    [Fact]
+    public async Task MembersTab_EnterPressed_ShowsTheMembers()
+    {
+        var cut = Render<StoreManager>();
+
+        await Tab(cut, "Members").KeyDownAsync(new KeyboardEventArgs { Key = "Enter" });
+
+        Assert.Single(cut.FindAll("#members-name"));
+    }
+
+    // SEC-6, as for the sheet below: ShellTests checks F5 as it opens, on Labels and cards.
+    [Fact]
+    public async Task MembersTab_Opened_HasNoHrefLinks()
+    {
+        var cut = Render<StoreManager>();
+
+        await Tab(cut, "Members").ClickAsync(new MouseEventArgs());
+
+        Assert.Empty(cut.FindAll("a[href]"));
     }
 
     [Fact]
@@ -438,6 +485,9 @@ public sealed class StoreManagerTests : BunitContext
 
     private static IElement Button(IRenderedComponent<StoreManager> cut, string text) =>
         cut.FindAll("button").Single(button => button.TextContent == text);
+
+    private static IElement Tab(IRenderedComponent<StoreManager> cut, string name) =>
+        cut.FindAll(".store-manager-tabs a").Single(tab => tab.TextContent == name);
 
     private static string SheetLine(IRenderedComponent<StoreManager> cut) => cut.Find(".sheet-view p").TextContent;
 

@@ -89,6 +89,28 @@ body {
   width: 160px; /* so both rows' buttons line up */
 }
 
+/* F5's own tabs sit inside the shell's panel, above Shut Down. */
+.store-manager-panel {
+  margin-bottom: 12px;
+}
+
+/* F5's Members tab (Build Plan 3.1): the next member's name, what the last change came to, then the
+   members, each with buttons to fix the name and to deactivate or reactivate them. */
+#members-name,
+.members-rename {
+  width: 220px; /* about Member.MaxNameLength's 30 characters */
+}
+
+.members-list {
+  width: fit-content;
+  max-height: 360px; /* a family fits; a longer list scrolls inside the tab */
+  overflow-y: auto;
+}
+
+.members-list td {
+  padding-right: 12px;
+}
+
 /* A sheet of store labels or member cards, at its true size in CSS inches, which are real inches on
    paper: 96 CSS pixels to the inch, whatever the screen's zoom. On screen it's a white page under its
    buttons, and the panel scrolls; nothing is scaled. The sheet prints its own margins, at the label
