@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Rewind Video: Clerk handbook</title>
+  <!-- DOC-6: both sides of one sheet with these print styles, movie night on the front.
+       Written for the kids. Update it in the same PR as any screen change. -->
+  <style>
+    /* The printed sheet DOC-6 measures: Letter at 10.5 pt, with the back on a page of its own. */
+    @page { size: letter; margin: 0.6in; }
+    body { margin: 0; color: #000; font: 10.5pt/1.3 "Segoe UI", Arial, sans-serif; }
+    h1 { margin: 0 0 0.3em; font-size: 1.6em; }
+    h2 { margin: 0.8em 0 0.2em; font-size: 1.2em; }
+    p, ol, ul { margin: 0 0 0.45em; }
+    ol, ul { padding-left: 1.4em; }
+    .back { break-before: page; }
+
+    /* On screen, each side is a sheet of paper as big as the printed page, on the Windows 98 desktop,
+       so text that runs past a sheet's bottom edge won't fit when it's printed. */
+    @media screen {
+      body { padding: 0.5in 0; background: #008080; }
+      .how-to-print { box-sizing: border-box; width: 8.5in; margin: 0 auto 0.3in; color: #fff; }
+      .side { box-sizing: border-box; width: 8.5in; height: 11in; margin: 0 auto 0.5in; padding: 0.6in; background: #fff; }
+    }
+
+    @media print {
+      .how-to-print { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <p class="how-to-print">To print it, press Ctrl+P, choose <strong>Print on both sides</strong> (flip on long edge), set Scale to <strong>Actual size</strong> (100%), leave Margins on Default, and untick <strong>Headers and footers</strong>. No both-sides option? Print page 1, turn the sheet over as your printer's manual shows, then print page 2.</p>
+
+  <section class="side front">
+    <h1>Rewind Video: Clerk handbook</h1>
+    <p>Welcome to the counter! This side is for movie night, and the back is for the jobs behind the counter. Keep it by the register.</p>
+    <p><strong>F1</strong> Checkout · <strong>F2</strong> Return · <strong>F3</strong> Ask the Clerk · <strong>F4</strong> Intake · <strong>F5</strong> Store Manager. <strong>Tab</strong> moves to the next button, <strong>Enter</strong> presses it, and <strong>Esc</strong> cancels.</p>
+    <p>Checkout, Return and Ask the Clerk are still being built. This side will explain them when they're ready.</p>
+
+    <h2>When a message pops up</h2>
+    <p>Read it, then press <strong>Enter</strong> for OK or <strong>Esc</strong> for Cancel. The rest of Rewind waits until you answer.</p>
+    <p>If it says <strong>"This program has performed an illegal operation"</strong>, something went wrong inside Rewind. Press <strong>Enter</strong> and you'll be back on Checkout. Then tell the Store Manager what you were doing, so it can be fixed.</p>
+    <p>If it was Checkout itself that went wrong, Checkout stays closed and says <strong>"Checkout closed after an error."</strong> Press <strong>F1</strong> to open it again, or <strong>F5</strong> for the Store Manager.</p>
+    <p>If the message says Rewind <strong>will be shut down</strong>, press <strong>Enter</strong> and Rewind closes. Tell the Store Manager, who can start it again.</p>
+    <p>If a plain box says Rewind <strong>can't start</strong>, press <strong>Enter</strong>, then tell the Store Manager what it said. Rewind can't fix that one by itself.</p>
+    <p>If Rewind closes by itself, without a message, wait a moment. It starts again on its own.</p>
+
+    <h2>Closing up</h2>
+    <p>When the store closes, press <strong>F5</strong>, click <strong>Shut Down</strong>, then press <strong>Enter</strong> for OK.</p>
+  </section>
+
+  <section class="side back">
+    <h1>Behind the counter</h1>
+
+    <h2>Moving around</h2>
+    <p>The tabs along the top are Rewind's five screens. Press a key to jump to one from anywhere: <strong>F1</strong> Checkout · <strong>F2</strong> Return · <strong>F3</strong> Ask the Clerk · <strong>F4</strong> Intake · <strong>F5</strong> Store Manager.</p>
+    <p>You can also click a tab, or press <strong>Tab</strong> until it has a dotted line around it, then press <strong>Enter</strong>. <strong>Tab</strong> moves to the next button or box, <strong>Enter</strong> presses the one with the dotted line around it, and <strong>Esc</strong> means Cancel.</p>
+
+    <h2>Adding a movie</h2>
+    <p>Press <strong>F4</strong> for Intake.</p>
+    <ol>
+      <li>Scan the barcode on the back of the DVD case, or type the movie's title and press <strong>Enter</strong>. Rewind looks it up on TMDB, a big movie website. If you scan lots of DVDs quickly, it may say it's waiting a few seconds: press <strong>Esc</strong> if you'd rather type the title.</li>
+      <li>Lots of movies share a name, so find the right one by its poster and year. Press <strong>↓</strong> and <strong>↑</strong> to move through the list, then press <strong>Enter</strong>. The movie shows up under <strong>In this case</strong>.</li>
+      <li>Box set or double feature? Type the next movie's title, press <strong>Enter</strong>, and pick that one too.</li>
+      <li>Peel the next store label, stick it on the case and scan it. Rewind chimes, says it's on the shelf and adds one to <strong>Cases on the shelf</strong>.</li>
+    </ol>
+    <p>Can't find it on TMDB? Press the <strong>Enter by hand</strong> button and type what's on the case. Wrong title? Press <strong>Esc</strong> to close the list, fix the title, then press <strong>Enter</strong>.</p>
+    <p>Label already used? Peel the next one and scan that.</p>
+    <p>Once the list is closed, <strong>Esc</strong> starts over. If a movie is already in the case, Rewind asks first. Nothing is saved until you scan the label, and switching screens starts over too.</p>
+
+    <h2>Printing labels and member cards</h2>
+    <p>Press <strong>F5</strong> and click <strong>Print 30 labels</strong> (on <strong>Avery 6460</strong> sheets) or <strong>Print 10 member cards</strong> (on card stock). In the print window: 1 copy, Scale 100, headers and footers off, margins as they are, never "fit to page". Press <strong>Print</strong>, then <strong>Done</strong> when the sheet is out.</p>
+    <p>Didn't print, or jammed? Press <strong>Print this sheet again</strong>: same numbers. Only then, or two labels will share a number. Stay on this screen until it has printed.</p>
+    <p><strong>Member cards:</strong> cut them out, write the name on the line, and laminate.</p>
+
+    <h2>Scanning</h2>
+    <p>Just scan. You don't need to click anything first: Rewind hears the scanner on every screen.</p>
+    <p>The bar along the bottom of the screen shows the last thing you scanned. Next to it, Rewind says how the scanner is doing:</p>
+    <ul>
+      <li><strong>Scanner ready:</strong> all good.</li>
+      <li><strong>Scanner missing:</strong> check that the scanner's cable is plugged in. Rewind finds it again by itself in a few seconds.</li>
+      <li><strong>Scanner busy:</strong> another program is using the scanner. Tell the Store Manager.</li>
+    </ul>
+  </section>
+</body>
+</html>
