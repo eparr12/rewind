@@ -14,6 +14,9 @@ internal sealed class FakeMovieIntake : IMovieIntake
     private readonly List<(string Title, string? Year, string? RuntimeMinutes, string? Rating)> _handEntries = [];
     private readonly List<(string StoreLabel, string? FactoryUpc, IReadOnlyList<CaseMovieEntry> Movies)> _shelvings = [];
 
+    // How many cases the fake's saves have put on the shelf, which each count adds to OnShelf.
+    private int _shelved;
+
     /// <summary>What every search answers. TMDB finds nothing until a test says otherwise.</summary>
     public Task<TmdbSearch> Search { get; set; } = Task.FromResult(new TmdbSearch(TmdbStatus.Ok, []));
 
@@ -34,6 +37,15 @@ internal sealed class FakeMovieIntake : IMovieIntake
     /// use, opens a dialog, which then waits until the test closes it.
     /// </summary>
     public Task<Shelving> Shelving { get; set; } = Task.FromResult(new Shelving(ShelveStatus.LabelInUse, null));
+
+    /// <summary>
+    /// How many cases were on the shelf before the test shelved any: none, until a test says
+    /// otherwise. A count answers this plus one for each case shelved since, as Core's would.
+    /// </summary>
+    public Task<int> OnShelf { get; set; } = Task.FromResult(0);
+
+    /// <summary>The token the last count was given.</summary>
+    public CancellationToken LastCountToken { get; private set; }
 
     /// <summary>The titles searched for, oldest first.</summary>
     public IReadOnlyList<string> Searches => _searches;
@@ -65,9 +77,21 @@ internal sealed class FakeMovieIntake : IMovieIntake
         return HandEntry;
     }
 
-    public Task<Shelving> ShelveAsync(string storeLabel, string? factoryUpc, IReadOnlyList<CaseMovieEntry> movies, CancellationToken cancellationToken)
+    public async Task<Shelving> ShelveAsync(string storeLabel, string? factoryUpc, IReadOnlyList<CaseMovieEntry> movies, CancellationToken cancellationToken)
     {
         _shelvings.Add((storeLabel, factoryUpc, movies));
-        return Shelving;
+        var shelving = await Shelving;
+        if (shelving.Status == ShelveStatus.Shelved)
+        {
+            _shelved++;
+        }
+
+        return shelving;
+    }
+
+    public async Task<int> CountOnShelfAsync(CancellationToken cancellationToken)
+    {
+        LastCountToken = cancellationToken;
+        return await OnShelf + _shelved;
     }
 }

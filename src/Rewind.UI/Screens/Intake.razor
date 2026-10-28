@@ -18,7 +18,8 @@
    sticks it on the case and scans it, and the case goes on the shelf with its movies, all in one
    save. A case is open from its first scan or pick until that label scan, and nothing of it is
    saved before then, so Esc starting over, or the clerk leaving the screen, loses nothing but the
-   open case. *@
+   open case. The title row ends with how many cases are on the shelf, to check against the real
+   shelves (Build Plan 2.6). *@
 <form class="field-row intake-search" @onsubmit="SearchAsync" @onsubmit:preventDefault @onkeydown="OnSearchKeyDownAsync">
     <label for="intake-title">Title:</label>
     @* While a scan is looked up, the box is read-only rather than disabled, so it keeps the focus
@@ -28,6 +29,10 @@
            @ref="_titleBox" @bind="_title" @bind:event="oninput" />
     <button type="submit" disabled="@Busy">Search</button>
     <button type="button" disabled="@(Busy || _handEntry)" @onclick="OpenHandEntry">Can't find it? Enter by hand</button>
+    @if (_onShelf is { } onShelf)
+    {
+        <span class="intake-count">Cases on the shelf: @onShelf</span>
+    }
 </form>
 @if (_barcode is { } barcode)
 {
@@ -117,6 +122,12 @@ else if (_matches is { Count: > 0 } matches)
     // Esc stops a running lookup through this. Null when no lookup is running.
     private CancellationTokenSource? _stopLookup;
 
+    // How many cases are on the shelf: Core's count when the screen opens, and one more for each
+    // case the screen shelves. Null until it's read, when adding one would do nothing. No case can
+    // be shelved that soon: Microsoft.Data.Sqlite runs its async methods synchronously, so on the
+    // register the count is in before the screen first draws, and a case needs a movie first.
+    private int? _onShelf;
+
     private bool Busy => _busy is not null;
 
     private bool LookingUp => _stopLookup is not null;
@@ -172,7 +183,13 @@ else if (_matches is { Count: > 0 } matches)
         _ => "Scan the DVD's barcode, or type its title and press Enter.",
     };
 
+    // Listening before the count is read, so a scan while it's read still reaches the screen (UI-4).
     protected override void OnInitialized() => Scanner.Scanned += OnScanned;
+
+    // The clerk leaving the screen cancels the count, and that raises nothing: ComponentBase ignores
+    // a task that was cancelled, so a component needs no catch for it (Microsoft Learn, "ASP.NET
+    // Core Blazor synchronization context").
+    protected override async Task OnInitializedAsync() => _onShelf = await Movies.CountOnShelfAsync(_closing.Token);
 
     // UI-3: the title box has the focus when the screen opens and after each movie, so the clerk
     // can just type. While the picker or the hand-entry form is open, it has the focus instead.
@@ -493,6 +510,13 @@ else if (_matches is { Count: > 0 } matches)
         _lookup = null;
         _matches = null; // a search that found nothing went with the case
         _focusTitle = true;
+
+        // One more case on the shelf, however many movies it holds, without asking Core again. The
+        // shell shows one screen at a time, so nothing else shelves or unshelves a case while Intake
+        // is open. And a count after the committed save would need a token: the screen's, which
+        // would turn the done save into an exception if the clerk left, or none, which would outlive
+        // the screen (NET-7).
+        _onShelf++;
     }
 
     // UI-3: Esc stops a lookup, so the clerk can type the title instead. It also closes the picker

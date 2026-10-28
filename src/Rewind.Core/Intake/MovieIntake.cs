@@ -136,6 +136,15 @@ public sealed partial class MovieIntake(
         }
     }
 
+    /// <inheritdoc />
+    public async Task<int> CountOnShelfAsync(CancellationToken cancellationToken)
+    {
+        // Cases, not CaseMovies: a box set is one case on the shelf. A count reads no rows into
+        // entities, so there's nothing to track (DATA-12).
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        return await db.Cases.CountAsync(c => c.Status == CaseStatus.OnShelf, cancellationToken);
+    }
+
     // Why a case can't be saved, or null when it can. SEC-5: the label and the barcode are read as
     // a scan is, and come back in Rewind's form, which the Cases table's CHECKs hold them to.
     private static ShelveStatus? Refused(

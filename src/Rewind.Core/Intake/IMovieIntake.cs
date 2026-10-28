@@ -6,8 +6,8 @@ namespace Rewind.Core.Intake;
 /// <summary>
 /// What the Intake screen asks of Core, one call per action (ARCH-5): find a movie on TMDB, pick one
 /// of its matches or type a movie in by hand for the case being entered, then save the case with
-/// its movies when its store label is scanned (ADR-0005). <see cref="MovieIntake"/> does it, and
-/// the screen's tests use a fake (ADR-0003).
+/// its movies when its store label is scanned (ADR-0005). It also counts the cases on the shelf.
+/// <see cref="MovieIntake"/> does it, and the screen's tests use a fake (ADR-0003).
 /// </summary>
 public interface IMovieIntake
 {
@@ -67,4 +67,11 @@ public interface IMovieIntake
         string? factoryUpc,
         IReadOnlyList<CaseMovieEntry> movies,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Counts the cases on the shelf, for the clerk to check against the real shelves (Build Plan
+    /// 2.6). A box set or a double feature is one case, however many movies it holds, and a case
+    /// that's checked out or retired isn't on the shelf.
+    /// </summary>
+    Task<int> CountOnShelfAsync(CancellationToken cancellationToken);
 }

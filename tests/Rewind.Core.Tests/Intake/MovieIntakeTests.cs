@@ -943,6 +943,56 @@ public sealed class MovieIntakeTests : IDisposable
         Assert.Null(search.Matches.Single(m => m.TmdbId == TmdbJson.HalloweenStoreId).Poster); // TMDB has none
     }
 
+    // Build Plan 2.6: a store that hasn't shelved a case yet has none on the shelf.
+    [Fact]
+    public async Task CountOnShelfAsync_NoCases_IsZero()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+
+        Assert.Equal(0, await Intake(rewind).CountOnShelfAsync(ct));
+    }
+
+    // Cases, not movies: a double feature and a single DVD are two cases on the shelf, holding three
+    // movies between them.
+    [Fact]
+    public async Task CountOnShelfAsync_DoubleFeatureAndASingle_IsTwo()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddCasesAsync(
+            rewind,
+            [
+                new Case { StoreLabel = "RV-00001", Movies = { new Movie { Title = "Fred Claus" }, new Movie { Title = "Four Christmases" } } },
+                new Case { StoreLabel = "RV-00002", Movies = { new Movie { Title = "Tommy Boy" } } },
+            ],
+            ct);
+
+        Assert.Equal(2, await Intake(rewind).CountOnShelfAsync(ct));
+    }
+
+    // A case that's rented out or retired isn't on the shelf, so the count matches the real shelves
+    // on movie night too.
+    [Fact]
+    public async Task CountOnShelfAsync_CheckedOutAndRetired_CountsOnlyTheCaseOnTheShelf()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddCasesAsync(
+            rewind,
+            [
+                new Case { StoreLabel = "RV-00001", Movies = { new Movie { Title = "Tommy Boy" } } },
+                new Case { StoreLabel = "RV-00002", Status = CaseStatus.CheckedOut, Movies = { new Movie { Title = "The Replacements" } } },
+                new Case { StoreLabel = "RV-00003", Status = CaseStatus.Retired, Movies = { new Movie { Title = "Dirty Dancing" } } },
+            ],
+            ct);
+
+        Assert.Equal(1, await Intake(rewind).CountOnShelfAsync(ct));
+    }
+
     // Made once a test's database is ready, and once only in each test: TmdbClient sets up the
     // HttpClient it's given, which can't change once it has sent a request.
     private MovieIntake Intake(
@@ -1006,6 +1056,14 @@ public sealed class MovieIntakeTests : IDisposable
     {
         await using var db = rewind.OpenDb();
         db.Cases.Add(new Case { StoreLabel = Label });
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    // Cases an earlier intake saved, as they are now.
+    private static async Task AddCasesAsync(TempRewind rewind, IEnumerable<Case> cases, CancellationToken cancellationToken)
+    {
+        await using var db = rewind.OpenDb();
+        db.Cases.AddRange(cases);
         await db.SaveChangesAsync(cancellationToken);
     }
 
