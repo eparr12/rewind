@@ -12,6 +12,9 @@ public sealed class RewindPaths
     /// <summary>The root folder on the register.</summary>
     public const string DefaultRoot = @"C:\Rewind";
 
+    // Both, whatever the OS: the register's paths are Windows paths, and CI runs on Linux.
+    private static readonly char[] FolderSeparators = ['\\', '/'];
+
     /// <summary>The folder everything else lives under. It must be a full path.</summary>
     public string Root { get; set; } = DefaultRoot;
 
@@ -38,4 +41,19 @@ public sealed class RewindPaths
 
     /// <summary>The folder that holds each movie's small poster, for the phone catalog.</summary>
     public string Thumbs => Path.Combine(Data, "thumbs");
+
+    /// <summary>
+    /// Whether <paramref name="root"/> is the register's root folder, <see cref="DefaultRoot"/>,
+    /// written any way a person would: in any capitals, with either slash, and with slashes doubled
+    /// or at the end. It doesn't follow links, or resolve . and .. folders.
+    /// </summary>
+    public static bool IsRegisterRoot(string root)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+
+        return string.Equals(
+            string.Join('\\', root.Split(FolderSeparators, StringSplitOptions.RemoveEmptyEntries)),
+            DefaultRoot,
+            StringComparison.OrdinalIgnoreCase);
+    }
 }

@@ -32,6 +32,12 @@ internal static class Program
     // SEC-1: the register keeps its secrets, such as TMDB's token, in this file in the keys folder.
     private const string SecretsFile = "secrets.json";
 
+#if DEBUG
+    // ADR-0008: what a Debug build says when Paths:Root is the register's folder, and what to set instead.
+    private const string RegisterRootRefused =
+        $"Paths:Root can't be {RewindPaths.DefaultRoot} in a Debug build: that's the register's own folder, with the store's real data. Set the Paths__Root environment variable to a test folder first, such as C:\\RewindDev.";
+#endif
+
     private static readonly TimeSpan LogsKept = TimeSpan.FromDays(30);
 
     [STAThread]
@@ -51,6 +57,14 @@ internal static class Program
 
         var services = builder.Services;
         services.AddRewindCore(builder.Configuration); // first, so the database is ready before anything else starts
+#if DEBUG
+        // C:\Rewind holds the store's real data, and a Debug build is for trying things out, so a
+        // test can't land there by mistake. The logger reads these paths as the host is built, so
+        // a refused start writes nothing at all under the root.
+        services.AddOptions<RewindPaths>()
+            .Validate(paths => !RewindPaths.IsRegisterRoot(paths.Root), RegisterRootRefused)
+            .ValidateOnStart(); // NET-11
+#endif
         services.AddRewindScanner(builder.Configuration); // then the devices, once the database is ready
         services.AddRewindIntake(builder.Configuration);
         services.AddOptions<DisplayOptions>()
