@@ -6,10 +6,13 @@ namespace Rewind.Core.Members;
 /// </summary>
 public sealed class Member
 {
+    /// <summary>The longest name a member can have: room for a name such as Grandpa Joe, not a sentence.</summary>
+    public const int MaxNameLength = 30;
+
     /// <summary>The database key.</summary>
     public int Id { get; set; }
 
-    /// <summary>The name the register shows, such as Dad.</summary>
+    /// <summary>The name the register shows, such as Dad, no longer than <see cref="MaxNameLength"/>.</summary>
     public required string Name { get; set; }
 
     /// <summary>The barcode on the member's card, such as MEM-001. No two members share one.</summary>

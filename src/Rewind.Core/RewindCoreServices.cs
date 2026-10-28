@@ -6,6 +6,7 @@ using Rewind.Core.Data;
 using Rewind.Core.Devices;
 using Rewind.Core.Intake;
 using Rewind.Core.Labels;
+using Rewind.Core.Members;
 using Rewind.Core.Metadata;
 
 namespace Rewind.Core;
@@ -16,9 +17,9 @@ namespace Rewind.Core;
 public static class RewindCoreServices
 {
     /// <summary>
-    /// Adds Rewind's folders, the database and the startup that prepares it, and the sheets of store
-    /// labels and member cards, whose numbers the database keeps. Call this before adding any other
-    /// hosted service: hosted services start in the order they're added, and everything else needs
+    /// Adds Rewind's folders, the database and the startup that prepares it, the sheets of store labels
+    /// and member cards, whose numbers the database keeps, and the members. Call this before adding any
+    /// other hosted service: hosted services start in the order they're added, and everything else needs
     /// the database.
     /// </summary>
     public static IServiceCollection AddRewindCore(this IServiceCollection services, IConfiguration configuration)
@@ -40,8 +41,9 @@ public static class RewindCoreServices
         services.AddSingleton<Backups>();
         services.AddHostedService<DatabaseStartup>();
 
-        // One for every screen: it holds no state, and asks the factory for each context (DATA-6).
+        // One of each for every screen: they hold no state, and ask the factory for each context (DATA-6).
         services.AddSingleton<ILabelSheets, LabelSheets>();
+        services.AddSingleton<IMemberRoster, MemberRoster>();
         return services;
     }
 

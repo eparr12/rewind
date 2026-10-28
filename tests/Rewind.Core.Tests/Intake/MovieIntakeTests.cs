@@ -1117,19 +1117,4 @@ public sealed class MovieIntakeTests : IDisposable
             return result;
         }
     }
-
-    // Contexts that write EF Core's own log to a list, at every level. One logger factory serves
-    // them all, as one serves the register, so EF Core builds its services once.
-    private sealed class LoggedContexts(TempRewind rewind, ListLoggerProvider log) : IDbContextFactory<RewindDb>, IDisposable
-    {
-        private readonly ILoggerFactory _loggerFactory = LoggerFactory.Create(logging => logging.SetMinimumLevel(LogLevel.Trace).AddProvider(log));
-
-        public RewindDb CreateDbContext() =>
-            new(new DbContextOptionsBuilder<RewindDb>()
-                .UseSqlite(RewindDb.ConnectionStringFor(rewind.Paths.Database))
-                .UseLoggerFactory(_loggerFactory)
-                .Options);
-
-        public void Dispose() => _loggerFactory.Dispose();
-    }
 }

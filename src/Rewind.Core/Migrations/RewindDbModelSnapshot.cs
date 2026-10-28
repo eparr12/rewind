@@ -211,7 +211,12 @@ namespace Rewind.Core.Migrations
                     b.HasIndex("CardBarcode")
                         .IsUnique();
 
-                    b.ToTable("Members");
+                    b.ToTable("Members", t =>
+                        {
+                            t.HasCheckConstraint("CK_Members_CardBarcode", "\"CardBarcode\" GLOB 'MEM-[0-9][0-9][0-9]'");
+
+                            t.HasCheckConstraint("CK_Members_Name", "trim(\"Name\") <> ''");
+                        });
                 });
 
             modelBuilder.Entity("Rewind.Core.Metadata.UpcLookup", b =>
