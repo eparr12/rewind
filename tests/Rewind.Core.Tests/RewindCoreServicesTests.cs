@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Rewind.Core.Labels;
+using Rewind.Core.Members;
 using Rewind.Core.Metadata;
 
 namespace Rewind.Core.Tests;
@@ -46,6 +47,22 @@ public sealed class RewindCoreServicesTests
         await using var provider = services.BuildServiceProvider();
 
         Assert.IsType<LabelSheets>(provider.GetRequiredService<ILabelSheets>());
+    }
+
+    // The Store Manager's Members tab will inject it, and a host without it would only fail once
+    // that tab opened.
+    [Fact]
+    public async Task AddRewindCore_AnyHost_ProvidesTheMemberRoster()
+    {
+        // A full path on Linux too, as for the label sheets above.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddRewindCore(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { [$"{RewindPaths.SectionName}:Root"] = Path.GetTempPath() })
+            .Build());
+        await using var provider = services.BuildServiceProvider();
+
+        Assert.IsType<MemberRoster>(provider.GetRequiredService<IMemberRoster>());
     }
 
     // UPCitemdb's limits count every lookup the register makes, whichever screen asks.
