@@ -117,6 +117,47 @@ public sealed class IntakeTests : BunitContext
         JSInterop.VerifyFocusAsyncInvoke();
     }
 
+    // Build Plan 2.6: the cases Core counts on the shelf, to check against the real shelves. None is
+    // a count too, for a store that hasn't shelved a case yet.
+    [Theory]
+    [InlineData(0, "Cases on the shelf: 0")]
+    [InlineData(6, "Cases on the shelf: 6")]
+    public void Render_ScreenOpens_ShowsTheCasesOnTheShelf(int onShelf, string line)
+    {
+        _intake.OnShelf = Task.FromResult(onShelf);
+
+        var cut = Render<Intake>();
+
+        Assert.Equal(line, cut.Find(".intake-count").TextContent);
+    }
+
+    // The screen opens before Core has counted, and shows the count once it has.
+    [Fact]
+    public void Render_CountNotReadYet_ShowsItOnceRead()
+    {
+        var counted = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _intake.OnShelf = counted.Task;
+        var cut = Render<Intake>();
+        Assert.Empty(cut.FindAll(".intake-count"));
+
+        counted.SetResult(6);
+
+        cut.WaitForAssertion(() => Assert.Equal("Cases on the shelf: 6", cut.Find(".intake-count").TextContent));
+    }
+
+    // UI-4: the screen listens before it counts, so a DVD scanned as it opens is looked up.
+    [Fact]
+    public async Task Scanned_WhileCounting_LooksTheBarcodeUp()
+    {
+        _intake.OnShelf = new TaskCompletionSource<int>().Task;
+        _titles.Lookup = Task.FromResult(TommyBoyFound);
+        var cut = Render<Intake>();
+
+        await ScanAsync(cut, TommyBoyUpc);
+
+        Assert.Equal([TommyBoyUpc], _titles.Lookups);
+    }
+
     [Fact]
     public async Task Submit_Halloween_ListsEachMatchWithItsYear()
     {
@@ -1032,6 +1073,32 @@ public sealed class IntakeTests : BunitContext
         Assert.StartsWith("RV-00042 is on the shelf: Tommy Boy (1995), Halloween (1978). ", cut.Find(".intake-prompt").TextContent, StringComparison.Ordinal);
     }
 
+    // Build Plan 2.6: the case just shelved is one more on the shelf.
+    [Fact]
+    public async Task Scanned_LabelShelved_CountsOneMoreCase()
+    {
+        _intake.OnShelf = Task.FromResult(6);
+        var cut = await RenderWithTommyBoyPickedAsync();
+        _intake.Shelving = Shelved(Label, TommyBoy);
+
+        await ScanLabelAsync(cut, Label);
+
+        Assert.Equal("Cases on the shelf: 7", cut.Find(".intake-count").TextContent);
+    }
+
+    // A box set is one case on the shelf, however many movies it holds.
+    [Fact]
+    public async Task Scanned_LabelShelvedForABoxSet_CountsOneCase()
+    {
+        _intake.OnShelf = Task.FromResult(6);
+        var cut = await RenderWithTommyBoyPickedAsync();
+        _intake.Shelving = Shelved(Label, TommyBoy, Halloween);
+
+        await ScanLabelAsync(cut, Label);
+
+        Assert.Equal("Cases on the shelf: 7", cut.Find(".intake-count").TextContent);
+    }
+
     // NET-12: a label another case has is the clerk's to fix. The error dialog says what to do, and
     // the case stays open, so the next label shelves it.
     [Fact]
@@ -1050,6 +1117,20 @@ public sealed class IntakeTests : BunitContext
         Assert.Equal([Label, SecondLabel], _intake.Shelvings.Select(shelving => shelving.StoreLabel));
         Assert.Equal([TommyBoy], _intake.Shelvings[1].Movies);
         Assert.StartsWith("RV-00043 is on the shelf", cut.Find(".intake-prompt").TextContent, StringComparison.Ordinal);
+    }
+
+    // A label in use shelves nothing, so the count stays.
+    [Fact]
+    public async Task Scanned_LabelInUse_KeepsTheCount()
+    {
+        _intake.OnShelf = Task.FromResult(6);
+        var cut = await RenderWithTommyBoyPickedAsync();
+        _intake.Shelving = Task.FromResult(new Shelving(ShelveStatus.LabelInUse, null));
+        await ScanLabelAsync(cut, Label);
+
+        await cut.InvokeAsync(() => _dialogs.Close(ok: true));
+
+        Assert.Equal("Cases on the shelf: 6", cut.Find(".intake-count").TextContent);
     }
 
     // OBS-5: the screen checks for a movie first, and its label and barcode are read as Core reads
@@ -1332,6 +1413,35 @@ public sealed class IntakeTests : BunitContext
         await DisposeComponentsAsync();
 
         Assert.True(_titles.LastToken.IsCancellationRequested);
+    }
+
+    // A count still being read when the clerk leaves stops too.
+    [Fact]
+    public async Task Dispose_WhileCounting_CancelsTheCount()
+    {
+        _intake.OnShelf = new TaskCompletionSource<int>().Task;
+        _ = Render<Intake>();
+
+        await DisposeComponentsAsync();
+
+        Assert.True(_intake.LastCountToken.IsCancellationRequested);
+    }
+
+    // The count's cancellation raises nothing, though the screen has no catch for it: ComponentBase
+    // ignores a task that was cancelled (Microsoft Learn, "ASP.NET Core Blazor synchronization
+    // context"). This catches a Blazor that stops doing so, such as on a move to the next LTS (NET-13).
+    [Fact]
+    public async Task Dispose_WhileCounting_RaisesNothingOnceCancelled()
+    {
+        var counted = new TaskCompletionSource<int>();
+        _intake.OnShelf = counted.Task;
+        _ = Render<Intake>();
+        await DisposeComponentsAsync();
+
+        counted.SetCanceled(_intake.LastCountToken); // as EF Core ends a query whose token was cancelled
+        await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind the screen's own continuation
+
+        Assert.False(Renderer.UnhandledException.IsCompleted);
     }
 
     private static Task<TmdbSearch> Found(params TmdbMatch[] matches) =>

@@ -19,6 +19,7 @@ public sealed class ShellTests : BunitContext
     private readonly DialogService _dialogs;
     private readonly ScannerHub _scanner;
     private readonly FakeBarcodeTitles _titles = new();
+    private readonly FakeMovieIntake _intake = new();
 
     public ShellTests()
     {
@@ -34,7 +35,7 @@ public sealed class ShellTests : BunitContext
         Services.AddSingleton(new ErrorHub(NullLogger<ErrorHub>.Instance));
         Services.AddSingleton<ISoundPlayer>(sounds);
         Services.AddSingleton<IHostApplicationLifetime>(new FakeApplicationLifetime());
-        Services.AddSingleton<IMovieIntake>(new FakeMovieIntake());
+        Services.AddSingleton<IMovieIntake>(_intake);
         Services.AddSingleton<IBarcodeTitles>(_titles);
         Services.AddSingleton<ILabelSheets>(new FakeLabelSheets());
         Services.AddSingleton(TimeProvider.System);
@@ -147,6 +148,21 @@ public sealed class ShellTests : BunitContext
         _scanner.Receive("032429258373");
 
         cut.WaitForAssertion(() => Assert.Equal(DialogIcon.Error, _dialogs.Current?.Icon));
+    }
+
+    // UI-6, OBS-5: Intake counts the cases on the shelf as it opens (Build Plan 2.6), so a database
+    // Rewind can't read fails it at F4, with the error dialog and then Checkout, not at the first scan.
+    [Fact]
+    public async Task OnFunctionKey_IntakeCantCountTheShelf_ShowsErrorDialogThenCheckout()
+    {
+        _intake.OnShelf = Task.FromException<int>(new InvalidOperationException("Something unexpected"));
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F4"));
+        cut.WaitForAssertion(() => Assert.Equal(DialogIcon.Error, _dialogs.Current?.Icon));
+
+        await cut.InvokeAsync(() => _dialogs.Close(ok: true));
+
+        cut.WaitForAssertion(() => Assert.True(cut.HasComponent<Checkout>()));
     }
 
     [Fact]

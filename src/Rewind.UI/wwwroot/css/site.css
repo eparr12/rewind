@@ -190,6 +190,13 @@ body {
   width: 320px;
 }
 
+/* The cases on the shelf, at the far end of the title row, where a long list never pushes them out
+   of sight (Build Plan 2.6). Two classes, to win over 98.css's 6px gap in a field row. */
+.intake-search .intake-count {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
 /* The hand-entry form: the labels in one column and their boxes in the next, as in a Windows 98
    dialog. */
 .hand-entry-form {

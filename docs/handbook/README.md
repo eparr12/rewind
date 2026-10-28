@@ -19,7 +19,7 @@ Press **F4** for Intake.
 1. Scan the barcode on the back of the DVD case, or type the movie's title and press **Enter**. Rewind looks it up on TMDB, a big movie website. If you scan lots of DVDs quickly, it may say it's waiting a few seconds: press **Esc** if you'd rather type the title.
 2. Lots of movies share a name, so find the right one by its poster and year. Press **↓** and **↑** to move through the list, then press **Enter**. The movie shows up under **In this case**.
 3. Box set or double feature? Type the next movie's title, press **Enter**, and pick that one too.
-4. Peel the next store label, stick it on the case and scan it. Rewind chimes and says it's on the shelf.
+4. Peel the next store label, stick it on the case and scan it. Rewind chimes, says it's on the shelf and adds one to **Cases on the shelf**.
 
 Can't find it on TMDB? Press the **Enter by hand** button and type what's on the case. Wrong title? Press **Esc** to close the list, fix the title, then press **Enter**.
 
