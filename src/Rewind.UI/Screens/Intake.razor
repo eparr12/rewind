@@ -9,6 +9,7 @@
 @inject ISoundPlayer Sounds
 @inject TimeProvider Time
 @inject ILogger<Intake> Logger
+@inject ErrorHub Errors
 
 @* F4 Intake (Build Plan 2.2 to 2.4, ADR-0005): a DVD, from its factory UPC to a labeled case on
    the shelf. Scan the UPC, and UPCitemdb's title for it goes in the title box and is searched for
@@ -212,12 +213,20 @@ else if (_matches is { Count: > 0 } matches)
     // UI-4: a scan reaches the screen from the scanner, whatever has the focus. UI-11: it can arrive
     // on the scanner's thread, and an exception here would only fault the Task that InvokeAsync
     // returns, which nobody awaits, so it goes to DispatchExceptionAsync and the screen's
-    // ErrorBoundary.
+    // ErrorBoundary. Once the clerk has left, DispatchExceptionAsync throws, since the renderer has no
+    // component to give it to, so an error then goes to ErrorHub instead, which logs it and shows the
+    // error dialog (OBS-5). One thrown while the screen is open is handed on in the same turn, so it
+    // reaches the ErrorBoundary before the screen can be disposed. WhileBusyAsync has already caught
+    // the cancellation that leaving causes, so an await added outside it would send that to ErrorHub.
     private void OnScanned(Scan scan) => _ = InvokeAsync(async () =>
     {
         try
         {
             await OnScanAsync(scan);
+        }
+        catch (Exception e) when (_closing.IsCancellationRequested)
+        {
+            Errors.ReportFromClosedScreen(nameof(Intake), e);
         }
         catch (Exception e)
         {

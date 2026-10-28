@@ -6,6 +6,7 @@ using Rewind.Core.Members;
 using Rewind.Core.Scans;
 using Rewind.Core.Sounds;
 using Rewind.UI.Dialogs;
+using Rewind.UI.Errors;
 using Rewind.UI.Screens;
 
 namespace Rewind.UI.Tests.Screens;
@@ -19,9 +20,15 @@ public sealed class MembersTabTests : BunitContext
     private readonly FakeScanner _scanner = new();
     private readonly FakeSoundPlayer _sounds = new();
     private readonly DialogService _dialogs;
+    private readonly ListLogger<ErrorHub> _errorLog = new();
+    private readonly ErrorHub _errors;
+    private bool _crashed;
 
     public MembersTabTests()
     {
+        _errors = new ErrorHub(_errorLog);
+        _errors.Crashed += () => _crashed = true;
+        Services.AddSingleton(_errors);
         _dialogs = new DialogService(_sounds);
         Services.AddSingleton<IMemberRoster>(_roster);
         Services.AddSingleton<IScanner>(_scanner);
@@ -355,9 +362,8 @@ public sealed class MembersTabTests : BunitContext
     }
 
     // Leaving mid-save shows nothing. A scan's save runs as a fire-and-forget task, which ComponentBase
-    // never sees, so the tab catches its own cancellation. Without the catch it wouldn't show either,
-    // since DispatchExceptionAsync throws once the tab is gone, but the task would fault unobserved, and
-    // a Blazor that handed such an exception on would show it, which this would catch (NET-13).
+    // never sees, so the tab catches its own cancellation. Without the catch, the cancellation would go
+    // to ErrorHub as an error from a closed screen, and the clerk would see the error dialog.
     [Fact]
     public async Task Dispose_WhileAdding_RaisesNothingOnceCancelled()
     {
@@ -369,13 +375,66 @@ public sealed class MembersTabTests : BunitContext
         await DisposeComponentsAsync();
 
         adding.SetCanceled(_roster.LastToken); // as EF Core ends a save whose token was cancelled
-
-        // Two turns of the tab's thread: one for the scan's own continuation, and one for the error it
-        // would hand on, since DispatchExceptionAsync reports it from a turn of its own.
-        await Renderer.Dispatcher.InvokeAsync(() => { });
-        await Renderer.Dispatcher.InvokeAsync(() => { });
+        await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind the tab's own continuation
 
         Assert.False(Renderer.UnhandledException.IsCompleted);
+        Assert.False(_crashed);
+    }
+
+    // #35: a save that fails after the clerk left has no tab to show it on, so it goes to ErrorHub,
+    // which logs it, naming the tab (OBS-3), and shows the error dialog (OBS-5).
+    [Fact]
+    public async Task Dispose_WhileAdding_ReportsAFailureToErrorHub()
+    {
+        var adding = new TaskCompletionSource<MemberChange>();
+        _roster.Adding = adding.Task;
+        var cut = Render<MembersTab>();
+        await cut.Find("#members-name").InputAsync("Mom");
+        await ScanAsync(cut, "MEM-003");
+        await DisposeComponentsAsync();
+
+        adding.SetException(new InvalidOperationException("The save failed."));
+        await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind the tab's own continuation
+
+        Assert.True(_crashed);
+        Assert.Equal(["Unhandled exception from MembersTab after the clerk left it; going back to Checkout"], _errorLog.Entries.Select(entry => entry.Message));
+    }
+
+    // While the tab is open, a failure goes to its ErrorBoundary, as before, not to ErrorHub.
+    [Fact]
+    public async Task Scan_SaveFails_HandsItToTheErrorBoundary()
+    {
+        _roster.Adding = Task.FromException<MemberChange>(new InvalidOperationException("The save failed."));
+        var cut = Render<MembersTab>();
+        await cut.Find("#members-name").InputAsync("Mom");
+
+        await ScanAsync(cut, "MEM-003");
+
+        Assert.True(Renderer.UnhandledException.IsCompleted);
+        Assert.False(_crashed);
+    }
+
+    // A failure is handed on in the same turn of the renderer's thread that it's thrown in, so it
+    // reaches the ErrorBoundary even when the clerk leaves that turn, before the tab is disposed.
+    [Fact]
+    public async Task Scan_SaveFailsInTheTurnTheClerkLeaves_ReachesTheErrorBoundary()
+    {
+        _roster.Adding = Task.FromException<MemberChange>(new InvalidOperationException("The save failed."));
+        var cut = Render<MembersTab>();
+        await cut.Find("#members-name").InputAsync("Mom");
+        var leaving = Task.CompletedTask;
+
+        var handedOn = await cut.InvokeAsync(() =>
+        {
+            _scanner.Emit(new Scan(ScanKind.MemberCard, "MEM-003"));
+            var reached = Renderer.UnhandledException.IsCompleted; // read now: disposing starts a new record
+            leaving = DisposeComponentsAsync();
+            return reached;
+        });
+        await leaving;
+
+        Assert.True(handedOn);
+        Assert.False(_crashed);
     }
 
     // A tab that kept listening after it closed would add members from another tab's scans.
