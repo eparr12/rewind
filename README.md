@@ -166,6 +166,8 @@ Git shows a Word file only as "Binary files differ". To see the text that change
 git config diff.docx.textconv "sh \"$(git rev-parse --show-toplevel)/tools/docx-text.sh\""
 ```
 
+The clerk handbook, `docs/handbook/handbook.html`, is a web page whose own print styles set how big it prints (DOC-6): both sides of one sheet, with movie night on the front. Open it in Edge or Chrome to see each side as a sheet of paper. Text that runs past a sheet's bottom edge won't fit when it's printed. The page says how to print it.
+
 ## Release to the register
 
 The register only ever runs a tagged build (GIT-7).
