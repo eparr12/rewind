@@ -3,13 +3,19 @@ namespace Rewind.Core.Members;
 /// <summary>
 /// What the Store Manager asks of Core to keep the family's members, one call per action (ARCH-5): the
 /// list, and adding, renaming, deactivating and reactivating a member. Nothing deletes a member (DATA-4),
-/// and each card belongs to one member (DATA-11). <see cref="MemberRoster"/> does it, and the screen's
-/// tests use a fake (ADR-0003).
+/// and each card belongs to one member (DATA-11). The status bar asks it whose card was scanned.
+/// <see cref="MemberRoster"/> does it, and the UI's tests use a fake (ADR-0003).
 /// </summary>
 public interface IMemberRoster
 {
     /// <summary>Every member, active or not, in order of name, then card.</summary>
     Task<IReadOnlyList<MemberRow>> ListAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The member whose card this is, active or not, or null when nobody has it. The card is read as a
+    /// scan is, so mem-001 is MEM-001, and a barcode that isn't a member card is nobody's.
+    /// </summary>
+    Task<MemberRow?> FindByCardAsync(string cardBarcode, CancellationToken cancellationToken);
 
     /// <summary>
     /// Adds an active member with the card that was scanned. The name is cleaned as a title typed into

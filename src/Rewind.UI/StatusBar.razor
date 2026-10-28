@@ -1,5 +1,7 @@
 @implements IDisposable
 @inject IScanner Scanner
+@inject IMemberRoster Roster
+@inject ErrorHub Errors
 
 @* The last scan, then the health of each optional device as it arrives (OBS-6). *@
 <div class="status-bar">
@@ -10,9 +12,18 @@
 </div>
 
 @code {
+    // Cancelled when the status bar closes, which only happens when the shell crashes or Rewind closes,
+    // so a card's lookup still waiting on the database stops. The lookup is a fire-and-forget task, so
+    // OnScanned catches that (see StoreManager's _closing).
+    private readonly CancellationTokenSource _closing = new();
+
     private Scan? _lastScan;
 
-    private string LastScanText => _lastScan is null ? "No scan yet" : Describe(_lastScan);
+    // Whose card the last scan was, once the roster has answered. Null until then, for a card nobody
+    // has, and for any other kind of scan.
+    private MemberRow? _member;
+
+    private string LastScanText => _lastScan is null ? "No scan yet" : Describe(_lastScan, _member);
 
     private string ScannerText => Scanner.Status switch
     {
@@ -31,21 +42,39 @@
     {
         Scanner.Scanned -= OnScanned;
         Scanner.StatusChanged -= OnStatusChanged;
+        _closing.Cancel();
+        _closing.Dispose();
     }
 
-    // Both events can arrive on the scanner's thread, so move onto the renderer's first (UI-11).
-    private void OnScanned(Scan scan) => Refresh(() => _lastScan = scan);
-
-    private void OnStatusChanged() => Refresh(); // the status is read as the bar draws
-
-    // UI-11: an exception in here would only fault the Task that InvokeAsync returns, which
-    // nobody awaits, so it goes to DispatchExceptionAsync and on to App's ErrorBoundary.
-    private void Refresh(Action? change = null) => _ = InvokeAsync(async () =>
+    // UI-11: a scan can arrive on the scanner's thread, so it moves onto the renderer's first. What its
+    // lookup throws goes to ErrorHub, open or not, which logs it and shows the error dialog over the
+    // shell. The bar carries on, and the next scan looks again (OBS-4, OBS-5). DispatchExceptionAsync
+    // would take it to App's ErrorBoundary, the bar's only one, which replaces the whole shell over a
+    // name, and shuts Rewind down while the shell is still starting.
+    private void OnScanned(Scan scan) => _ = InvokeAsync(async () =>
     {
         try
         {
-            change?.Invoke();
-            StateHasChanged();
+            await ShowAsync(scan);
+        }
+        catch (OperationCanceledException) when (_closing.IsCancellationRequested)
+        {
+            // the status bar closed while the card was being looked up
+        }
+        catch (Exception e)
+        {
+            Errors.ReportFromComponent(nameof(StatusBar), e);
+        }
+    });
+
+    // UI-11: the status can change on the scanner's thread too. An exception in here would only fault
+    // the Task that InvokeAsync returns, which nobody awaits, so it goes to DispatchExceptionAsync and on
+    // to App's ErrorBoundary.
+    private void OnStatusChanged() => _ = InvokeAsync(async () =>
+    {
+        try
+        {
+            StateHasChanged(); // the status is read as the bar draws
         }
         catch (Exception e)
         {
@@ -53,9 +82,44 @@
         }
     });
 
-    // Such as "RV-00042 · Store label". A scan too long to keep shows only its kind.
-    private static string Describe(Scan scan) =>
-        scan.Code.Length == 0 ? KindName(scan.Kind) : $"{scan.Code} · {KindName(scan.Kind)}";
+    // A scan is drawn with its member's name (Build Plan 3.1), in one go. On the register, SQLite has
+    // answered by the time the lookup returns, since Microsoft.Data.Sqlite runs async calls synchronously
+    // (its docs, "Async limitations"), and drawing before that would flash "Member card" first. Only a
+    // lookup still on its way shows the scan as a member card meanwhile. A scan raised just as the
+    // status bar closed isn't looked up, since _closing has gone with it.
+    private async Task ShowAsync(Scan scan)
+    {
+        _lastScan = scan;
+        _member = null;
+        var lookup = scan.Kind == ScanKind.MemberCard && !_closing.IsCancellationRequested
+            ? Roster.FindByCardAsync(scan.Code, _closing.Token)
+            : Task.FromResult<MemberRow?>(null); // only a member card is anyone's
+        if (!lookup.IsCompleted)
+        {
+            StateHasChanged();
+        }
+
+        MemberRow? member = null;
+        try
+        {
+            member = await lookup;
+        }
+        finally
+        {
+            if (ReferenceEquals(scan, _lastScan)) // a scan that came in meanwhile shows instead, even of this card
+            {
+                _member = member;
+                StateHasChanged(); // even when the lookup failed, so the bar still says what was scanned
+            }
+        }
+    }
+
+    // Such as "RV-00042 · Store label", or "MEM-001 · Grandma" for a member's card, active or not. Only
+    // the name, as the member was when the card was scanned: a word more, such as deactivated or not
+    // added yet, would be out of date as soon as the Members tab reactivated or added that member. A
+    // scan too long to keep shows only its kind.
+    private static string Describe(Scan scan, MemberRow? member) =>
+        scan.Code.Length == 0 ? KindName(scan.Kind) : $"{scan.Code} · {member?.Name ?? KindName(scan.Kind)}";
 
     private static string KindName(ScanKind kind) => kind switch
     {

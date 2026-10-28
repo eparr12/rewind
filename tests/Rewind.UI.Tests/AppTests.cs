@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Rewind.Core.Devices;
+using Rewind.Core.Members;
 using Rewind.Core.Sounds;
 using Rewind.UI.Dialogs;
 using Rewind.UI.Errors;
@@ -17,12 +18,15 @@ namespace Rewind.UI.Tests;
 public sealed class AppTests : BunitContext
 {
     private readonly DialogService _dialogs;
+    private readonly ScannerHub _scanner;
+    private readonly FakeMemberRoster _roster = new();
     private readonly FakeApplicationLifetime _lifetime = new();
 
     public AppTests()
     {
         var sounds = new FakeSoundPlayer();
         var scanner = new ScannerHub(sounds, NullLogger<ScannerHub>.Instance);
+        _scanner = scanner;
         _dialogs = new DialogService(sounds);
 
         // The services the shell and its children use, wired as Program.cs wires them.
@@ -32,6 +36,7 @@ public sealed class AppTests : BunitContext
         Services.AddSingleton(new ErrorHub(NullLogger<ErrorHub>.Instance));
         Services.AddSingleton<ISoundPlayer>(sounds);
         Services.AddSingleton<IHostApplicationLifetime>(_lifetime);
+        Services.AddSingleton<IMemberRoster>(_roster);
 
         // Each shell starts keyboard.js after its first render, and a dialog that closes hands
         // the focus back through it (UI-3).
@@ -127,5 +132,20 @@ public sealed class AppTests : BunitContext
 
         Assert.Equal(DialogIcon.Error, _dialogs.Current?.Icon);
         Assert.DoesNotContain("can't recover", cut.Markup, StringComparison.Ordinal);
+    }
+
+    // The status bar's lookup failing shows the error dialog over the shell it's in, which carries on.
+    // Handed to this boundary, it would replace the whole shell, or shut Rewind down while it started.
+    [Fact]
+    public async Task Receive_StatusBarLookupFails_ShowsErrorDialogOverTheSameShell()
+    {
+        _roster.Finding = Task.FromException<MemberRow?>(new InvalidOperationException("The lookup failed."));
+        var cut = Render<App>();
+        var shell = cut.FindComponent<Shell>().Instance;
+
+        await cut.InvokeAsync(() => _scanner.Receive("MEM-001"));
+
+        Assert.Equal(DialogIcon.Error, _dialogs.Current?.Icon);
+        Assert.Same(shell, cut.FindComponent<Shell>().Instance);
     }
 }
