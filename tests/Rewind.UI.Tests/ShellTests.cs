@@ -158,7 +158,7 @@ public sealed class ShellTests : BunitContext
         _intake.OnShelf = Task.FromException<int>(new InvalidOperationException("Something unexpected"));
         var cut = Render<Shell>();
         await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F4"));
-        Assert.Equal(DialogIcon.Error, _dialogs.Current?.Icon);
+        cut.WaitForAssertion(() => Assert.Equal(DialogIcon.Error, _dialogs.Current?.Icon));
 
         await cut.InvokeAsync(() => _dialogs.Close(ok: true));
 
