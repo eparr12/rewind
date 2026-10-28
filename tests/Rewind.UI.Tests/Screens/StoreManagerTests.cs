@@ -353,6 +353,70 @@ public sealed class StoreManagerTests : BunitContext
         Assert.Empty(cut.FindAll("a[href]"));
     }
 
+    // Leaving the screen stops a read still waiting on the database. The three tests after this one
+    // cancel Core's answer by hand, so they'd still pass if it didn't.
+    [Fact]
+    public async Task Dispose_WhileReading_CancelsTheRead()
+    {
+        _sheets.Next = new TaskCompletionSource<NextCodes>().Task;
+        _ = Render<StoreManager>();
+
+        await DisposeComponentsAsync();
+
+        Assert.True(_sheets.LastToken.IsCancellationRequested);
+    }
+
+    // The read's cancellation raises nothing, though the screen has no catch for it: ComponentBase
+    // ignores a task that was cancelled (Microsoft Learn, "ASP.NET Core Blazor synchronization
+    // context"). This catches a Blazor that stops doing so, such as on a move to the next LTS (NET-13).
+    [Fact]
+    public async Task Dispose_WhileReading_RaisesNothingOnceCancelled()
+    {
+        var read = new TaskCompletionSource<NextCodes>();
+        _sheets.Next = read.Task;
+        _ = Render<StoreManager>();
+        await DisposeComponentsAsync();
+
+        read.SetCanceled(_sheets.LastToken); // as EF Core ends a query whose token was cancelled
+        await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind the screen's own continuation
+
+        Assert.False(Renderer.UnhandledException.IsCompleted);
+    }
+
+    // Done reads the codes again from an event handler, whose cancelled task ComponentBase ignores too.
+    [Fact]
+    public async Task Dispose_WhileReadingAfterDone_RaisesNothingOnceCancelled()
+    {
+        PrintWindowCloses();
+        var cut = Render<StoreManager>();
+        await PrintSheetAsync(cut, "Print 30 labels");
+        var read = new TaskCompletionSource<NextCodes>();
+        _sheets.Next = read.Task;
+        var done = Button(cut, "Done").ClickAsync(new MouseEventArgs());
+        await DisposeComponentsAsync();
+
+        read.SetCanceled(_sheets.LastToken);
+        await done;
+
+        Assert.False(Renderer.UnhandledException.IsCompleted);
+    }
+
+    // So does making a sheet, from the print buttons' event handler.
+    [Fact]
+    public async Task Dispose_WhileMakingASheet_RaisesNothingOnceCancelled()
+    {
+        var making = new TaskCompletionSource<SheetReservation>();
+        _sheets.Labels = making.Task;
+        var cut = Render<StoreManager>();
+        var click = Button(cut, "Print 30 labels").ClickAsync(new MouseEventArgs());
+        await DisposeComponentsAsync();
+
+        making.SetCanceled(_sheets.LastToken);
+        await click;
+
+        Assert.False(Renderer.UnhandledException.IsCompleted);
+    }
+
     // Completes once the clerk answers the dialog that Shut Down opens.
     private static Task PressShutDownAsync(IRenderedComponent<StoreManager> cut) =>
         cut.FindAll("button").Single(button => button.TextContent == "Shut Down").ClickAsync(new MouseEventArgs());

@@ -36,16 +36,25 @@ internal sealed class FakeLabelSheets : ILabelSheets
     /// <summary>How many sheets of member cards the screen asked for.</summary>
     public int CardSheetsMade { get; private set; }
 
-    public Task<NextCodes> PeekAsync(CancellationToken cancellationToken) => Next;
+    /// <summary>The token the screen's last call was given.</summary>
+    public CancellationToken LastToken { get; private set; }
+
+    public Task<NextCodes> PeekAsync(CancellationToken cancellationToken)
+    {
+        LastToken = cancellationToken;
+        return Next;
+    }
 
     public Task<SheetReservation> ReserveLabelsAsync(CancellationToken cancellationToken)
     {
+        LastToken = cancellationToken;
         LabelSheetsMade++;
         return Labels;
     }
 
     public Task<SheetReservation> ReserveCardsAsync(CancellationToken cancellationToken)
     {
+        LastToken = cancellationToken;
         CardSheetsMade++;
         return Cards;
     }

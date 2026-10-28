@@ -72,6 +72,11 @@ else
         DialogIcon.Error);
 
     // Cancelled when the clerk leaves the screen, so a read or a sheet still waiting on the database stops.
+    // That raises nothing, so nothing here catches it: ComponentBase ignores a task that was cancelled,
+    // from a lifecycle method or an event handler (Microsoft Learn, "ASP.NET Core Blazor synchronization
+    // context"). That holds only for awaits that reach ComponentBase: a Task.Run, a fire-and-forget task,
+    // a timer or a [JSInvokable] method would have to catch it. And Core must keep returning a timeout as
+    // a result (NET-12): thrown as a cancellation, it would be dropped here too, and nobody would know.
     private readonly CancellationTokenSource _closing = new();
 
     private ElementReference _printLabels;
@@ -99,7 +104,7 @@ else
     // sheet. ADR-0006's guard against repeated numbers is Core's transaction; this is only manners.
     private bool Busy => _reserving || _printing;
 
-    protected override async Task OnInitializedAsync() => _next = await ReadNextAsync();
+    protected override async Task OnInitializedAsync() => _next = await Sheets.PeekAsync(_closing.Token);
 
     // The print window prints what's on the page, so it opens here, once the sheet has rendered, not from
     // the click that made it.
@@ -158,10 +163,6 @@ else
         {
             reservation = await reserve(_closing.Token);
         }
-        catch (OperationCanceledException) when (_closing.IsCancellationRequested)
-        {
-            return; // the clerk left the screen
-        }
         finally
         {
             _reserving = false;
@@ -206,7 +207,7 @@ else
         _sheet = null;
         _printed = null;
         _next = null;
-        _next = await ReadNextAsync();
+        _next = await Sheets.PeekAsync(_closing.Token);
     }
 
     // UI-3: Esc is Done, the sheet's one way out.
@@ -215,19 +216,6 @@ else
         if (e.Key == "Escape")
         {
             await DoneAsync();
-        }
-    }
-
-    // Null when the clerk left the screen before the codes were read.
-    private async Task<NextCodes?> ReadNextAsync()
-    {
-        try
-        {
-            return await Sheets.PeekAsync(_closing.Token);
-        }
-        catch (OperationCanceledException) when (_closing.IsCancellationRequested)
-        {
-            return null;
         }
     }
 
