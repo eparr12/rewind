@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Rewind.Core.Data;
@@ -63,7 +62,7 @@ public sealed partial class BarcodeTitles(
         {
             return await WriteAsync(upc, productTitle, cancellationToken);
         }
-        catch (DbUpdateException e) when (e.InnerException is SqliteException { SqliteExtendedErrorCode: SQLitePCL.raw.SQLITE_CONSTRAINT_UNIQUE })
+        catch (DbUpdateException e) when (SqliteErrors.IsUniqueIndexRefusal(e))
         {
             if (await SavedAsync(upc, cancellationToken) is { } first)
             {
