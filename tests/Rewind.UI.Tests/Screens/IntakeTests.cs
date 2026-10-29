@@ -1472,7 +1472,7 @@ public sealed class IntakeTests : BunitContext
         await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind the screen's own continuation
 
         Assert.True(_crashed);
-        Assert.Equal(["Unhandled exception from Intake after the clerk left it; going back to Checkout"], _errorLog.Entries.Select(entry => entry.Message));
+        Assert.Equal(["Unhandled exception from Intake; reported to the shell"], _errorLog.Entries.Select(entry => entry.Message));
     }
 
     // While the screen is open, a failure goes to its ErrorBoundary, as before, not to ErrorHub.

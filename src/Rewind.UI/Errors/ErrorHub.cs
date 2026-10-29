@@ -19,12 +19,12 @@ namespace Rewind.UI.Errors;
 /// anything it catches to DispatchExceptionAsync, which hands it to the nearest ErrorBoundary.
 /// Once the component has been disposed, there's no ErrorBoundary to hand it to:
 /// DispatchExceptionAsync throws, and the Task faults with nobody to see it. So a screen sends
-/// such an exception here instead, with <see cref="ReportFromClosedScreen"/>.
+/// such an exception here instead, with <see cref="ReportFromComponent"/>.
 /// <para>
-/// The status bar's lookups come here even while it's open, with <see cref="ReportFromComponent"/>.
-/// Its only ErrorBoundary is App's, which replaces the whole shell, and shuts Rewind down when the
-/// shell hasn't finished starting: too much over a name. Here, the shell shows the error dialog and
-/// carries on, and the next scan looks again.
+/// The status bar's lookups come here too, even while it's open. Its only ErrorBoundary is App's,
+/// which replaces the whole shell, and shuts Rewind down when the shell hasn't finished starting:
+/// too much over a name. Here, the shell shows the error dialog and carries on, and the next scan
+/// looks again.
 /// </para>
 /// </remarks>
 public sealed partial class ErrorHub(ILogger<ErrorHub> logger)
@@ -46,22 +46,11 @@ public sealed partial class ErrorHub(ILogger<ErrorHub> logger)
     }
 
     /// <summary>
-    /// Logs an exception that a screen's background event threw after the clerk left the screen, such
-    /// as a save that failed, then raises <see cref="Crashed"/>, as <see cref="Report"/> does. The
-    /// screen's ErrorBoundary went with it, so this is the only place left to show it. The log names
-    /// the screen (OBS-3), such as nameof(Intake), so nobody has to work it out from the stack trace.
-    /// </summary>
-    public void ReportFromClosedScreen(string screen, Exception exception)
-    {
-        LogClosedScreenCrashed(logger, exception, screen);
-        Crashed?.Invoke();
-    }
-
-    /// <summary>
-    /// Logs an exception from a component's background event that no ErrorBoundary should get, such as
-    /// the status bar's lookup (see the remarks), then raises <see cref="Crashed"/>, as
-    /// <see cref="Report"/> does. The log names the component (OBS-3), such as nameof(StatusBar), and
-    /// says only what this hub does with the exception, since the component may be gone with the shell.
+    /// Logs an exception from a component's background event that no ErrorBoundary can or should get,
+    /// then raises <see cref="Crashed"/>, as <see cref="Report"/> does. That's a screen's once the
+    /// clerk has left it, such as a save that failed, since its ErrorBoundary went with it, and the
+    /// status bar's lookup, open or not (see the remarks). The log names the component (OBS-3), such as
+    /// nameof(Intake), so nobody has to work it out from the stack trace.
     /// </summary>
     public void ReportFromComponent(string component, Exception exception)
     {
@@ -81,11 +70,10 @@ public sealed partial class ErrorHub(ILogger<ErrorHub> logger)
     /// </summary>
     public void CouldNotStart(Exception exception) => LogCouldNotStart(logger, exception);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Unhandled exception on the WinForms thread; going back to Checkout")]
+    // Each line says only what this hub does with the exception. What happens next is the shell's
+    // doing, such as going back to Checkout, and there may be no shell by then.
+    [LoggerMessage(Level = LogLevel.Error, Message = "Unhandled exception on the WinForms thread; reported to the shell")]
     private static partial void LogCrashed(ILogger logger, Exception exception);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Unhandled exception from {Screen} after the clerk left it; going back to Checkout")]
-    private static partial void LogClosedScreenCrashed(ILogger logger, Exception exception, string screen);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Unhandled exception from {Component}; reported to the shell")]
     private static partial void LogComponentCrashed(ILogger logger, Exception exception, string component);

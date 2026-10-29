@@ -226,7 +226,7 @@ else if (_matches is { Count: > 0 } matches)
         }
         catch (Exception e) when (_closing.IsCancellationRequested)
         {
-            Errors.ReportFromClosedScreen(nameof(Intake), e);
+            Errors.ReportFromComponent(nameof(Intake), e);
         }
         catch (Exception e)
         {
