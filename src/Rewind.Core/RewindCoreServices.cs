@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Rewind.Core.Concessions;
 using Rewind.Core.Data;
 using Rewind.Core.Devices;
 using Rewind.Core.Intake;
@@ -19,9 +20,9 @@ public static class RewindCoreServices
 {
     /// <summary>
     /// Adds Rewind's folders, the database and the startup that prepares it, the sheets of store labels
-    /// and member cards, whose numbers the database keeps, the members and the prices. Call this before
-    /// adding any other hosted service: hosted services start in the order they're added, and everything
-    /// else needs the database.
+    /// and member cards, whose numbers the database keeps, the members, the prices and the concession bar's
+    /// snacks. Call this before adding any other hosted service: hosted services start in the order they're
+    /// added, and everything else needs the database.
     /// </summary>
     public static IServiceCollection AddRewindCore(this IServiceCollection services, IConfiguration configuration)
     {
@@ -46,6 +47,7 @@ public static class RewindCoreServices
         services.AddSingleton<ILabelSheets, LabelSheets>();
         services.AddSingleton<IMemberRoster, MemberRoster>();
         services.AddSingleton<IStorePrices, StorePrices>();
+        services.AddSingleton<IConcessionBar, ConcessionBar>();
         return services;
     }
 

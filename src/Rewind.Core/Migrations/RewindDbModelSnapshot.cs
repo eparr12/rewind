@@ -189,6 +189,41 @@ namespace Rewind.Core.Migrations
                     b.ToTable("MovieGenres");
                 });
 
+            modelBuilder.Entity("Rewind.Core.Concessions.ConcessionItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PriceCents")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("ConcessionItems", t =>
+                        {
+                            t.HasCheckConstraint("CK_ConcessionItems_Code", "\"Code\" GLOB 'CON-?*' AND \"Code\" NOT GLOB 'CON-*[^A-Z]*' AND length(\"Code\") <= 24");
+
+                            t.HasCheckConstraint("CK_ConcessionItems_Name", "trim(\"Name\") <> ''");
+
+                            t.HasCheckConstraint("CK_ConcessionItems_PriceCents", "\"PriceCents\" BETWEEN 0 AND 9999");
+                        });
+                });
+
             modelBuilder.Entity("Rewind.Core.Members.Member", b =>
                 {
                     b.Property<int>("Id")

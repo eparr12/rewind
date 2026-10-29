@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Rewind.Core.Catalog;
+using Rewind.Core.Concessions;
 using Rewind.Core.Members;
 using Rewind.Core.Metadata;
 using Rewind.Core.StoreManager;
@@ -18,6 +19,9 @@ public sealed class RewindDb(DbContextOptions<RewindDb> options) : DbContext(opt
 
     /// <summary>The family members who rent movies.</summary>
     public DbSet<Member> Members => Set<Member>();
+
+    /// <summary>The snacks and drinks sold at the concession bar.</summary>
+    public DbSet<ConcessionItem> ConcessionItems => Set<ConcessionItem>();
 
     /// <summary>The films in the collection, with TMDB's details (DATA-9).</summary>
     public DbSet<Movie> Movies => Set<Movie>();

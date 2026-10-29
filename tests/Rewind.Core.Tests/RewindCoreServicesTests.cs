@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Rewind.Core.Concessions;
 using Rewind.Core.Labels;
 using Rewind.Core.Members;
 using Rewind.Core.Metadata;
@@ -80,6 +81,22 @@ public sealed class RewindCoreServicesTests
         await using var provider = services.BuildServiceProvider();
 
         Assert.IsType<StorePrices>(provider.GetRequiredService<IStorePrices>());
+    }
+
+    // The Store Manager's Snacks tab will inject it, and a host without it would only fail once that tab
+    // opened.
+    [Fact]
+    public async Task AddRewindCore_AnyHost_ProvidesTheConcessionBar()
+    {
+        // A full path on Linux too, as for the label sheets above.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddRewindCore(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { [$"{RewindPaths.SectionName}:Root"] = Path.GetTempPath() })
+            .Build());
+        await using var provider = services.BuildServiceProvider();
+
+        Assert.IsType<ConcessionBar>(provider.GetRequiredService<IConcessionBar>());
     }
 
     // UPCitemdb's limits count every lookup the register makes, whichever screen asks.
