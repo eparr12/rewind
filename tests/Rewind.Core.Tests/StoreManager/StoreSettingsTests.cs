@@ -56,4 +56,84 @@ public sealed class StoreSettingsTests
 
         await SqliteAssert.RefusesAsync(SqliteConstraint.Check, () => db.SaveChangesAsync(ct));
     }
+
+    // DATA-11: the database holds each price to what the Store Manager can set.
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(StoreSettings.MaxPriceCents + 1)]
+    public async Task SaveChanges_RentalPriceOutOfRange_IsRefused(int cents)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await using var db = rewind.OpenDb();
+        var settings = await db.StoreSettings.SingleAsync(ct);
+
+        settings.RentalPriceCents = cents;
+
+        await SqliteAssert.RefusesAsync(SqliteConstraint.Check, () => db.SaveChangesAsync(ct));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(StoreSettings.MaxPriceCents + 1)]
+    public async Task SaveChanges_LateFeeOutOfRange_IsRefused(int cents)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await using var db = rewind.OpenDb();
+        var settings = await db.StoreSettings.SingleAsync(ct);
+
+        settings.LateFeeCents = cents;
+
+        await SqliteAssert.RefusesAsync(SqliteConstraint.Check, () => db.SaveChangesAsync(ct));
+    }
+
+    // Free, and the most the Store Manager can set, are both prices.
+    [Theory]
+    [InlineData(0)]
+    [InlineData(StoreSettings.MaxPriceCents)]
+    public async Task SaveChanges_PricesAtALimit_AreSaved(int cents)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await using (var db = rewind.OpenDb())
+        {
+            var settings = await db.StoreSettings.SingleAsync(ct);
+            settings.RentalPriceCents = cents;
+            settings.LateFeeCents = cents;
+            await db.SaveChangesAsync(ct);
+        }
+
+        await using var reread = rewind.OpenDb();
+        var saved = await reread.StoreSettings.AsNoTracking().SingleAsync(ct);
+        Assert.Equal((cents, cents), (saved.RentalPriceCents, saved.LateFeeCents));
+    }
+
+    // AddPriceChecks rebuilds the table, so the register's row has to come through it as it was: the
+    // family's prices, and the numbers the next sheets start at, which must never go back (ADR-0006).
+    [Fact]
+    public async Task StartAsync_DatabaseFromBeforeAddPriceChecks_KeepsItsRow()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        Directory.CreateDirectory(rewind.Paths.Data);
+        await using (var before = rewind.OpenDb())
+        {
+            await before.Database.MigrateAsync(nameof(AddMemberChecks), ct);
+            var row = await before.StoreSettings.SingleAsync(ct);
+            (row.RentalPriceCents, row.LateFeeCents, row.NextStoreLabelNumber, row.NextMemberCardNumber) = (250, 125, 31, 11);
+            await before.SaveChangesAsync(ct);
+        }
+
+        await rewind.StartAsync(ct);
+
+        await using var db = rewind.OpenDb();
+        var settings = await db.StoreSettings.AsNoTracking().SingleAsync(ct);
+        Assert.Equal(
+            ("Rewind Video", 250, 125, 31, 11),
+            (settings.StoreName, settings.RentalPriceCents, settings.LateFeeCents, settings.NextStoreLabelNumber, settings.NextMemberCardNumber));
+    }
 }

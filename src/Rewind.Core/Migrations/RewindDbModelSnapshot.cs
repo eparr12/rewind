@@ -277,6 +277,10 @@ namespace Rewind.Core.Migrations
 
                     b.ToTable("StoreSettings", t =>
                         {
+                            t.HasCheckConstraint("CK_StoreSettings_LateFeeCents", "\"LateFeeCents\" BETWEEN 0 AND 9999");
+
+                            t.HasCheckConstraint("CK_StoreSettings_RentalPriceCents", "\"RentalPriceCents\" BETWEEN 0 AND 9999");
+
                             t.HasCheckConstraint("CK_StoreSettings_SingleRow", "\"Id\" = 1");
                         });
                 });
