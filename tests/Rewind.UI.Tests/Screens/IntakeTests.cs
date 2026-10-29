@@ -1409,6 +1409,23 @@ public sealed class IntakeTests : BunitContext
         Assert.False(_scanner.IsListenedTo);
     }
 
+    // A scan the scanner's thread raised just before the clerk left reaches the screen afterwards. Its
+    // token went with it, so the barcode isn't looked up, and nothing is raised. Reading that token
+    // would throw, and the clerk would see the error dialog wherever they went.
+    [Fact]
+    public async Task Dispose_ScanRaisedJustBefore_RaisesNothing()
+    {
+        _ = Render<Intake>();
+        var raisedJustBefore = _scanner.RaisedBeforeStopping();
+        await DisposeComponentsAsync();
+
+        raisedJustBefore(new Scan(ScanKind.Upc, TommyBoyUpc));
+        await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind anything the scan started
+
+        Assert.False(Renderer.UnhandledException.IsCompleted);
+        Assert.False(_crashed);
+    }
+
     // A lookup still waiting its turn when the clerk leaves stops. Its answer never comes here.
     [Fact]
     public async Task Dispose_WhileLookingUp_CancelsTheLookup()
