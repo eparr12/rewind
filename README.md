@@ -88,6 +88,24 @@ Rewind reads the token once, as it starts, so restart it after setting or changi
 
 Rewind saves each movie's poster in `C:\Rewind\data`, named for the movie's TMDB ID: `posters\948.jpg` at 342 pixels wide for the register's screens, and `thumbs\948.jpg` at 154 for the phone catalog. Posters aren't in Git (GIT-6) or in the backups, which hold only the database.
 
+## Store Manager
+
+The Store Manager screen (F5) holds the grown-up jobs: printing store labels and member cards, and keeping the family's members. The clerk handbook leaves them out, since it's written for the kids (DOC-6), who use F5 to shut Rewind down at closing.
+
+### Labels and member cards
+
+F5 opens on the **Labels and cards** tab. Click **Print 30 labels**, for Avery 6460 sheets, or **Print 10 member cards**, for card stock. In the print window, print 1 copy at Scale 100, with headers and footers off and the margins as they are, never "fit to page". Press **Print**, then **Done** once the sheet is out.
+
+If the sheet didn't print, or jammed, press **Print this sheet again**, which prints the same numbers. Use it only then. Reprinting a sheet that did print, or printing two copies, puts each number on two labels, and Intake refuses the second case a number goes on (ADR-0006). Stay on the screen until the sheet has printed: leaving drops the sheet, and its numbers are skipped.
+
+The first time a printer prints labels, print a sheet on plain paper and hold it over a label sheet against a window, to check each barcode sits inside its label. Then print one real sheet and scan a label before printing more: the status bar should say **Store label**, and **Member card** for the first card printed.
+
+Cut out the member cards, write each member's name on the line, and laminate them.
+
+### Members
+
+On the **Members** tab, type the new member's name, then scan their card: Rewind chimes and adds them. **Rename** fixes a typo, since someone new is a new member, with a card of their own. **Deactivate** someone who stops renting, and **Reactivate** brings them back. Rewind never deletes a member (DATA-4), and a card stays with its member for good, active or not (DATA-11), so it can't go to anyone else.
+
 ## Screen size
 
 Rewind is laid out for 1024 × 768 (UI-8). On a bigger monitor, set the zoom in `src/Rewind.Register/appsettings.json` to a whole number, such as 2 to draw everything twice as large. Whole numbers keep the pixel fonts sharp.
@@ -124,7 +142,7 @@ To check the label and card sheets without a printer:
 3. Scan a barcode off the screen, zoomed in if it won't read: the status bar says `RV-00001 · Store label`. **Print 10 member cards** should give `MEM-001 · Member card`, with cut lines 0.75 in from the left and right edges and 0.5 in from the top and bottom, and a Name line above each barcode. A card someone already has shows their name instead.
 4. Do it again with `$env:Display__Zoom = '2'` set first: the PDF should come out the same size, since printing ignores the screen's zoom.
 
-The first time a printer prints labels, print a sheet on plain paper and hold it over a label sheet against a window, to check each barcode sits inside its label. Then print one real sheet and scan a label before printing more: the status bar should say **Store label**, and **Member card** for the first card printed.
+A real printer's first sheet needs a check of its own; see [Labels and member cards](#labels-and-member-cards).
 
 ## Change the database
 
@@ -179,7 +197,7 @@ Git shows a Word file only as "Binary files differ". To see the text that change
 git config diff.docx.textconv "sh \"$(git rev-parse --show-toplevel)/tools/docx-text.sh\""
 ```
 
-The clerk handbook, `docs/handbook/handbook.html`, is a web page whose own print styles set how big it prints (DOC-6): both sides of one sheet, with movie night on the front. Open it in Edge or Chrome to see each side as a sheet of paper. Text that runs past a sheet's bottom edge won't fit when it's printed. The page says how to print it.
+The clerk handbook, `docs/handbook/handbook.html`, is a web page whose own print styles set how big it prints (DOC-6): both sides of one sheet, with movie night on the front. It's written for the kids, so the Store Manager's jobs are in [Store Manager](#store-manager) instead. Open it in Edge or Chrome to see each side as a sheet of paper. Text that runs past a sheet's bottom edge won't fit when it's printed. The page says how to print it.
 
 ## Release to the register
 
