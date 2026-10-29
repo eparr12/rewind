@@ -1,5 +1,4 @@
 using System.Globalization;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Rewind.Core.Catalog;
@@ -120,7 +119,7 @@ public sealed partial class MovieIntake(
         {
             return await SaveCaseAsync(label, upc, Once(movies), cancellationToken);
         }
-        catch (DbUpdateException e) when (e.InnerException is SqliteException { SqliteExtendedErrorCode: SQLitePCL.raw.SQLITE_CONSTRAINT_UNIQUE })
+        catch (DbUpdateException e) when (SqliteErrors.IsUniqueIndexRefusal(e))
         {
             // DATA-11: the label was free when SaveCaseAsync looked, and another case took it
             // before the save. The unique index is the real guard. Anything else it refused would

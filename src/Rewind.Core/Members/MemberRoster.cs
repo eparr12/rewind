@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Rewind.Core.Data;
@@ -63,7 +62,7 @@ public sealed partial class MemberRoster(IDbContextFactory<RewindDb> dbFactory, 
         {
             return await SaveNewAsync(cleanName, card.Code, cancellationToken);
         }
-        catch (DbUpdateException e) when (e.InnerException is SqliteException { SqliteExtendedErrorCode: SQLitePCL.raw.SQLITE_CONSTRAINT_UNIQUE })
+        catch (DbUpdateException e) when (SqliteErrors.IsUniqueIndexRefusal(e))
         {
             // DATA-11: the card was free when SaveNewAsync looked, and another member took it before the
             // save. The unique index is the real guard. Anything else it refused would be a bug.
