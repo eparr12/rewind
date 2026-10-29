@@ -8,6 +8,7 @@ using Rewind.Core.Devices;
 using Rewind.Core.Labels;
 using Rewind.Core.Members;
 using Rewind.Core.Sounds;
+using Rewind.Core.StoreManager;
 using Rewind.UI.Dialogs;
 using Rewind.UI.Errors;
 using Rewind.UI.Screens;
@@ -31,6 +32,7 @@ public sealed class StoreManagerTests : BunitContext
         Services.AddSingleton<ISoundPlayer>(_sounds); // Debug builds add Diagnostics, which plays sounds
         Services.AddSingleton<ILabelSheets>(_sheets);
         Services.AddSingleton<IMemberRoster>(new FakeMemberRoster()); // for the Members tab
+        Services.AddSingleton<IStorePrices>(new FakeStorePrices()); // for the Prices tab
         Services.AddSingleton<IScanner>(new FakeScanner());
         Services.AddSingleton(new ErrorHub(NullLogger<ErrorHub>.Instance));
 
@@ -45,7 +47,7 @@ public sealed class StoreManagerTests : BunitContext
     {
         var cut = Render<StoreManager>();
 
-        Assert.Equal(["true", "false"], cut.FindAll(".store-manager-tabs li").Select(tab => tab.GetAttribute("aria-selected")));
+        Assert.Equal(["true", "false", "false"], cut.FindAll(".store-manager-tabs li").Select(tab => tab.GetAttribute("aria-selected")));
         Assert.Single(cut.FindAll(".labels-and-cards"));
     }
 
@@ -78,6 +80,40 @@ public sealed class StoreManagerTests : BunitContext
         var cut = Render<StoreManager>();
 
         await Tab(cut, "Members").ClickAsync(new MouseEventArgs());
+
+        Assert.Empty(cut.FindAll("a[href]"));
+    }
+
+    [Fact]
+    public async Task PricesTab_Clicked_ShowsThePrices()
+    {
+        var cut = Render<StoreManager>();
+
+        await Tab(cut, "Prices").ClickAsync(new MouseEventArgs());
+
+        Assert.Equal("2.00", cut.Find("#prices-rental").GetAttribute("value"));
+        Assert.Equal(["false", "false", "true"], cut.FindAll(".store-manager-tabs li").Select(tab => tab.GetAttribute("aria-selected")));
+        Assert.Empty(cut.FindAll(".labels-and-cards"));
+    }
+
+    // UI-3: Enter opens it, as for Members.
+    [Fact]
+    public async Task PricesTab_EnterPressed_ShowsThePrices()
+    {
+        var cut = Render<StoreManager>();
+
+        await Tab(cut, "Prices").KeyDownAsync(new KeyboardEventArgs { Key = "Enter" });
+
+        Assert.Single(cut.FindAll("#prices-rental"));
+    }
+
+    // SEC-6, as for Members.
+    [Fact]
+    public async Task PricesTab_Opened_HasNoHrefLinks()
+    {
+        var cut = Render<StoreManager>();
+
+        await Tab(cut, "Prices").ClickAsync(new MouseEventArgs());
 
         Assert.Empty(cut.FindAll("a[href]"));
     }

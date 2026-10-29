@@ -90,7 +90,7 @@ Rewind saves each movie's poster in `C:\Rewind\data`, named for the movie's TMDB
 
 ## Store Manager
 
-The Store Manager screen (F5) holds the grown-up jobs: printing store labels and member cards, and keeping the family's members. The clerk handbook leaves them out, since it's written for the kids (DOC-6), who use F5 to shut Rewind down at closing.
+The Store Manager screen (F5) holds the grown-up jobs: printing store labels and member cards, keeping the family's members, and setting the prices. The clerk handbook leaves them out, since it's written for the kids (DOC-6), who use F5 to shut Rewind down at closing.
 
 ### Labels and member cards
 
@@ -105,6 +105,10 @@ Cut out the member cards, write each member's name on the line, and laminate the
 ### Members
 
 On the **Members** tab, type the new member's name, then scan their card: Rewind chimes and adds them. **Rename** fixes a typo, since someone new is a new member, with a card of their own. **Deactivate** someone who stops renting, and **Reactivate** brings them back. Rewind never deletes a member (DATA-4), and a card stays with its member for good, active or not (DATA-11), so it can't go to anyone else.
+
+### Prices
+
+On the **Prices** tab, type the rental price for one movie and the late fee in dollars, such as 2.00, then press **Save** or Enter. A price runs from 0.00 to 99.99, so 200 typed for 2.00 is refused, and the line under **Save** says which price to fix. Each sale copies the price it charged (DATA-10), so a new price counts from the next sale on. Rewind's log names each price that changed, with its old and new amounts.
 
 ## Screen size
 

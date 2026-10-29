@@ -1,0 +1,143 @@
+@implements IDisposable
+@using System.Diagnostics
+@inject IStorePrices Pricing
+
+@* F5's Prices tab (Build Plan 3.1): the rental price and the late fee, typed in dollars. Core reads what was
+   typed and refuses what isn't a price (ARCH-5). Each sale copies the price it charged (DATA-10), so a change
+   counts from the next sale on. Snack prices come with the snacks. *@
+@if (_saved is null)
+{
+    <p>Reading the prices...</p>
+}
+else
+{
+    @* A form, so Enter in either box saves (UI-3). *@
+    <form class="prices" @onsubmit="SaveAsync">
+        <div class="field-row">
+            <label for="prices-rental">Rental, per movie: $</label>
+            <input id="prices-rental" type="text" autocomplete="off" spellcheck="false" disabled="@_busy"
+                   @ref="_rentalBox" @bind="_rental" @bind:event="oninput" @onfocus="() => _lastBox = Box.Rental" />
+        </div>
+        <div class="field-row">
+            <label for="prices-late-fee">Late fee: $</label>
+            <input id="prices-late-fee" type="text" autocomplete="off" spellcheck="false" disabled="@_busy"
+                   @ref="_lateFeeBox" @bind="_lateFee" @bind:event="oninput" @onfocus="() => _lastBox = Box.LateFee" />
+        </div>
+        <button type="submit" disabled="@_busy">Save</button>
+    </form>
+    <p class="prices-prompt">@(_notice ?? Prompt)</p>
+}
+
+@code {
+    private const string Prompt = "Type each price in dollars, such as 2.00, then press Enter.";
+
+    // Cancelled when the clerk leaves the tab, or F5, so a read or a save still waiting on the database
+    // stops. Both are awaited by ComponentBase, a lifecycle method and a form's handler, which ignores
+    // their cancellation, so nothing here catches it.
+    private readonly CancellationTokenSource _closing = new();
+
+    private ElementReference _rentalBox;
+    private ElementReference _lateFeeBox;
+
+    // The prices as last read or saved; null while they're read.
+    private Prices? _saved;
+
+    private string _rental = "";
+    private string _lateFee = "";
+
+    // What the last save came to, until the next one. It takes the prompt's place.
+    private string? _notice;
+
+    // While Core saves, the boxes and Save wait.
+    private bool _busy;
+
+    // The box the Store Manager was in last. A save that waits on the database disables the boxes, which
+    // takes the focus from them, so after a save it goes back there. A quick save doesn't take it, and
+    // putting it back changes nothing.
+    private Box _lastBox = Box.Rental;
+
+    // The box to focus once the tab has drawn, or null for neither.
+    private Box? _focus = Box.Rental;
+
+    protected override async Task OnInitializedAsync() => Show(await Pricing.GetAsync(_closing.Token));
+
+    // UI-3: the rental price's box has the focus once the prices are read, the box the Store Manager was
+    // in has it after a save, and a refused price's box has it, to fix that price.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_saved is null)
+        {
+            return; // the boxes aren't drawn until the prices are read
+        }
+
+        if (_focus is { } box)
+        {
+            _focus = null;
+            await (box == Box.Rental ? _rentalBox : _lateFeeBox).FocusAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        _closing.Cancel();
+        _closing.Dispose();
+    }
+
+    // ARCH-5: one call to Core, which reads both boxes and checks them.
+    private async Task SaveAsync()
+    {
+        if (_busy || _saved is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        PriceChange change;
+        try
+        {
+            change = await Pricing.SaveAsync(_rental, _lateFee, _closing.Token);
+        }
+        finally
+        {
+            _busy = false;
+        }
+
+        switch (change)
+        {
+            case { Status: PriceChangeStatus.Saved, Prices: { } saved }:
+                Show(saved);
+                _notice = $"Saved. A movie rents for ${Dollars.Format(saved.RentalPriceCents)}, and the late fee is ${Dollars.Format(saved.LateFeeCents)}.";
+                _focus = _lastBox;
+                return;
+            case { Status: PriceChangeStatus.RentalPriceNotValid }:
+                _notice = NotAPrice("rental price");
+                _focus = Box.Rental;
+                return;
+            case { Status: PriceChangeStatus.LateFeeNotValid }:
+                _notice = NotAPrice("late fee");
+                _focus = Box.LateFee;
+                return;
+            default:
+                // OBS-5: Core answers one of the three, so any other answer is a bug.
+                throw new UnreachableException($"Saving the prices came back {change.Status}.");
+        }
+    }
+
+    // The boxes show each price as Dollars writes it, so a price saved as shown is the same price.
+    private void Show(Prices prices)
+    {
+        _saved = prices;
+        _rental = Dollars.Format(prices.RentalPriceCents);
+        _lateFee = Dollars.Format(prices.LateFeeCents);
+    }
+
+    // What the box held stays in it, to fix, and the notice says what a price looks like.
+    private static string NotAPrice(string price) =>
+        $"The {price} isn't a price. Type it in dollars, from 0.00 to {Dollars.Format(StoreSettings.MaxPriceCents)}, such as 2.00. Nothing was saved.";
+
+    private enum Box
+    {
+        Rental,
+        LateFee,
+    }
+}

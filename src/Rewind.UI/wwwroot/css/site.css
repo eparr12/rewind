@@ -111,6 +111,17 @@ body {
   padding-right: 12px;
 }
 
+/* F5's Prices tab (Build Plan 3.1): the rental price and the late fee, each in its box, then Save and
+   what the last save came to. */
+.prices label {
+  width: 120px; /* so both boxes line up */
+}
+
+#prices-rental,
+#prices-late-fee {
+  width: 64px; /* room for 99.99, the most a price can be */
+}
+
 /* A sheet of store labels or member cards, at its true size in CSS inches, which are real inches on
    paper: 96 CSS pixels to the inch, whatever the screen's zoom. On screen it's a white page under its
    buttons, and the panel scrolls; nothing is scaled. The sheet prints its own margins, at the label
