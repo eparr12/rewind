@@ -30,6 +30,9 @@ internal sealed class FakeLabelSheets : ILabelSheets
     /// <summary>What every sheet of member cards comes to: <see cref="MemberCards"/> until a test says otherwise.</summary>
     public Task<SheetReservation> Cards { get; set; } = Task.FromResult(new SheetReservation(SheetStatus.Reserved, MemberCards));
 
+    /// <summary>What every drawing of the concession menu comes to: nothing on sale, until a test says otherwise.</summary>
+    public Task<MenuDrawing> Menu { get; set; } = Task.FromResult(new MenuDrawing(MenuStatus.NothingOnSale, null));
+
     /// <summary>How many sheets of store labels the screen asked for.</summary>
     public int LabelSheetsMade { get; private set; }
 
@@ -57,6 +60,12 @@ internal sealed class FakeLabelSheets : ILabelSheets
         LastToken = cancellationToken;
         CardSheetsMade++;
         return Cards;
+    }
+
+    public Task<MenuDrawing> DrawMenuAsync(CancellationToken cancellationToken)
+    {
+        LastToken = cancellationToken;
+        return Menu;
     }
 
     private static Sheet NewSheet(SheetKind kind, string format, int first, int count, double widthInches, double heightInches) =>

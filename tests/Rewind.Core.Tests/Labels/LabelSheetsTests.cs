@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Rewind.Core.Concessions;
 using Rewind.Core.Data;
 using Rewind.Core.Labels;
 
@@ -143,7 +144,7 @@ public sealed class LabelSheetsTests
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
         var gate = new FirstSaveWaitsForASecond();
-        var sheets = new LabelSheets(new GatedContexts(rewind, gate), NullLogger<LabelSheets>.Instance);
+        var sheets = new LabelSheets(new GatedContexts(rewind, gate), rewind.Time, NullLogger<LabelSheets>.Instance);
 
         var first = sheets.ReserveLabelsAsync(ct);
         await Task.WhenAny(gate.FirstHeld, first);
@@ -210,6 +211,26 @@ public sealed class LabelSheetsTests
             barcode.Svg));
     }
 
+    // NET-7: the token goes on to the database, so leaving the Store Manager stops a sheet being made, and
+    // a sheet that's stopped spends no numbers (ADR-0006).
+    [Theory]
+    [InlineData(SheetKind.StoreLabels)]
+    [InlineData(SheetKind.MemberCards)]
+    public async Task Reserve_Cancelled_SpendsNoNumbers(SheetKind kind)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var sheets = Sheets(rewind);
+        using var leaving = new CancellationTokenSource();
+        await leaving.CancelAsync();
+
+        var reserve = () => kind == SheetKind.StoreLabels ? sheets.ReserveLabelsAsync(leaving.Token) : sheets.ReserveCardsAsync(leaving.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(reserve);
+        Assert.Equal((1, 1), await NextNumbersAsync(rewind, ct));
+    }
+
     [Fact]
     public async Task PeekAsync_FreshDatabase_IsRV00001AndMEM001()
     {
@@ -238,8 +259,224 @@ public sealed class LabelSheetsTests
         Assert.Equal(new NextCodes("RV-00031", "MEM-001"), next);
     }
 
+    // Build Plan 3.1: the menu lists each snack on sale with its price, in the order the Snacks tab lists
+    // them. NOCASE, so a name typed in lower case sorts among the others.
+    [Fact]
+    public async Task DrawMenuAsync_SnacksOnSale_ListsThemByNameWithTheirPrices()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddSnackAsync(rewind, "Popcorn", "CON-POPCORN", 100, ct);
+        await AddSnackAsync(rewind, "candy", "CON-CANDY", 50, ct);
+        await AddSnackAsync(rewind, "Soda", "CON-SODA", 75, ct);
+
+        var drawing = await Sheets(rewind).DrawMenuAsync(ct);
+
+        Assert.Equal(MenuStatus.Drawn, drawing.Status);
+        Assert.Equal([("candy", 50, "CON-CANDY"), ("Popcorn", 100, "CON-POPCORN"), ("Soda", 75, "CON-SODA")], Lines(drawing));
+    }
+
+    // Two snacks can share a name, so the menu has a second order, the code, as the Snacks tab does.
+    [Fact]
+    public async Task DrawMenuAsync_TwoSnacksWithOneName_ListsThemByCode()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddSnackAsync(rewind, "Soda", "CON-CANSODA", 75, ct);
+        await AddSnackAsync(rewind, "Soda", "CON-BOTTLESODA", 100, ct);
+
+        var drawing = await Sheets(rewind).DrawMenuAsync(ct);
+
+        Assert.Equal(["CON-BOTTLESODA", "CON-CANSODA"], Lines(drawing).Select(line => line.Code));
+    }
+
+    // DATA-4: a deactivated snack keeps its code, but it isn't sold, so the menu leaves it off.
+    [Fact]
+    public async Task DrawMenuAsync_DeactivatedSnack_IsLeftOff()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddSnackAsync(rewind, "Popcorn", "CON-POPCORN", 100, ct);
+        await AddSnackAsync(rewind, "Gummy worms", "CON-GUMMYWORMS", 50, ct, isActive: false);
+
+        var drawing = await Sheets(rewind).DrawMenuAsync(ct);
+
+        Assert.Equal(["CON-POPCORN"], Lines(drawing).Select(line => line.Code));
+    }
+
+    // #21: wider than a member card's, so the longest code a snack can have still prints bars a scanner reads.
+    [Fact]
+    public async Task DrawMenuAsync_AnySnack_DrawsItsBarcodeAtTheMenuSize()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddSnackAsync(rewind, "Popcorn", "CON-POPCORN", 100, ct);
+        await AddSnackAsync(rewind, "Fountain pop or SodaStream", "CON-FOUNTAINPOPORSODASTR", 75, ct);
+
+        var drawing = await Sheets(rewind).DrawMenuAsync(ct);
+
+        Assert.All(Menu(drawing).Lines, line => Assert.Equal(
+            Code128.Svg(line.Barcode.Code, Code128.MenuWidthInches, Code128.MenuHeightInches),
+            line.Barcode.Svg));
+    }
+
+    // NET-8: the register's own calendar. Movie night's 10:15 PM is already the next day in UTC, and a menu
+    // dated tomorrow would look newer than a price changed tonight.
+    [Fact]
+    public async Task DrawMenuAsync_LateOnMovieNight_IsDatedThatNight()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddSnackAsync(rewind, "Popcorn", "CON-POPCORN", 100, ct);
+
+        var drawing = await Sheets(rewind).DrawMenuAsync(ct);
+
+        Assert.Equal(new DateOnly(2026, 10, 23), Menu(drawing).Date);
+    }
+
+    // The store's name of record, as on the labels and cards.
+    [Fact]
+    public async Task DrawMenuAsync_Any_CarriesTheStoreName()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddSnackAsync(rewind, "Popcorn", "CON-POPCORN", 100, ct);
+        await using (var db = rewind.OpenDb())
+        {
+            await db.StoreSettings.ExecuteUpdateAsync(s => s.SetProperty(x => x.StoreName, "Rewind Video East"), ct);
+        }
+
+        var drawing = await Sheets(rewind).DrawMenuAsync(ct);
+
+        Assert.Equal("Rewind Video East", Menu(drawing).StoreName);
+    }
+
+    // NET-12: an empty menu would print a heading and a date, and nothing to scan.
+    [Fact]
+    public async Task DrawMenuAsync_NoSnacks_IsNothingOnSale()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+
+        var drawing = await Sheets(rewind).DrawMenuAsync(ct);
+
+        Assert.Equal(new MenuDrawing(MenuStatus.NothingOnSale, null), drawing);
+    }
+
+    // More snacks than one sheet holds go on to a second as the menu prints, and two laminated sheets are
+    // still a menu, so nothing is left off.
+    [Fact]
+    public async Task DrawMenuAsync_MoreThanOneSheetHolds_PutsEveryOneOnIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddSnacksAsync(rewind, 14, ct);
+
+        var drawing = await Sheets(rewind).DrawMenuAsync(ct);
+
+        Assert.Equal(14, Menu(drawing).Lines.Count);
+    }
+
+    // The menu is the store's whole price list, so its heading carries the rental and the late fee too.
+    [Fact]
+    public async Task DrawMenuAsync_Any_CarriesTheStorePrices()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddSnackAsync(rewind, "Popcorn", "CON-POPCORN", 100, ct);
+        await using (var db = rewind.OpenDb())
+        {
+            await db.StoreSettings.ExecuteUpdateAsync(
+                s => s.SetProperty(x => x.RentalPriceCents, 250).SetProperty(x => x.LateFeeCents, 125), ct);
+        }
+
+        var drawing = await Sheets(rewind).DrawMenuAsync(ct);
+
+        Assert.Equal((250, 125), (Menu(drawing).RentalPriceCents, Menu(drawing).LateFeeCents));
+    }
+
+    // OBS-3: a printed menu carries its date, so the log says which day's menu is on the counter.
+    [Fact]
+    public async Task DrawMenuAsync_Drawn_LogsItsSnacksAndDate()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddSnacksAsync(rewind, 3, ct);
+        var log = new ListLogger<LabelSheets>();
+
+        await Sheets(rewind, log).DrawMenuAsync(ct);
+
+        Assert.Equal(
+            [(LogLevel.Information, "Drew the concession menu with 3 snacks, dated 2026-10-23", (Exception?)null)],
+            log.Entries);
+    }
+
+    // ADR-0006's numbers are for labels and cards: a menu printed twice is the same menu.
+    [Fact]
+    public async Task DrawMenuAsync_Any_SpendsNoNumbers()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddSnackAsync(rewind, "Popcorn", "CON-POPCORN", 100, ct);
+
+        await Sheets(rewind).DrawMenuAsync(ct);
+
+        Assert.Equal((1, 1), await NextNumbersAsync(rewind, ct));
+    }
+
+    // NET-7: the token goes on to the database, so leaving the Store Manager stops the reads.
+    [Fact]
+    public async Task DrawMenuAsync_Cancelled_Stops()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddSnackAsync(rewind, "Popcorn", "CON-POPCORN", 100, ct);
+        using var leaving = new CancellationTokenSource();
+        await leaving.CancelAsync();
+
+        var draw = () => Sheets(rewind).DrawMenuAsync(leaving.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(draw);
+    }
+
     private static LabelSheets Sheets(TempRewind rewind, ILogger<LabelSheets>? logger = null) =>
-        new(rewind.DbFactory, logger ?? NullLogger<LabelSheets>.Instance);
+        new(rewind.DbFactory, rewind.Time, logger ?? NullLogger<LabelSheets>.Instance);
+
+    private static ConcessionMenu Menu(MenuDrawing drawing) => Assert.IsType<ConcessionMenu>(drawing.Menu);
+
+    // Each line's name, price and code, top to bottom.
+    private static List<(string Name, int PriceCents, string Code)> Lines(MenuDrawing drawing) =>
+        [.. Menu(drawing).Lines.Select(line => (line.Name, line.PriceCents, line.Barcode.Code))];
+
+    // A snack added before the test, saved straight to the database.
+    private static async Task AddSnackAsync(
+        TempRewind rewind, string name, string code, int priceCents, CancellationToken ct, bool isActive = true)
+    {
+        await using var db = rewind.OpenDb();
+        db.ConcessionItems.Add(new ConcessionItem { Name = name, Code = code, PriceCents = priceCents, IsActive = isActive });
+        await db.SaveChangesAsync(ct);
+    }
+
+    // As many snacks on sale as asked for, each with a name and code of its own: CON-SNACKA, CON-SNACKB...
+    private static async Task AddSnacksAsync(TempRewind rewind, int count, CancellationToken ct)
+    {
+        foreach (var letter in Enumerable.Range('A', count).Select(c => (char)c))
+        {
+            await AddSnackAsync(rewind, $"Snack {letter}", $"CON-SNACK{letter}", 100, ct);
+        }
+    }
 
     private static List<string> Codes(SheetReservation reservation) =>
         [.. Assert.IsType<Sheet>(reservation.Sheet).Barcodes.Select(barcode => barcode.Code)];

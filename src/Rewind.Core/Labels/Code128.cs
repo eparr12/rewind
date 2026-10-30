@@ -6,7 +6,8 @@ namespace Rewind.Core.Labels;
 
 /// <summary>
 /// Draws Rewind's barcodes in Code 128 as SVG, for printed sheets of store labels, such as RV-00042,
-/// and member cards, such as MEM-001 (Overview: Barcodes and intake). ZXing.Net works out the bars,
+/// and member cards, such as MEM-001 (Overview: Barcodes and intake), and for the concession menu's
+/// snacks, such as CON-POPCORN (Build Plan 3.1). ZXing.Net works out the bars,
 /// and this draws them one unit per module, stretched to the printed size, so a module prints exactly
 /// the printed width divided by the number of modules, whatever the code.
 /// </summary>
@@ -44,6 +45,17 @@ public static class Code128
 
     /// <summary>How tall a member card's barcode prints, in inches, on a card 2 inches tall.</summary>
     public const double MemberCardHeightInches = 0.5;
+
+    /// <summary>
+    /// How wide a snack's barcode prints on the concession menu, in inches, quiet zones included (#21). A
+    /// concession code is up to 24 characters, CON- and 20 letters, which make 319 modules with their quiet
+    /// zones, so a module prints at least 3.5/319 inch, about 11 mil. A member card's width holds codes of
+    /// up to 19 characters.
+    /// </summary>
+    public const double MenuWidthInches = 3.5;
+
+    /// <summary>How tall a snack's barcode prints on the concession menu, in inches: a member card's height.</summary>
+    public const double MenuHeightInches = 0.5;
 
     // The drawing is one unit tall, and every bar is as tall as the drawing, so the svg's stretch to the
     // printed height reaches every bar.
