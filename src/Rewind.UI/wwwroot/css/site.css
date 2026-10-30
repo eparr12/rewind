@@ -122,6 +122,36 @@ body {
   width: 64px; /* room for 99.99, the most a price can be */
 }
 
+/* F5's Snacks tab (Build Plan 3.1): a new snack's name, code and price, then Add and what the last change
+   came to, then the snacks, each with buttons to fix its name or price and to deactivate or reactivate it. */
+.snacks-add label {
+  width: 120px; /* so the three boxes line up */
+}
+
+#snacks-name,
+.snacks-rename {
+  width: 220px; /* about ConcessionItem.MaxNameLength's 30 characters, as for a member's name */
+}
+
+#snacks-code {
+  width: 200px; /* about ConcessionCodes.MaxLength's 24 capitals */
+}
+
+#snacks-price,
+.snacks-reprice {
+  width: 64px; /* room for 99.99, as on the Prices tab */
+}
+
+.snacks-list {
+  width: fit-content;
+  max-height: 300px; /* a dozen snacks; a longer list scrolls inside the tab */
+  overflow-y: auto;
+}
+
+.snacks-list td {
+  padding-right: 12px;
+}
+
 /* A sheet of store labels or member cards, at its true size in CSS inches, which are real inches on
    paper: 96 CSS pixels to the inch, whatever the screen's zoom. On screen it's a white page under its
    buttons, and the panel scrolls; nothing is scaled. The sheet prints its own margins, at the label

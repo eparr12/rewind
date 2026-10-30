@@ -1,0 +1,399 @@
+@implements IDisposable
+@using System.Diagnostics
+@inject IConcessionBar Bar
+
+@* F5's Snacks tab (Build Plan 3.1): the snacks and drinks sold at the concession bar, each with the code the
+   concession menu prints as its barcode. Type a new snack's name and price, and the code follows the name, as
+   ConcessionCodes suggests it, until the Store Manager types one of their own, and again once they empty the
+   code box. Once the snack is added, its code never changes, since the printed menu carries it. Rename fixes
+   a typo and Change price sets a new price. A different snack is a new one, with a code of its own, and the
+   old one is deactivated, never deleted (DATA-4). A snack added here goes at the end of the list, as on the
+   Members tab. *@
+@if (_items is not { } items)
+{
+    <p>Reading the snacks...</p>
+}
+else
+{
+    @* A form, so Enter in any of its boxes adds the snack (UI-3). *@
+    <form class="snacks-add" @onsubmit="AddAsync">
+        <div class="field-row">
+            <label for="snacks-name">New snack's name:</label>
+            @* ConcessionItem.MaxNameLength is Core's backstop; the box stops there first. *@
+            <input id="snacks-name" type="text" autocomplete="off" spellcheck="false" maxlength="@ConcessionItem.MaxNameLength"
+                   disabled="@Locked" @ref="_nameBox" @bind:get="_name" @bind:set="SetName" @bind:event="oninput" />
+        </div>
+        <div class="field-row">
+            <label for="snacks-code">Code:</label>
+            <input id="snacks-code" type="text" autocomplete="off" spellcheck="false" maxlength="@ConcessionCodes.MaxLength"
+                   disabled="@Locked" @ref="_codeBox" @bind="_code" @bind:event="oninput" />
+        </div>
+        <div class="field-row">
+            <label for="snacks-price">Price: $</label>
+            <input id="snacks-price" type="text" autocomplete="off" spellcheck="false"
+                   disabled="@Locked" @ref="_priceBox" @bind="_price" @bind:event="oninput" />
+        </div>
+        <button type="submit" disabled="@Locked">Add</button>
+    </form>
+    <p class="snacks-prompt">@Line</p>
+
+    @if (items.Count == 0)
+    {
+        <p>No snacks yet.</p>
+    }
+    else
+    {
+        <div class="sunken-panel snacks-list">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Code</th>
+                        <th>Price</th>
+                        <th>Active</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in items)
+                    {
+                        <tr @key="item.Id">
+                            <td>
+                                @if (IsEditing(item, Field.Name))
+                                {
+                                    <input class="snacks-rename" type="text" autocomplete="off" spellcheck="false"
+                                           aria-label="@($"{item.Name}'s name")" maxlength="@ConcessionItem.MaxNameLength" disabled="@_busy"
+                                           @ref="_editBox" @bind="_editText" @bind:event="oninput" @onkeydown="OnEditKeyDownAsync" />
+                                }
+                                else
+                                {
+                                    @item.Name
+                                }
+                            </td>
+                            <td>@item.Code</td>
+                            <td>
+                                @if (IsEditing(item, Field.Price))
+                                {
+                                    <text>$</text>
+                                    <input class="snacks-reprice" type="text" autocomplete="off" spellcheck="false"
+                                           aria-label="@($"{item.Name}'s price")" disabled="@_busy"
+                                           @ref="_editBox" @bind="_editText" @bind:event="oninput" @onkeydown="OnEditKeyDownAsync" />
+                                }
+                                else
+                                {
+                                    @Price(item)
+                                }
+                            </td>
+                            <td>@Active(item)</td>
+                            <td class="snacks-buttons">
+                                @if (_editing?.ItemId == item.Id)
+                                {
+                                    <button disabled="@_busy" @onclick="SaveEditAsync">Save</button>
+                                    <button disabled="@_busy" @onclick="CancelEdit">Cancel</button>
+                                }
+                                else
+                                {
+                                    <button disabled="@Locked" @onclick="() => StartEdit(item, Field.Name)">Rename</button>
+                                    <button disabled="@Locked" @onclick="() => StartEdit(item, Field.Price)">Change price</button>
+                                    <button disabled="@Locked" @onclick="() => SetActiveAsync(item)">@(item.IsActive ? "Deactivate" : "Reactivate")</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private const string Prompt = "Type the new snack's name and price, then press Enter. Check its code first: it can't change once the snack is added.";
+
+    private static readonly string NotACode =
+        $"That isn't a snack code. A code is {ConcessionCodes.Prefix} and 1 to {ConcessionCodes.MaxLetters} letters from A to Z, such as CON-POPCORN.";
+
+    // What the box held stays in it, to fix, and the line says what a price looks like.
+    private static readonly string NotAPrice =
+        $"That isn't a price. Type it in dollars, from 0.00 to {Dollars.Format(StoreSettings.MaxPriceCents)}, such as 1.00.";
+
+    // Cancelled when the clerk leaves the tab, or F5, so a read or a save still waiting on the database
+    // stops. Each is awaited by ComponentBase, a lifecycle method or an event handler, which ignores their
+    // cancellation, so nothing here catches it.
+    private readonly CancellationTokenSource _closing = new();
+
+    private ElementReference _nameBox;
+    private ElementReference _codeBox;
+    private ElementReference _priceBox;
+
+    // The box of the snack whose name or price is being fixed. Only one is drawn at a time.
+    private ElementReference _editBox;
+
+    // The snacks, in Core's order when the tab opened, then each snack added since; null while they're read.
+    private IReadOnlyList<ConcessionRow>? _items;
+
+    // The new snack as typed so far. The code starts as ConcessionCodes suggests it for no name.
+    private string _name = "";
+    private string _code = ConcessionCodes.Suggest("");
+    private string _price = "";
+
+    // What the last change came to, until the next one. It takes the prompt's place.
+    private string? _notice;
+
+    // While Core saves, nothing else starts.
+    private bool _busy;
+
+    // The snack whose name or price is being fixed, and what its box holds so far; null when none is.
+    private Edit? _editing;
+    private string _editText = "";
+
+    // The box to focus once the tab has drawn, or null for none.
+    private Box? _focus = Box.Name;
+
+    // While a name or price is being fixed, the form and the other buttons wait.
+    private bool Locked => _busy || _editing is not null;
+
+    // UI-6: one line always says what to do. While a name or price is fixed, the form it points to waits, so
+    // the line says how to finish.
+    private string Line => _notice ?? (_editing?.Field switch
+    {
+        Field.Name => "Fix the name, then press Enter. Esc leaves it as it was.",
+        Field.Price => "Type the new price in dollars, then press Enter. Esc leaves it as it was.",
+        _ => Prompt,
+    });
+
+    protected override async Task OnInitializedAsync() => _items = await Bar.ListAsync(_closing.Token);
+
+    // UI-3: the name box has the focus once the snacks are read and after each change, so the Store Manager
+    // can type the next snack. A refused box has it, to fix what was typed, and a snack's own box has it
+    // while its name or price is being fixed.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_items is null)
+        {
+            return; // the boxes aren't drawn until the snacks are read
+        }
+
+        if (_focus is { } box)
+        {
+            _focus = null;
+            var element = box switch
+            {
+                Box.Name => _nameBox,
+                Box.Code => _codeBox,
+                Box.Price => _priceBox,
+                Box.Edit => _editBox,
+                _ => throw new UnreachableException($"The Snacks tab has no box {box}."),
+            };
+            await element.FocusAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        _closing.Cancel();
+        _closing.Dispose();
+    }
+
+    // The code follows the name while the code box still holds what was suggested for it, or nothing. Once
+    // the Store Manager types a code of their own, it stays, and emptying the box gets the suggestion back
+    // without having to know it. Blazor's binder types what was typed as string?, so a null is read as an
+    // empty box, here and in the code box.
+    private void SetName(string? name)
+    {
+        name ??= "";
+        if (string.IsNullOrEmpty(_code) || _code == ConcessionCodes.Suggest(_name))
+        {
+            _code = ConcessionCodes.Suggest(name);
+        }
+
+        _name = name;
+    }
+
+    // ARCH-5: one call to Core, which cleans the name and checks the code and the price, in the order the
+    // boxes are filled in. The snack it saved is added to the list from its answer, so nothing is read again
+    // after the save (NET-7).
+    private async Task AddAsync()
+    {
+        if (Locked || _items is not { } items)
+        {
+            return;
+        }
+
+        _busy = true;
+        ConcessionChange change;
+        try
+        {
+            change = await Bar.AddAsync(_name, _code, _price, _closing.Token);
+        }
+        finally
+        {
+            _busy = false;
+        }
+
+        switch (change)
+        {
+            case { Status: ConcessionChangeStatus.Saved, Item: { } added }:
+                _items = [.. items, added];
+                _notice = $"Added {added.Name} at {Price(added)}, with the code {added.Code}.";
+                ClearForm();
+                _focus = Box.Name;
+                return;
+            case { Status: ConcessionChangeStatus.NoName }:
+                _notice = "No name yet. Type it, then press Enter.";
+                _focus = Box.Name;
+                return;
+            case { Status: ConcessionChangeStatus.NotACode }:
+                _notice = NotACode;
+                _focus = Box.Code;
+                return;
+            case { Status: ConcessionChangeStatus.CodeInUse, Item: { } owner }:
+                _notice = CodeInUse(owner);
+                _focus = Box.Code;
+                return;
+            case { Status: ConcessionChangeStatus.NotAPrice }:
+                _notice = NotAPrice;
+                _focus = Box.Price;
+                return;
+            default:
+                // OBS-5: Core answers one of these, so any other answer is a bug.
+                throw new UnreachableException($"Adding a snack came back {change.Status}.");
+        }
+    }
+
+    private void StartEdit(ConcessionRow item, Field field)
+    {
+        _editing = new Edit(item.Id, field);
+        _editText = field == Field.Name ? item.Name : Dollars.Format(item.PriceCents);
+        _notice = null;
+        _focus = Box.Edit;
+    }
+
+    private void CancelEdit()
+    {
+        _editing = null;
+        _notice = null;
+        _focus = Box.Name;
+    }
+
+    // UI-3: in a snack's box, Enter saves and Esc cancels.
+    private async Task OnEditKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SaveEditAsync();
+        }
+        else if (e.Key == "Escape")
+        {
+            CancelEdit();
+        }
+    }
+
+    // ARCH-5: one call to Core, for the name or the price, whichever is being fixed. Core reads the box as
+    // it was typed.
+    private async Task SaveEditAsync()
+    {
+        if (_busy || _editing is not { } edit || _items is not { } items)
+        {
+            return;
+        }
+
+        _busy = true;
+        ConcessionChange change;
+        try
+        {
+            change = edit.Field == Field.Name
+                ? await Bar.RenameAsync(edit.ItemId, _editText, _closing.Token)
+                : await Bar.SetPriceAsync(edit.ItemId, _editText, _closing.Token);
+        }
+        finally
+        {
+            _busy = false;
+        }
+
+        switch (change, edit.Field)
+        {
+            case ({ Status: ConcessionChangeStatus.Saved, Item: { } changed }, _):
+                _items = Replace(items, changed);
+                _editing = null;
+                _notice = null;
+                _focus = Box.Name;
+                return;
+            case ({ Status: ConcessionChangeStatus.NoName }, Field.Name):
+                _notice = "A snack needs a name.";
+                _focus = Box.Edit;
+                return;
+            case ({ Status: ConcessionChangeStatus.NotAPrice }, Field.Price):
+                _notice = NotAPrice;
+                _focus = Box.Edit;
+                return;
+            default:
+                throw new UnreachableException($"Fixing a snack's {edit.Field} came back {change.Status}.");
+        }
+    }
+
+    private async Task SetActiveAsync(ConcessionRow item)
+    {
+        if (Locked || _items is not { } items)
+        {
+            return;
+        }
+
+        _busy = true;
+        ConcessionChange change;
+        try
+        {
+            change = await Bar.SetActiveAsync(item.Id, !item.IsActive, _closing.Token);
+        }
+        finally
+        {
+            _busy = false;
+        }
+
+        if (change is not { Status: ConcessionChangeStatus.Saved, Item: { } changed })
+        {
+            throw new UnreachableException($"Changing whether a snack is sold came back {change.Status}.");
+        }
+
+        _items = Replace(items, changed);
+        _notice = null;
+    }
+
+    private bool IsEditing(ConcessionRow item, Field field) => _editing == new Edit(item.Id, field);
+
+    // An empty form, with the code following the name again.
+    private void ClearForm()
+    {
+        _name = "";
+        _code = ConcessionCodes.Suggest(_name);
+        _price = "";
+    }
+
+    private static string Price(ConcessionRow item) => $"${Dollars.Format(item.PriceCents)}";
+
+    private static string Active(ConcessionRow item) => item.IsActive ? "Yes" : "No";
+
+    private static IReadOnlyList<ConcessionRow> Replace(IReadOnlyList<ConcessionRow> items, ConcessionRow changed) =>
+        [.. items.Select(item => item.Id == changed.Id ? changed : item)];
+
+    // A code belongs to one snack for good, active or not (DATA-11), so a deactivated snack is reactivated
+    // rather than added again.
+    private static string CodeInUse(ConcessionRow owner) => owner.IsActive
+        ? $"{owner.Code} is {owner.Name}'s code already. Type a code no snack has yet."
+        : $"{owner.Code} is {owner.Name}'s code already, and {owner.Name} is deactivated. Reactivate {owner.Name} instead, or type a code no snack has yet.";
+
+    private sealed record Edit(int ItemId, Field Field);
+
+    private enum Field
+    {
+        Name,
+        Price,
+    }
+
+    private enum Box
+    {
+        Name,
+        Code,
+        Price,
+        Edit,
+    }
+}

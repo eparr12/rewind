@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
+using Rewind.Core.Concessions;
 using Rewind.Core.Devices;
 using Rewind.Core.Labels;
 using Rewind.Core.Members;
@@ -33,6 +34,7 @@ public sealed class StoreManagerTests : BunitContext
         Services.AddSingleton<ILabelSheets>(_sheets);
         Services.AddSingleton<IMemberRoster>(new FakeMemberRoster()); // for the Members tab
         Services.AddSingleton<IStorePrices>(new FakeStorePrices()); // for the Prices tab
+        Services.AddSingleton<IConcessionBar>(new FakeConcessionBar()); // for the Snacks tab
         Services.AddSingleton<IScanner>(new FakeScanner());
         Services.AddSingleton(new ErrorHub(NullLogger<ErrorHub>.Instance));
 
@@ -47,7 +49,7 @@ public sealed class StoreManagerTests : BunitContext
     {
         var cut = Render<StoreManager>();
 
-        Assert.Equal(["true", "false", "false"], cut.FindAll(".store-manager-tabs li").Select(tab => tab.GetAttribute("aria-selected")));
+        Assert.Equal(["true", "false", "false", "false"], cut.FindAll(".store-manager-tabs li").Select(tab => tab.GetAttribute("aria-selected")));
         Assert.Single(cut.FindAll(".labels-and-cards"));
     }
 
@@ -92,7 +94,7 @@ public sealed class StoreManagerTests : BunitContext
         await Tab(cut, "Prices").ClickAsync(new MouseEventArgs());
 
         Assert.Equal("2.00", cut.Find("#prices-rental").GetAttribute("value"));
-        Assert.Equal(["false", "false", "true"], cut.FindAll(".store-manager-tabs li").Select(tab => tab.GetAttribute("aria-selected")));
+        Assert.Equal(["false", "false", "true", "false"], cut.FindAll(".store-manager-tabs li").Select(tab => tab.GetAttribute("aria-selected")));
         Assert.Empty(cut.FindAll(".labels-and-cards"));
     }
 
@@ -114,6 +116,40 @@ public sealed class StoreManagerTests : BunitContext
         var cut = Render<StoreManager>();
 
         await Tab(cut, "Prices").ClickAsync(new MouseEventArgs());
+
+        Assert.Empty(cut.FindAll("a[href]"));
+    }
+
+    [Fact]
+    public async Task SnacksTab_Clicked_ShowsTheSnacks()
+    {
+        var cut = Render<StoreManager>();
+
+        await Tab(cut, "Snacks").ClickAsync(new MouseEventArgs());
+
+        Assert.Single(cut.FindAll("#snacks-name"));
+        Assert.Equal(["false", "false", "false", "true"], cut.FindAll(".store-manager-tabs li").Select(tab => tab.GetAttribute("aria-selected")));
+        Assert.Empty(cut.FindAll(".labels-and-cards"));
+    }
+
+    // UI-3: Enter opens it, as for Members.
+    [Fact]
+    public async Task SnacksTab_EnterPressed_ShowsTheSnacks()
+    {
+        var cut = Render<StoreManager>();
+
+        await Tab(cut, "Snacks").KeyDownAsync(new KeyboardEventArgs { Key = "Enter" });
+
+        Assert.Single(cut.FindAll("#snacks-name"));
+    }
+
+    // SEC-6, as for Members.
+    [Fact]
+    public async Task SnacksTab_Opened_HasNoHrefLinks()
+    {
+        var cut = Render<StoreManager>();
+
+        await Tab(cut, "Snacks").ClickAsync(new MouseEventArgs());
 
         Assert.Empty(cut.FindAll("a[href]"));
     }
