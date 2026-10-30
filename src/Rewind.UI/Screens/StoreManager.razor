@@ -10,8 +10,8 @@
    member cards (Build Plan 2.5). Core numbers and draws each sheet and spends its numbers as it's made
    (ADR-0006). The sheet then takes the screen's place at its true size while WebView2's print window
    prints it, and stays there, to print again if it jammed, until Done. Leaving the screen drops the
-   sheet. Members keeps the family's members, and Prices the rental price and the late fee (Build Plan
-   3.1). *@
+   sheet. Members keeps the family's members, Prices the rental price and the late fee, and Snacks the
+   concession bar's snacks and drinks (Build Plan 3.1). *@
 @if (_sheet is { } sheet)
 {
     @* tabindex="-1": a click on the sheet keeps the keyboard here, so Esc still works. *@
@@ -45,6 +45,10 @@ else
             else if (_tab == Tab.Prices)
             {
                 <PricesTab />
+            }
+            else if (_tab == Tab.Snacks)
+            {
+                <SnacksTab />
             }
             else
             {
@@ -98,7 +102,7 @@ else
         DialogIcon.Error);
 
     // F5's tabs, in their order on screen. Labels and cards opens first, as F5 did before it had tabs.
-    private static readonly Tab[] Tabs = [Tab.LabelsAndCards, Tab.Members, Tab.Prices];
+    private static readonly Tab[] Tabs = [Tab.LabelsAndCards, Tab.Members, Tab.Prices, Tab.Snacks];
 
     // Cancelled when the clerk leaves the screen, so a read or a sheet still waiting on the database stops.
     // That raises nothing, so nothing here catches it: ComponentBase ignores a task that was cancelled,
@@ -290,6 +294,7 @@ else
         Tab.LabelsAndCards => "Labels and cards",
         Tab.Members => "Members",
         Tab.Prices => "Prices",
+        Tab.Snacks => "Snacks",
         _ => throw new UnreachableException($"F5 has no tab {tab}."),
     };
 
@@ -298,5 +303,6 @@ else
         LabelsAndCards,
         Members,
         Prices,
+        Snacks,
     }
 }

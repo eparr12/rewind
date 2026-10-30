@@ -90,7 +90,7 @@ Rewind saves each movie's poster in `C:\Rewind\data`, named for the movie's TMDB
 
 ## Store Manager
 
-The Store Manager screen (F5) holds the grown-up jobs: printing store labels and member cards, keeping the family's members, and setting the prices. The clerk handbook leaves them out, since it's written for the kids (DOC-6), who use F5 to shut Rewind down at closing.
+The Store Manager screen (F5) holds the grown-up jobs: printing store labels and member cards, keeping the family's members, setting the prices, and keeping the concession bar's snacks. The clerk handbook leaves them out, since it's written for the kids (DOC-6), who use F5 to shut Rewind down at closing.
 
 ### Labels and member cards
 
@@ -109,6 +109,14 @@ On the **Members** tab, type the new member's name, then scan their card: Rewind
 ### Prices
 
 On the **Prices** tab, type the rental price for one movie and the late fee in dollars, such as 2.00, then press **Save** or Enter. A price runs from 0.00 to 99.99, so 200 typed for 2.00 is refused, and the line under **Save** says which price to fix. Each sale copies the price it charged (DATA-10), so a new price counts from the next sale on. Rewind's log names each price that changed, with its old and new amounts.
+
+### Snacks
+
+On the **Snacks** tab, type a new snack's name and its price in dollars, then press **Add** or Enter. As you type the name, Rewind makes the snack's code from it, such as CON-POPCORN for Popcorn. Check the code before adding: it can't change afterwards, since the concession menu will print it as the snack's barcode. Shorten a long one, such as CON-POP for Fountain pop or SodaStream. Empty the code box, and the code follows the name again as you type it. A code is CON- and 1 to 20 letters, and it stays with its snack for good, even once the snack is deactivated (DATA-11).
+
+**Rename** fixes a typo, and **Change price** sets a new price, which counts from the next sale on (DATA-10). **Deactivate** a snack that's no longer sold, and **Reactivate** brings it back: Rewind never deletes one (DATA-4). A different snack is a new one, with a code of its own. Rewind's log names each snack added or changed, with its code.
+
+Rewind starts with no snacks. Add the starting menu: Popcorn at 1.00, Fountain pop or SodaStream at 0.75, and Candy at 0.50.
 
 ## Screen size
 
