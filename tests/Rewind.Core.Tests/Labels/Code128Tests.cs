@@ -12,6 +12,9 @@ public sealed class Code128Tests
     // The least white Code 128 needs either side of its bars, in modules (ISO/IEC 15417).
     private const int LeastQuietZoneModules = 10;
 
+    // CON- and the 20 letters Barcodes allows a concession code, 24 characters in all.
+    private const string LongestConcessionCode = "CON-ABCDEFGHIJKLMNOPQRST";
+
     private static readonly XNamespace SvgNamespace = "http://www.w3.org/2000/svg";
 
     // Each kind of code Rewind prints, at both ends of its numbers, and the concession menu that Build
@@ -47,15 +50,16 @@ public sealed class Code128Tests
         Assert.Equal(new Scan(ScanKind.MemberCard, code), scan);
     }
 
-    // Build Plan 3.1 prints a laminated concession menu. The size of its barcodes is 3.1's to choose
-    // (#21); this borrows the member card's.
-    [Fact]
-    public void Svg_Concession_DecodesBackAsTheSameCode()
+    // Build Plan 3.1 prints a laminated concession menu, with barcodes of its own size (#21).
+    [Theory]
+    [InlineData("CON-POPCORN")]
+    [InlineData(LongestConcessionCode)]
+    public void Svg_Concession_DecodesBackAsTheSameCode(string code)
     {
-        var svg = Code128.Svg("CON-POPCORN", Code128.MemberCardWidthInches, Code128.MemberCardHeightInches);
+        var svg = Code128.Svg(code, Code128.MenuWidthInches, Code128.MenuHeightInches);
 
         var scan = Barcodes.Classify(DrawnBarcode.Read(svg).Decode());
-        Assert.Equal(new Scan(ScanKind.Concession, "CON-POPCORN"), scan);
+        Assert.Equal(new Scan(ScanKind.Concession, code), scan);
     }
 
     // A page takes the barcode as markup, so nothing may come before or after the svg element.
@@ -167,6 +171,20 @@ public sealed class Code128Tests
     public void Svg_MemberCard_PrintsBarsAtLeastTenMil(string code)
     {
         var svg = Code128.Svg(code, Code128.MemberCardWidthInches, Code128.MemberCardHeightInches);
+
+        var barcode = DrawnBarcode.Read(svg);
+        var narrowest = barcode.Bars.Min(bar => bar.Width) * barcode.ModuleInches;
+        Assert.True(narrowest >= TenMil, $"The narrowest bar prints {narrowest} inch wide.");
+    }
+
+    // #21: the longest code Barcodes reads as a concession, 24 characters, at the menu's width. A member
+    // card's would refuse it.
+    [Theory]
+    [InlineData("CON-POPCORN")]
+    [InlineData(LongestConcessionCode)]
+    public void Svg_Concession_PrintsBarsAtLeastTenMil(string code)
+    {
+        var svg = Code128.Svg(code, Code128.MenuWidthInches, Code128.MenuHeightInches);
 
         var barcode = DrawnBarcode.Read(svg);
         var narrowest = barcode.Bars.Min(bar => bar.Width) * barcode.ModuleInches;

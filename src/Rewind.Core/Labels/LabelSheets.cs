@@ -8,10 +8,11 @@ namespace Rewind.Core.Labels;
 
 /// <summary>
 /// Numbers and draws the sheets of store labels and member cards that the Store Manager prints (Build
-/// Plan 2.5). StoreSettings keeps the number each kind's next sheet starts at, and a sheet spends its
-/// numbers when it's made, before the print window opens (ADR-0006).
+/// Plan 2.5), and draws the concession menu (Build Plan 3.1). StoreSettings keeps the number each kind's
+/// next sheet starts at, and a sheet spends its numbers when it's made, before the print window opens
+/// (ADR-0006).
 /// </summary>
-public sealed partial class LabelSheets(IDbContextFactory<RewindDb> dbFactory, ILogger<LabelSheets> logger) : ILabelSheets
+public sealed partial class LabelSheets(IDbContextFactory<RewindDb> dbFactory, TimeProvider time, ILogger<LabelSheets> logger) : ILabelSheets
 {
     /// <summary>The store labels on one sheet: Avery 6460's 30, 3 across and 10 down.</summary>
     public const int LabelsPerSheet = 30;
@@ -66,6 +67,44 @@ public sealed partial class LabelSheets(IDbContextFactory<RewindDb> dbFactory, I
     public Task<SheetReservation> ReserveCardsAsync(CancellationToken cancellationToken) =>
         ReserveAsync(MemberCards, cancellationToken);
 
+    /// <inheritdoc />
+    public async Task<MenuDrawing> DrawMenuAsync(CancellationToken cancellationToken)
+    {
+        // DATA-12: read untracked, and only what the menu prints. NOCASE, then the code, as the Snacks tab
+        // lists them, so the menu reads in the order the Store Manager sees.
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        var store = await db.StoreSettings
+            .AsNoTracking()
+            .Select(s => new { s.StoreName, s.RentalPriceCents, s.LateFeeCents })
+            .SingleAsync(cancellationToken);
+        var onSale = await db.ConcessionItems
+            .AsNoTracking()
+            .Where(i => i.IsActive)
+            .OrderBy(i => EF.Functions.Collate(i.Name, "NOCASE"))
+            .ThenBy(i => i.Code)
+            .Select(i => new { i.Name, i.Code, i.PriceCents })
+            .ToListAsync(cancellationToken);
+
+        if (onSale.Count == 0)
+        {
+            return new MenuDrawing(MenuStatus.NothingOnSale, null);
+        }
+
+        // NET-8: today on the register's own calendar, for the footer that says how old a printed menu is.
+        var date = DateOnly.FromDateTime(time.GetLocalNow().DateTime);
+        var menu = new ConcessionMenu(
+            store.StoreName,
+            store.RentalPriceCents,
+            store.LateFeeCents,
+            date,
+            [.. onSale.Select(item => new MenuLine(
+                item.Name,
+                item.PriceCents,
+                new SheetBarcode(item.Code, Code128.Svg(item.Code, Code128.MenuWidthInches, Code128.MenuHeightInches))))]);
+        LogMenuDrawn(logger, menu.Lines.Count, date);
+        return new MenuDrawing(MenuStatus.Drawn, menu);
+    }
+
     // ADR-0006: the counter is read, and the sheet's numbers spent, in one transaction (DATA-7). EF Core
     // begins it IMMEDIATE, which takes SQLite's write lock before the read, so a second sheet made at
     // the same time waits until this one has committed, then reads the advanced counter. That's what
@@ -116,6 +155,11 @@ public sealed partial class LabelSheets(IDbContextFactory<RewindDb> dbFactory, I
     // Warning, not Error (OBS-3): the Store Manager is told, and nothing is spent.
     [LoggerMessage(Level = LogLevel.Warning, Message = "No numbers are left for a sheet of {Sheet}: the next would start at {First}, and the last is {LastNumber}")]
     private static partial void LogOutOfNumbers(ILogger logger, string sheet, int first, int lastNumber);
+
+    // OBS-3: a printed menu is dated, so the day it was drawn is worth finding later, such as when a price
+    // has changed since.
+    [LoggerMessage(Level = LogLevel.Information, Message = "Drew the concession menu with {Count} snacks, dated {Date:yyyy-MM-dd}")]
+    private static partial void LogMenuDrawn(ILogger logger, int count, DateOnly date);
 
     // How one kind of sheet is numbered and drawn: its name in the log, how many codes a sheet holds,
     // the last number its codes can carry, how a number becomes a code, its counter in StoreSettings,
