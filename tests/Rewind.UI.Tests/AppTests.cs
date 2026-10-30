@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
+using Rewind.Core.Concessions;
 using Rewind.Core.Devices;
 using Rewind.Core.Members;
 using Rewind.Core.Sounds;
@@ -37,6 +38,7 @@ public sealed class AppTests : BunitContext
         Services.AddSingleton<ISoundPlayer>(sounds);
         Services.AddSingleton<IHostApplicationLifetime>(_lifetime);
         Services.AddSingleton<IMemberRoster>(_roster);
+        Services.AddSingleton<IConcessionBar>(new FakeConcessionBar());
 
         // Each shell starts keyboard.js after its first render, and a dialog that closes hands
         // the focus back through it (UI-3).

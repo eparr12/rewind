@@ -303,6 +303,31 @@ public sealed class MembersTabTests : BunitContext
         Assert.Single(cut.FindAll(".members-rename"));
     }
 
+    // UI-6: while a name is fixed, a scan is ignored, so the line says how to finish rather than to scan.
+    [Fact]
+    public async Task Rename_Clicked_SaysHowToFinish()
+    {
+        _roster.Rows.Add(Grandma);
+        var cut = Render<MembersTab>();
+
+        await Button(cut, "Rename").ClickAsync(new MouseEventArgs());
+
+        Assert.Equal("Fix the name, then press Enter. Esc leaves it as it was.", cut.Find(".members-prompt").TextContent);
+    }
+
+    // Once the name is left as it was, the line says to scan a card again.
+    [Fact]
+    public async Task Rename_EscPressed_SaysWhatToDo()
+    {
+        _roster.Rows.Add(Grandma);
+        var cut = Render<MembersTab>();
+        await Button(cut, "Rename").ClickAsync(new MouseEventArgs());
+
+        await cut.Find(".members-rename").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
+
+        Assert.Equal("Type the new member's name, then scan their card.", cut.Find(".members-prompt").TextContent);
+    }
+
     // DATA-4: deactivated, the member stays in the list, with a button to bring them back.
     [Fact]
     public async Task Deactivate_Clicked_ShowsThemInactive()

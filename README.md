@@ -37,7 +37,7 @@ Rewind reads a USB barcode scanner in serial (COM) mode and finds it by its USB 
 
 Device Manager shows them in the scanner's Properties, on the Details tab under Hardware Ids, as `USB\VID_2DD6&PID_212A`. A scanner with its own USB serial port ignores the baud rate; a USB-to-serial bridge passes it on.
 
-The status bar shows the last scan, with the member's name when it's someone's member card, and whether the scanner is ready, missing or busy. Busy usually means another program, such as PuTTY, has the port open.
+The status bar shows the last scan, with the member's name when it's someone's member card, or the snack's name when it's a snack's code, and whether the scanner is ready, missing or busy. Busy usually means another program, such as PuTTY, has the port open.
 
 In Debug builds, the row above the status bar is the scan simulator (TEST-5): type what a barcode holds, such as `RV-00042`, and press Enter. It arrives just like a real scan.
 

@@ -1,6 +1,7 @@
 @implements IDisposable
 @inject IScanner Scanner
 @inject IMemberRoster Roster
+@inject IConcessionBar Bar
 @inject ErrorHub Errors
 
 @* The last scan, then the health of each optional device as it arrives (OBS-6). *@
@@ -13,17 +14,17 @@
 
 @code {
     // Cancelled when the status bar closes, which only happens when the shell crashes or Rewind closes,
-    // so a card's lookup still waiting on the database stops. The lookup is a fire-and-forget task, so
+    // so a lookup still waiting on the database stops. The lookup is a fire-and-forget task, so
     // OnScanned catches that (see StoreManager's _closing).
     private readonly CancellationTokenSource _closing = new();
 
     private Scan? _lastScan;
 
-    // Whose card the last scan was, once the roster has answered. Null until then, for a card nobody
-    // has, and for any other kind of scan.
-    private MemberRow? _member;
+    // The name the last scan goes by, once Core has answered: the member's for their card, or the snack's
+    // for its code. Null until then, for a card or a code that's nobody's, and for any other kind of scan.
+    private string? _name;
 
-    private string LastScanText => _lastScan is null ? "No scan yet" : Describe(_lastScan, _member);
+    private string LastScanText => _lastScan is null ? "No scan yet" : Describe(_lastScan, _name);
 
     private string ScannerText => Scanner.Status switch
     {
@@ -59,7 +60,7 @@
         }
         catch (OperationCanceledException) when (_closing.IsCancellationRequested)
         {
-            // the status bar closed while the card was being looked up
+            // the status bar closed while the scan was being looked up
         }
         catch (Exception e)
         {
@@ -67,59 +68,56 @@
         }
     });
 
-    // UI-11: the status can change on the scanner's thread too. An exception in here would only fault
-    // the Task that InvokeAsync returns, which nobody awaits, so it goes to DispatchExceptionAsync and on
-    // to App's ErrorBoundary.
-    private void OnStatusChanged() => _ = InvokeAsync(async () =>
-    {
-        try
-        {
-            StateHasChanged(); // the status is read as the bar draws
-        }
-        catch (Exception e)
-        {
-            await DispatchExceptionAsync(e);
-        }
-    });
+    // UI-11: the status can change on the scanner's thread too, so it moves onto the renderer's first, and
+    // the bar draws again, reading the status as it does. Nothing in here can fail: StateHasChanged only
+    // queues the drawing, and Blazor hands what a render throws to App's ErrorBoundary itself, as a probe
+    // showed, so a catch here would never run. Anything added here that can fail takes OnScanned's shape.
+    private void OnStatusChanged() => _ = InvokeAsync(StateHasChanged);
 
-    // A scan is drawn with its member's name (Build Plan 3.1), in one go. On the register, SQLite has
-    // answered by the time the lookup returns, since Microsoft.Data.Sqlite runs async calls synchronously
-    // (its docs, "Async limitations"), and drawing before that would flash "Member card" first. Only a
-    // lookup still on its way shows the scan as a member card meanwhile. A scan raised just as the
-    // status bar closed isn't looked up, since _closing has gone with it.
+    // A scan is drawn with its member's or its snack's name (Build Plan 3.1), in one go. On the register,
+    // SQLite has answered by the time the lookup returns, since Microsoft.Data.Sqlite runs async calls
+    // synchronously (its docs, "Async limitations"), and drawing before that would flash "Member card" or
+    // "Concession" first. Only a lookup still on its way shows the scan's kind meanwhile. A scan raised
+    // just as the status bar closed isn't looked up, since _closing has gone with it.
     private async Task ShowAsync(Scan scan)
     {
         _lastScan = scan;
-        _member = null;
-        var lookup = scan.Kind == ScanKind.MemberCard && !_closing.IsCancellationRequested
-            ? Roster.FindByCardAsync(scan.Code, _closing.Token)
-            : Task.FromResult<MemberRow?>(null); // only a member card is anyone's
+        _name = null;
+        var lookup = _closing.IsCancellationRequested ? Task.FromResult<string?>(null) : NameAsync(scan, _closing.Token);
         if (!lookup.IsCompleted)
         {
             StateHasChanged();
         }
 
-        MemberRow? member = null;
+        string? name = null;
         try
         {
-            member = await lookup;
+            name = await lookup;
         }
         finally
         {
-            if (ReferenceEquals(scan, _lastScan)) // a scan that came in meanwhile shows instead, even of this card
+            if (ReferenceEquals(scan, _lastScan)) // a scan that came in meanwhile shows instead, even of this code
             {
-                _member = member;
+                _name = name;
                 StateHasChanged(); // even when the lookup failed, so the bar still says what was scanned
             }
         }
     }
 
-    // Such as "RV-00042 · Store label", or "MEM-001 · Grandma" for a member's card, active or not. Only
-    // the name, as the member was when the card was scanned: a word more, such as deactivated or not
-    // added yet, would be out of date as soon as the Members tab reactivated or added that member. A
-    // scan too long to keep shows only its kind.
-    private static string Describe(Scan scan, MemberRow? member) =>
-        scan.Code.Length == 0 ? KindName(scan.Kind) : $"{scan.Code} · {member?.Name ?? KindName(scan.Kind)}";
+    // Only a member card and a snack's code have names, so nothing else is looked up.
+    private async Task<string?> NameAsync(Scan scan, CancellationToken cancellationToken) => scan.Kind switch
+    {
+        ScanKind.MemberCard => (await Roster.FindByCardAsync(scan.Code, cancellationToken))?.Name,
+        ScanKind.Concession => (await Bar.FindByCodeAsync(scan.Code, cancellationToken))?.Name,
+        _ => null,
+    };
+
+    // Such as "RV-00042 · Store label", "MEM-001 · Grandma" for a member's card, active or not, or
+    // "CON-POPCORN · Popcorn" for a snack, sold or not. Only the name, as it was when the scan came: a word
+    // more, such as deactivated or not added yet, would be out of date as soon as the Store Manager
+    // reactivated or added it. A scan too long to keep shows only its kind.
+    private static string Describe(Scan scan, string? name) =>
+        scan.Code.Length == 0 ? KindName(scan.Kind) : $"{scan.Code} · {name ?? KindName(scan.Kind)}";
 
     private static string KindName(ScanKind kind) => kind switch
     {

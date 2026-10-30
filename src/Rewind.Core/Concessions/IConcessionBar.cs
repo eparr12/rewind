@@ -6,13 +6,19 @@ namespace Rewind.Core.Concessions;
 /// <summary>
 /// What the Store Manager asks of Core to keep the concession bar's snacks and drinks, one call per action
 /// (ARCH-5): the list, and adding, renaming, repricing, deactivating and reactivating an item. Nothing
-/// deletes an item (DATA-4), and each code belongs to one item (DATA-11). <see cref="ConcessionBar"/> does
-/// it, and the UI's tests use a fake (ADR-0003).
+/// deletes an item (DATA-4), and each code belongs to one item (DATA-11). The status bar asks it which item
+/// a scanned code is. <see cref="ConcessionBar"/> does it, and the UI's tests use a fake (ADR-0003).
 /// </summary>
 public interface IConcessionBar
 {
     /// <summary>Every item, active or not, in order of name, then code.</summary>
     Task<IReadOnlyList<ConcessionRow>> ListAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The item with this code, active or not, or null when no item has it. The code is read as a scan is,
+    /// so con-popcorn is CON-POPCORN, and a barcode that isn't a concession code is no item's.
+    /// </summary>
+    Task<ConcessionRow?> FindByCodeAsync(string code, CancellationToken cancellationToken);
 
     /// <summary>
     /// Adds an active item, checking the name, then the code, then the price, as the Store Manager fills them

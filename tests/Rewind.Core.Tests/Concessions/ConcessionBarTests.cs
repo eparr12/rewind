@@ -210,6 +210,100 @@ public sealed class ConcessionBarTests
         Assert.Equal(["CON-BOTTLESODA", "CON-CANSODA"], items.Select(item => item.Code));
     }
 
+    [Fact]
+    public async Task FindByCodeAsync_CodeOfAnItem_FindsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var popcorn = await AddItemAsync(rewind, "Popcorn", Code, 100, ct);
+        await AddItemAsync(rewind, "Candy", "CON-CANDY", 50, ct);
+
+        var item = await Bar(rewind).FindByCodeAsync(Code, ct);
+
+        Assert.Equal(popcorn, item);
+    }
+
+    // A deactivated item keeps its code (DATA-4), and a menu printed before may still carry it.
+    [Fact]
+    public async Task FindByCodeAsync_CodeOfAnInactiveItem_FindsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var candy = await AddItemAsync(rewind, "Candy", "CON-CANDY", 50, ct, isActive: false);
+
+        var item = await Bar(rewind).FindByCodeAsync("CON-CANDY", ct);
+
+        Assert.Equal(candy, item);
+    }
+
+    [Fact]
+    public async Task FindByCodeAsync_CodeNoItemHas_FindsNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddItemAsync(rewind, "Popcorn", Code, 100, ct);
+
+        var item = await Bar(rewind).FindByCodeAsync("CON-NACHOS", ct);
+
+        Assert.Null(item);
+    }
+
+    // Barcodes reads a scan in any case, as the scanner's settings may send it.
+    [Fact]
+    public async Task FindByCodeAsync_CodeInLowerCase_FindsTheItem()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var popcorn = await AddItemAsync(rewind, "Popcorn", Code, 100, ct);
+
+        var item = await Bar(rewind).FindByCodeAsync("con-popcorn", ct);
+
+        Assert.Equal(popcorn, item);
+    }
+
+    // Only a concession code can be an item's, so nothing else needs the database.
+    [Theory]
+    [InlineData("RV-00042")] // a store label
+    [InlineData("036000291452")] // a factory UPC
+    [InlineData("MEM-001")] // a member card
+    [InlineData("CON-POP2")] // a digit in it
+    public async Task FindByCodeAsync_NotAConcessionCode_FindsNothing(string barcode)
+    {
+        var item = await WithNoDatabase().FindByCodeAsync(barcode, TestContext.Current.CancellationToken);
+
+        Assert.Null(item);
+    }
+
+    // NET-7: the lookup hands its token on to the database, so a status bar that closes stops it.
+    [Fact]
+    public async Task FindByCodeAsync_Cancelled_Stops()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddItemAsync(rewind, "Popcorn", Code, 100, ct);
+        using var closing = new CancellationTokenSource();
+        await closing.CancelAsync();
+
+        var find = () => Bar(rewind).FindByCodeAsync(Code, closing.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(find);
+    }
+
+    [Fact]
+    public async Task FindByCodeAsync_Null_IsRefused()
+    {
+        // NET-1: null on purpose, past the compiler's check, since this tests what FindByCodeAsync does with one.
+        var find = () => WithNoDatabase().FindByCodeAsync(null!, TestContext.Current.CancellationToken);
+
+        var refusal = await Assert.ThrowsAsync<ArgumentNullException>(find);
+        Assert.Equal("code", refusal.ParamName);
+    }
+
     // Renaming is for typos, so the code and the price stay.
     [Fact]
     public async Task RenameAsync_NewName_KeepsTheCodeAndPrice()

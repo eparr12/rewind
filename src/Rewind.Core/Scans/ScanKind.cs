@@ -15,7 +15,7 @@ public enum ScanKind
     /// <summary>A membership card, such as MEM-001. Accepted at Checkout.</summary>
     MemberCard,
 
-    /// <summary>A snack on the laminated concession card, such as CON-POPCORN. Accepted at Checkout.</summary>
+    /// <summary>A snack on the laminated concession menu, such as CON-POPCORN. Accepted at Checkout.</summary>
     Concession,
 
     /// <summary>A factory UPC or EAN from a DVD's case. Accepted only at Intake.</summary>

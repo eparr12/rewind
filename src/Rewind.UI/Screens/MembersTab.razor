@@ -17,7 +17,7 @@
     <input id="members-name" type="text" autocomplete="off" spellcheck="false" maxlength="@Member.MaxNameLength"
            disabled="@_busy" @ref="_nameBox" @bind="_name" @bind:event="oninput" />
 </div>
-<p class="members-prompt">@(_notice ?? Prompt)</p>
+<p class="members-prompt">@Line</p>
 
 @if (_members is not { } members)
 {
@@ -106,6 +106,10 @@ else
 
     // While a name is being fixed, the other rows' buttons wait.
     private bool Locked => _busy || _renaming is not null;
+
+    // UI-6: one line always says what to do. While a name is fixed, a scan is ignored, so the line says how
+    // to finish, as the Snacks tab's does, rather than to scan a card.
+    private string Line => _notice ?? (_renaming is null ? Prompt : "Fix the name, then press Enter. Esc leaves it as it was.");
 
     protected override void OnInitialized() => Scanner.Scanned += OnScanned;
 
