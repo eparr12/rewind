@@ -29,6 +29,21 @@ public sealed partial class ConcessionBar(IDbContextFactory<RewindDb> dbFactory,
     }
 
     /// <inheritdoc />
+    public async Task<ConcessionRow?> FindByCodeAsync(string code, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(code);
+
+        var scan = Barcodes.Classify(code);
+        if (scan.Kind != ScanKind.Concession)
+        {
+            return null;
+        }
+
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        return await FindByCodeAsync(db, scan.Code, cancellationToken);
+    }
+
+    /// <inheritdoc />
     public async Task<ConcessionChange> AddAsync(string name, string code, string price, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(name);

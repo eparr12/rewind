@@ -14,7 +14,7 @@ public sealed class Code128Tests
 
     private static readonly XNamespace SvgNamespace = "http://www.w3.org/2000/svg";
 
-    // Each kind of code Rewind prints, at both ends of its numbers, and the concession card that Build
+    // Each kind of code Rewind prints, at both ends of its numbers, and the concession menu that Build
     // Plan 3.1 prints from the Store Manager.
     public static TheoryData<string> AnyCode => new()
     {
@@ -47,7 +47,7 @@ public sealed class Code128Tests
         Assert.Equal(new Scan(ScanKind.MemberCard, code), scan);
     }
 
-    // Build Plan 3.1 prints a laminated concession card. The size of its barcodes is 3.1's to choose
+    // Build Plan 3.1 prints a laminated concession menu. The size of its barcodes is 3.1's to choose
     // (#21); this borrows the member card's.
     [Fact]
     public void Svg_Concession_DecodesBackAsTheSameCode()

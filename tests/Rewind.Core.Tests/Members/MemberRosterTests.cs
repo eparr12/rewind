@@ -464,6 +464,22 @@ public sealed class MemberRosterTests
         Assert.Null(member);
     }
 
+    // NET-7: the lookup hands its token on to the database, so a status bar that closes stops it.
+    [Fact]
+    public async Task FindByCardAsync_Cancelled_Stops()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddMemberAsync(rewind, "Grandma", Card, ct);
+        using var closing = new CancellationTokenSource();
+        await closing.CancelAsync();
+
+        var find = () => Roster(rewind).FindByCardAsync(Card, closing.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(find);
+    }
+
     [Fact]
     public async Task FindByCardAsync_Null_IsRefused()
     {

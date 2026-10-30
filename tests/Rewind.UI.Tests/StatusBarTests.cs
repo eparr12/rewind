@@ -1,5 +1,6 @@
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
+using Rewind.Core.Concessions;
 using Rewind.Core.Devices;
 using Rewind.Core.Members;
 using Rewind.Core.Scans;
@@ -11,9 +12,12 @@ public sealed class StatusBarTests : BunitContext
 {
     private static readonly MemberRow Grandma = new(1, "Grandma", "MEM-001", IsActive: true);
     private static readonly MemberRow Dad = new(2, "Dad", "MEM-002", IsActive: false);
+    private static readonly ConcessionRow Popcorn = new(1, "Popcorn", "CON-POPCORN", 100, IsActive: true);
+    private static readonly ConcessionRow Candy = new(2, "Candy", "CON-CANDY", 50, IsActive: false);
 
     private readonly FakeScanner _scanner = new();
     private readonly FakeMemberRoster _roster = new();
+    private readonly FakeConcessionBar _bar = new();
     private readonly ListLogger<ErrorHub> _errorLog = new();
     private bool _crashed;
 
@@ -23,6 +27,7 @@ public sealed class StatusBarTests : BunitContext
         errors.Crashed += () => _crashed = true;
         Services.AddSingleton<IScanner>(_scanner);
         Services.AddSingleton<IMemberRoster>(_roster);
+        Services.AddSingleton<IConcessionBar>(_bar);
         Services.AddSingleton(errors);
     }
 
@@ -167,16 +172,81 @@ public sealed class StatusBarTests : BunitContext
         Assert.Equal("MEM-001 · Grandma", LastScan(cut));
     }
 
-    // Only a member card is anyone's, so nothing else is looked up.
+    // Only a member card and a snack's code have names, so nothing else is looked up. Both fakes answer
+    // with a name whatever they're asked, so a store label looked up by either would show one.
     [Fact]
-    public async Task Scanned_NotAMemberCard_ShowsNoMember()
+    public async Task Scanned_NeitherACardNorASnack_ShowsNoName()
     {
-        _roster.Finding = Task.FromResult<MemberRow?>(Grandma); // what any lookup would answer
+        _roster.Finding = Task.FromResult<MemberRow?>(Grandma);
+        _bar.Finding = Task.FromResult<ConcessionRow?>(Popcorn);
         var cut = Render<StatusBar>();
 
         await ScanAsync(cut, "RV-00042", ScanKind.StoreLabel);
 
         Assert.Equal("RV-00042 · Store label", LastScan(cut));
+    }
+
+    // Build Plan 3.1: the status bar names each snack when it's scanned, as it does each card.
+    [Fact]
+    public async Task Scanned_Snack_ShowsItsName()
+    {
+        _bar.Rows.AddRange([Popcorn, Candy]);
+        var cut = Render<StatusBar>();
+
+        await ScanAsync(cut, "CON-POPCORN", ScanKind.Concession);
+
+        Assert.Equal("CON-POPCORN · Popcorn", LastScan(cut));
+    }
+
+    // A deactivated snack keeps its code (DATA-4), and a menu printed before may still carry it.
+    [Fact]
+    public async Task Scanned_DeactivatedSnack_ShowsItsName()
+    {
+        _bar.Rows.Add(Candy);
+        var cut = Render<StatusBar>();
+
+        await ScanAsync(cut, "CON-CANDY", ScanKind.Concession);
+
+        Assert.Equal("CON-CANDY · Candy", LastScan(cut));
+    }
+
+    // A code no snack has yet, such as one the Snacks tab is about to add, shows as it did before.
+    [Fact]
+    public async Task Scanned_CodeNoSnackHas_ShowsConcession()
+    {
+        _bar.Rows.Add(Popcorn);
+        var cut = Render<StatusBar>();
+
+        await ScanAsync(cut, "CON-NACHOS", ScanKind.Concession);
+
+        Assert.Equal("CON-NACHOS · Concession", LastScan(cut));
+    }
+
+    // As for a card: SQLite has answered before the bar draws, so it draws once, with the name.
+    [Fact]
+    public async Task Scanned_SnackAnsweredAtOnce_DrawsTheScanOnce()
+    {
+        _bar.Rows.Add(Popcorn);
+        var cut = Render<StatusBar>();
+        var renders = cut.RenderCount;
+
+        await ScanAsync(cut, "CON-POPCORN", ScanKind.Concession);
+
+        Assert.Equal(renders + 1, cut.RenderCount);
+    }
+
+    // A lookup still on its way shows the scan as a concession meanwhile, without the last scan's name.
+    [Fact]
+    public async Task Scanned_SnackBeforeTheBarAnswers_ShowsConcession()
+    {
+        _roster.Rows.Add(Grandma);
+        var cut = Render<StatusBar>();
+        await ScanAsync(cut, "MEM-001");
+        _bar.Finding = new TaskCompletionSource<ConcessionRow?>().Task;
+
+        await ScanAsync(cut, "CON-POPCORN", ScanKind.Concession);
+
+        Assert.Equal("CON-POPCORN · Concession", LastScan(cut));
     }
 
     // A failed lookup goes to ErrorHub even while the bar is open, so the shell shows the error dialog
@@ -217,6 +287,19 @@ public sealed class StatusBarTests : BunitContext
         await DisposeComponentsAsync();
 
         Assert.True(_roster.LastToken.IsCancellationRequested);
+    }
+
+    // And a snack's.
+    [Fact]
+    public async Task Dispose_WhileLookingUpASnack_CancelsTheLookup()
+    {
+        _bar.Finding = new TaskCompletionSource<ConcessionRow?>().Task;
+        var cut = Render<StatusBar>();
+        await ScanAsync(cut, "CON-POPCORN", ScanKind.Concession);
+
+        await DisposeComponentsAsync();
+
+        Assert.True(_bar.LastToken.IsCancellationRequested);
     }
 
     // The lookup runs as a fire-and-forget task, which ComponentBase never sees, so the status bar

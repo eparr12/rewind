@@ -5,10 +5,10 @@ using Rewind.Core.StoreManager;
 namespace Rewind.UI.Tests;
 
 /// <summary>
-/// The concession bar's Core service as the Snacks tab's tests set it up (ADR-0003). It holds snacks as Core
-/// would and answers each call as Core does, reading prices with Dollars to the same limit, unless the test
-/// gives an answer of its own, which can be a task that hasn't finished. It records each change it's asked
-/// for, as typed.
+/// The concession bar's Core service as the Snacks tab's and the status bar's tests set it up (ADR-0003). It
+/// holds snacks as Core would and answers each call as Core does, reading prices with Dollars to the same
+/// limit, unless the test gives an answer of its own, which can be a task that hasn't finished. It records
+/// each change it's asked for, as typed.
 /// </summary>
 internal sealed class FakeConcessionBar : IConcessionBar
 {
@@ -20,6 +20,9 @@ internal sealed class FakeConcessionBar : IConcessionBar
 
     /// <summary>What a read of the snacks answers instead of <see cref="Rows"/>, such as a read that hasn't finished.</summary>
     public Task<IReadOnlyList<ConcessionRow>>? Listing { get; set; }
+
+    /// <summary>What a code's lookup answers instead of looking in <see cref="Rows"/>, such as a lookup that hasn't finished.</summary>
+    public Task<ConcessionRow?>? Finding { get; set; }
 
     /// <summary>What an add answers instead of saving, such as a code in use.</summary>
     public Task<ConcessionChange>? Adding { get; set; }
@@ -43,6 +46,12 @@ internal sealed class FakeConcessionBar : IConcessionBar
     {
         _tokens.Add(cancellationToken);
         return Listing ?? Task.FromResult<IReadOnlyList<ConcessionRow>>([.. Rows]);
+    }
+
+    public Task<ConcessionRow?> FindByCodeAsync(string code, CancellationToken cancellationToken)
+    {
+        _tokens.Add(cancellationToken);
+        return Finding ?? Task.FromResult(Rows.SingleOrDefault(row => row.Code == code));
     }
 
     public Task<ConcessionChange> AddAsync(string name, string code, string price, CancellationToken cancellationToken)
