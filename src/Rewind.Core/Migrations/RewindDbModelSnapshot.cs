@@ -15,7 +15,7 @@ namespace Rewind.Core.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.14");
 
             modelBuilder.Entity("Rewind.Core.Catalog.Case", b =>
                 {
@@ -281,6 +281,32 @@ namespace Rewind.Core.Migrations
 
                             t.HasCheckConstraint("CK_UpcLookups_Upc", "length(\"Upc\") IN (12, 13) AND \"Upc\" NOT GLOB '*[^0-9]*'");
                         });
+                });
+
+            modelBuilder.Entity("Rewind.Core.MovieNights.BusinessDay", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsOpen")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("INTEGER")
+                        .HasComputedColumnSql("\"ClosedAt\" IS NULL", false);
+
+                    b.Property<DateTime>("OpenedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsOpen")
+                        .IsUnique()
+                        .HasFilter("\"IsOpen\"");
+
+                    b.ToTable("BusinessDays");
                 });
 
             modelBuilder.Entity("Rewind.Core.StoreManager.StoreSettings", b =>

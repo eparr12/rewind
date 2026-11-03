@@ -5,6 +5,7 @@ using Rewind.Core.Concessions;
 using Rewind.Core.Labels;
 using Rewind.Core.Members;
 using Rewind.Core.Metadata;
+using Rewind.Core.MovieNights;
 using Rewind.Core.StoreManager;
 
 namespace Rewind.Core.Tests;
@@ -97,6 +98,21 @@ public sealed class RewindCoreServicesTests
         await using var provider = services.BuildServiceProvider();
 
         Assert.IsType<ConcessionBar>(provider.GetRequiredService<IConcessionBar>());
+    }
+
+    // The night's first scan and Close Out will need it, and a host without it would only fail then.
+    [Fact]
+    public async Task AddRewindCore_AnyHost_ProvidesTheBusinessDays()
+    {
+        // A full path on Linux too, as for the label sheets above.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddRewindCore(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { [$"{RewindPaths.SectionName}:Root"] = Path.GetTempPath() })
+            .Build());
+        await using var provider = services.BuildServiceProvider();
+
+        Assert.IsType<BusinessDays>(provider.GetRequiredService<IBusinessDays>());
     }
 
     // UPCitemdb's limits count every lookup the register makes, whichever screen asks.
