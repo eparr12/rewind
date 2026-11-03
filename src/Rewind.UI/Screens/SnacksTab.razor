@@ -313,9 +313,10 @@ else
         switch (change, edit.Field)
         {
             case ({ Status: ConcessionChangeStatus.Saved, Item: { } changed }, _):
+                var before = items.Single(item => item.Id == changed.Id);
                 _items = Replace(items, changed);
                 _editing = null;
-                _notice = null;
+                _notice = changed.PriceCents == before.PriceCents ? null : Repriced(before, changed);
                 _focus = Box.Name;
                 return;
             case ({ Status: ConcessionChangeStatus.NoName }, Field.Name):
@@ -374,6 +375,12 @@ else
 
     private static IReadOnlyList<ConcessionRow> Replace(IReadOnlyList<ConcessionRow> items, ConcessionRow changed) =>
         [.. items.Select(item => item.Id == changed.Id ? changed : item)];
+
+    // #46: the laminated menu shows the old price, which the register no longer charges. A rename or a snack
+    // added or deactivated leaves the menu short or a name behind, not wrong about a price, so only a price
+    // change says so; the menu's date tells the rest.
+    private static string Repriced(ConcessionRow before, ConcessionRow after) =>
+        $"{after.Name} costs {Price(after)} from the next sale on, but the printed menu still says {Price(before)}. Print the menu again from the Printing tab.";
 
     // A code belongs to one snack for good, active or not (DATA-11), so a deactivated snack is reactivated
     // rather than added again.

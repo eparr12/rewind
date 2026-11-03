@@ -502,7 +502,7 @@ public sealed class SnacksTabTests : BunitContext
         Assert.Equal(Prompt, Line(cut));
     }
 
-    // And once it's saved.
+    // And once it's saved, here at the price it had, so the printed menu is still right.
     [Fact]
     public async Task Edit_SavedAfterARefusal_SaysWhatToDo()
     {
@@ -511,7 +511,38 @@ public sealed class SnacksTabTests : BunitContext
         await Button(cut, "Change price").ClickAsync(new MouseEventArgs());
         await cut.Find(".snacks-reprice").InputAsync("150");
         await cut.Find(".snacks-reprice").KeyDownAsync(new KeyboardEventArgs { Key = "Enter" });
-        await cut.Find(".snacks-reprice").InputAsync("1.50");
+        await cut.Find(".snacks-reprice").InputAsync("1.00");
+
+        await cut.Find(".snacks-reprice").KeyDownAsync(new KeyboardEventArgs { Key = "Enter" });
+
+        Assert.Equal(Prompt, Line(cut));
+    }
+
+    // #46: the laminated menu still shows the old price, which the register no longer charges, so the line
+    // says so, and where to print a new one.
+    [Fact]
+    public async Task ChangePrice_Saved_SaysToPrintTheMenuAgain()
+    {
+        _bar.Rows.Add(Popcorn);
+        var cut = Render<SnacksTab>();
+        await Button(cut, "Change price").ClickAsync(new MouseEventArgs());
+        await cut.Find(".snacks-reprice").InputAsync("1.25");
+
+        await cut.Find(".snacks-reprice").KeyDownAsync(new KeyboardEventArgs { Key = "Enter" });
+
+        Assert.Equal(
+            "Popcorn costs $1.25 from the next sale on, but the printed menu still says $1.00. Print the menu again from the Printing tab.",
+            Line(cut));
+    }
+
+    // The same price, typed another way, leaves the printed menu right.
+    [Fact]
+    public async Task ChangePrice_SamePriceTypedAnotherWay_SaysWhatToDo()
+    {
+        _bar.Rows.Add(Popcorn);
+        var cut = Render<SnacksTab>();
+        await Button(cut, "Change price").ClickAsync(new MouseEventArgs());
+        await cut.Find(".snacks-reprice").InputAsync("1");
 
         await cut.Find(".snacks-reprice").KeyDownAsync(new KeyboardEventArgs { Key = "Enter" });
 

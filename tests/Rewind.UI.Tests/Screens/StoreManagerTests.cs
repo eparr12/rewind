@@ -1,5 +1,6 @@
 using AngleSharp.Dom;
 using Bunit;
+using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -43,14 +44,16 @@ public sealed class StoreManagerTests : BunitContext
         _keyboard = JSInterop.SetupModule("./_content/Rewind.UI/js/keyboard.js");
     }
 
-    // F5 opens on Labels and cards, as it did before it had tabs.
+    // F5 opens on Printing, as it opened on its labels and cards before it had tabs. The menu prints from
+    // there too.
     [Fact]
-    public void Render_ScreenOpens_ShowsLabelsAndCards()
+    public void Render_ScreenOpens_ShowsPrinting()
     {
         var cut = Render<StoreManager>();
 
-        Assert.Equal(["true", "false", "false", "false"], cut.FindAll(".store-manager-tabs li").Select(tab => tab.GetAttribute("aria-selected")));
-        Assert.Single(cut.FindAll(".labels-and-cards"));
+        var open = cut.FindAll(".store-manager-tabs li").Where(tab => tab.GetAttribute("aria-selected") == "true");
+        Assert.Equal(["Printing"], open.Select(tab => tab.TextContent));
+        Assert.Equal(["Labels and cards", "Concession menu"], cut.FindAll(".store-manager-panel legend").Select(legend => legend.TextContent));
     }
 
     [Fact]
@@ -75,7 +78,7 @@ public sealed class StoreManagerTests : BunitContext
         Assert.Single(cut.FindAll("#members-name"));
     }
 
-    // SEC-6, as for the sheet below: ShellTests checks F5 as it opens, on Labels and cards.
+    // SEC-6, as for the sheet below: ShellTests checks F5 as it opens, on Printing.
     [Fact]
     public async Task MembersTab_Opened_HasNoHrefLinks()
     {
@@ -200,16 +203,16 @@ public sealed class StoreManagerTests : BunitContext
         Assert.Equal(["Next store label: RV-00031", "Next member card: MEM-001"], lines);
     }
 
-    // UI-6: until the numbers are read, there's nothing to print yet.
+    // UI-6: until the numbers are read, there are no labels or cards to print yet. The menu needs none.
     [Fact]
-    public void Render_NumbersNotReadYet_ShowsNoPrintButtons()
+    public void Render_NumbersNotReadYet_ShowsNoLabelOrCardButtons()
     {
         _sheets.Next = new TaskCompletionSource<NextCodes>().Task;
 
         var cut = Render<StoreManager>();
 
         Assert.Contains("Reading the next numbers", cut.Find(".labels-and-cards").TextContent, StringComparison.Ordinal);
-        Assert.DoesNotContain(cut.FindAll("button"), button => button.TextContent.StartsWith("Print", StringComparison.Ordinal));
+        Assert.Empty(cut.Find(".labels-and-cards").QuerySelectorAll("button"));
     }
 
     [Fact]
@@ -537,6 +540,210 @@ public sealed class StoreManagerTests : BunitContext
         await click;
 
         Assert.False(Renderer.UnhandledException.IsCompleted);
+    }
+
+    // Build Plan 3.1: the concession menu prints from F5, as the labels and cards do, at its true size.
+    [Fact]
+    public async Task PrintMenu_Clicked_ShowsTheMenu()
+    {
+        PrintWindowCloses();
+        _sheets.Menu = Drawn(FakeLabelSheets.SnackMenu);
+        var cut = Render<StoreManager>();
+
+        await Button(cut, "Print the menu").ClickAsync(new MouseEventArgs());
+
+        Assert.Equal(["Candy", "Popcorn", "Soda"], cut.FindAll(".menu-sheet .menu-name").Select(name => name.TextContent));
+        Assert.Empty(cut.FindAll(".store-manager-tabs"));
+    }
+
+    // As for a sheet, the print window opens once the menu has rendered, and once only.
+    [Fact]
+    public async Task PrintMenu_Clicked_OpensThePrintDialog()
+    {
+        var print = _keyboard.SetupVoid("print");
+        _sheets.Menu = Drawn(FakeLabelSheets.SnackMenu);
+        var cut = Render<StoreManager>();
+
+        var click = Button(cut, "Print the menu").ClickAsync(new MouseEventArgs());
+        cut.WaitForAssertion(() => Assert.Single(print.Invocations));
+        var linesWhilePrinting = cut.FindAll(".menu-line").Count;
+        print.SetVoidResult();
+        await click;
+
+        cut.WaitForAssertion(() => Assert.EndsWith("Print the menu again.", SheetLine(cut), StringComparison.Ordinal));
+        Assert.Equal(3, linesWhilePrinting);
+        Assert.Single(print.Invocations);
+    }
+
+    // The print window doesn't say whether the menu printed. The menu spends nothing, so the line sends the
+    // Store Manager back to its own button.
+    [Fact]
+    public async Task PrintMenu_PrintWindowClosed_SaysHowToPrintItAgain()
+    {
+        PrintWindowCloses();
+        _sheets.Menu = Drawn(FakeLabelSheets.SnackMenu);
+        var cut = Render<StoreManager>();
+
+        await PrintTheMenuAsync(cut);
+
+        Assert.Equal("The concession menu. Didn't print, or jammed? Press Done, then Print the menu again.", SheetLine(cut));
+    }
+
+    // No Print this sheet again: that's for a sheet whose numbers are spent (ADR-0006).
+    [Fact]
+    public async Task PrintMenu_MenuShown_HasOnlyDone()
+    {
+        PrintWindowCloses();
+        _sheets.Menu = Drawn(FakeLabelSheets.SnackMenu);
+        var cut = Render<StoreManager>();
+
+        await PrintTheMenuAsync(cut);
+
+        Assert.Equal(["Done"], cut.FindAll(".sheet-view button").Select(button => button.TextContent));
+    }
+
+    // NET-12: with no snack on sale there's no menu, and the Store Manager is told where snacks come from.
+    [Fact]
+    public async Task PrintMenu_NothingOnSale_ShowsTheInfoDialog()
+    {
+        var cut = Render<StoreManager>();
+
+        var click = Button(cut, "Print the menu").ClickAsync(new MouseEventArgs());
+        var shown = _dialogs.Current;
+        await cut.InvokeAsync(() => _dialogs.Close(ok: true));
+        await click;
+
+        Assert.Equal(
+            new Dialog(Store.Name, "No snack is on sale, so there's nothing to put on the menu.\n\nAdd the snacks on the Snacks tab first.", DialogIcon.Info),
+            shown);
+    }
+
+    // The menu needs none of the next numbers, so its button is there before they're read.
+    [Fact]
+    public async Task PrintMenu_BeforeTheNumbersAreRead_PrintsTheMenu()
+    {
+        PrintWindowCloses();
+        _sheets.Next = new TaskCompletionSource<NextCodes>().Task;
+        _sheets.Menu = Drawn(FakeLabelSheets.SnackMenu);
+        var cut = Render<StoreManager>();
+
+        await Button(cut, "Print the menu").ClickAsync(new MouseEventArgs());
+
+        Assert.Single(cut.FindAll(".menu-sheet"));
+    }
+
+    // While the menu is drawn, nothing else starts, as for a sheet.
+    [Fact]
+    public async Task PrintMenu_WhileDrawing_DisablesThePrintButtons()
+    {
+        var drawing = new TaskCompletionSource<MenuDrawing>();
+        _sheets.Menu = drawing.Task;
+        PrintWindowCloses();
+        var cut = Render<StoreManager>();
+
+        var click = Button(cut, "Print the menu").ClickAsync(new MouseEventArgs());
+        var disabled = new[] { Button(cut, "Print 30 labels"), Button(cut, "Print 10 member cards"), Button(cut, "Print the menu") }
+            .Select(button => button.HasAttribute("disabled"))
+            .ToList();
+        await cut.InvokeAsync(() => drawing.SetResult(new MenuDrawing(MenuStatus.Drawn, FakeLabelSheets.SnackMenu)));
+        await click;
+
+        Assert.Equal([true, true, true], disabled);
+    }
+
+    // A second click while the menu is drawn would draw it, and open the print window, twice.
+    [Fact]
+    public async Task PrintMenu_TwiceWhileDrawing_DrawsOnce()
+    {
+        var drawing = new TaskCompletionSource<MenuDrawing>();
+        _sheets.Menu = drawing.Task;
+        PrintWindowCloses();
+        var cut = Render<StoreManager>();
+        var button = Button(cut, "Print the menu");
+
+        var first = button.ClickAsync(new MouseEventArgs());
+        var second = button.ClickAsync(new MouseEventArgs());
+        await cut.InvokeAsync(() => drawing.SetResult(new MenuDrawing(MenuStatus.Drawn, FakeLabelSheets.SnackMenu)));
+        await Task.WhenAll(first, second);
+
+        Assert.Equal(1, _sheets.MenusDrawn);
+    }
+
+    // UI-3: Done goes back to the Printing tab, with the focus on Print the menu, to print it again.
+    [Fact]
+    public async Task Done_AfterTheMenu_FocusesPrintTheMenu()
+    {
+        PrintWindowCloses();
+        _sheets.Menu = Drawn(FakeLabelSheets.SnackMenu);
+        var cut = Render<StoreManager>();
+        await PrintTheMenuAsync(cut);
+
+        await Button(cut, "Done").ClickAsync(new MouseEventArgs());
+
+        // The button is drawn anew, so its ID is read in the render that drew it, before anything else.
+        AssertFocusedLast(Button(cut, "Print the menu").GetAttribute("blazor:elementreference"), focuses: 2);
+    }
+
+    // UI-3: Esc is Done here too.
+    [Fact]
+    public async Task KeyDownEscape_MenuShown_ReturnsToThePrintingTab()
+    {
+        PrintWindowCloses();
+        _sheets.Menu = Drawn(FakeLabelSheets.SnackMenu);
+        var cut = Render<StoreManager>();
+        await PrintTheMenuAsync(cut);
+
+        await cut.Find(".sheet-view").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
+
+        Assert.Empty(cut.FindAll(".menu-sheet"));
+        Assert.Single(cut.FindAll(".concession-menu"));
+    }
+
+    // SEC-6, as for a sheet.
+    [Fact]
+    public async Task PrintMenu_MenuShown_HasNoHrefLinks()
+    {
+        PrintWindowCloses();
+        _sheets.Menu = Drawn(FakeLabelSheets.SnackMenu);
+        var cut = Render<StoreManager>();
+
+        await PrintTheMenuAsync(cut);
+
+        Assert.Empty(cut.FindAll("a[href]"));
+    }
+
+    // Leaving the screen stops a menu still being drawn. Its cancellation raises nothing, as a sheet's
+    // doesn't: ComponentBase ignores an event handler's cancelled task.
+    [Fact]
+    public async Task Dispose_WhileDrawingTheMenu_CancelsItAndRaisesNothing()
+    {
+        var drawing = new TaskCompletionSource<MenuDrawing>();
+        _sheets.Menu = drawing.Task;
+        var cut = Render<StoreManager>();
+        var click = Button(cut, "Print the menu").ClickAsync(new MouseEventArgs());
+        await DisposeComponentsAsync();
+
+        drawing.SetCanceled(_sheets.LastToken);
+        await click;
+
+        Assert.True(_sheets.LastToken.IsCancellationRequested);
+        Assert.False(Renderer.UnhandledException.IsCompleted);
+    }
+
+    private static Task<MenuDrawing> Drawn(ConcessionMenu menu) => Task.FromResult(new MenuDrawing(MenuStatus.Drawn, menu));
+
+    // Prints the menu with its button, and waits until its print window has closed.
+    private static async Task PrintTheMenuAsync(IRenderedComponent<StoreManager> cut)
+    {
+        await Button(cut, "Print the menu").ClickAsync(new MouseEventArgs());
+        cut.WaitForAssertion(() => Assert.EndsWith("Print the menu again.", SheetLine(cut), StringComparison.Ordinal));
+    }
+
+    // UI-3: the element the screen focused last, from its focus calls so far.
+    private void AssertFocusedLast(string? elementId, int focuses)
+    {
+        var focused = Assert.IsType<ElementReference>(JSInterop.VerifyFocusAsyncInvoke(focuses)[^1].Arguments[0]);
+        Assert.Equal(elementId, focused.Id);
     }
 
     // Completes once the clerk answers the dialog that Shut Down opens.

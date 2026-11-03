@@ -1,0 +1,50 @@
+@using System.Globalization
+
+@* The concession menu at its true size, in CSS inches (Build Plan 3.1): the store's prices, then a line for
+   each snack on sale with its price and its barcode, and the day it was printed. It's a table, so a menu too
+   long for one sheet goes on to a second, and the heading and the date print on each, as a table's head and
+   foot do (a probe of Chrome's print showed both on each sheet). site.css prints it alone, black on white in
+   a print font, since the pixel font is for the screen. *@
+@if (Menu is { } menu)
+{
+    <div class="print-sheet menu-sheet">
+        <table>
+            <thead>
+                <tr>
+                    <th colspan="3">
+                        <span class="menu-store-name">@menu.StoreName</span>
+                        <span class="menu-store-prices">Movie rentals @Price(menu.RentalPriceCents) each · Late fee @Price(menu.LateFeeCents)</span>
+                    </th>
+                </tr>
+            </thead>
+            <tfoot>
+                <tr>
+                    <td class="menu-date" colspan="3">Printed @menu.Date.ToString("MMMM d, yyyy", CultureInfo.InvariantCulture)</td>
+                </tr>
+            </tfoot>
+            <tbody>
+                @foreach (var line in menu.Lines)
+                {
+                    <tr class="menu-line">
+                        <td class="menu-name">@line.Name</td>
+                        <td class="menu-price">@Price(line.PriceCents)</td>
+                        <td class="menu-barcode">
+                            @* Core's own markup, which holds only numbers, never the code's text (Code128.Svg). The
+                               name and the code are text. *@
+                            @((MarkupString)line.Barcode.Svg)
+                            <span class="menu-code">@line.Barcode.Code</span>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    /// <summary>The menu to show, from Core. The Store Manager shows this only while it has one.</summary>
+    [Parameter, EditorRequired]
+    public ConcessionMenu? Menu { get; set; }
+
+    private static string Price(int cents) => $"${Dollars.Format(cents)}";
+}
