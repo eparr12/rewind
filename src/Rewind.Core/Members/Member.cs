@@ -20,4 +20,10 @@ public sealed class Member
 
     /// <summary>False once the member is deactivated in the Store Manager.</summary>
     public bool IsActive { get; set; } = true;
+
+    /// <summary>
+    /// What's left of the member's late-fee cards, in draw order, such as CCO (<see cref="LateFees.ShuffleBag"/>).
+    /// Empty when the bag is spent, which is how every member starts.
+    /// </summary>
+    public string Bag { get; set; } = "";
 }

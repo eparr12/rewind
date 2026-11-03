@@ -28,6 +28,8 @@ internal sealed class TempRewind : IAsyncDisposable
 
     public WatchedTimeProvider Time { get; } = new(MovieNight);
 
+    public Random Random { get; } = new(42); // TEST-4: seeded, so chance goes the same way on every run
+
     public Backups Backups => new(Options.Create(Paths), Time);
 
     /// <summary>Starts Rewind.Core the way Program.cs does, so DatabaseStartup runs.</summary>
@@ -40,6 +42,7 @@ internal sealed class TempRewind : IAsyncDisposable
         });
         builder.Services.AddRewindCore(builder.Configuration);
         builder.Services.AddSingleton<TimeProvider>(Time);
+        builder.Services.AddSingleton(Random);
 
         var host = builder.Build();
         _hosts.Add(host);
