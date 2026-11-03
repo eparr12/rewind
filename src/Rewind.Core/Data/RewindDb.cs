@@ -4,6 +4,7 @@ using Rewind.Core.Catalog;
 using Rewind.Core.Concessions;
 using Rewind.Core.Members;
 using Rewind.Core.Metadata;
+using Rewind.Core.MovieNights;
 using Rewind.Core.StoreManager;
 
 namespace Rewind.Core.Data;
@@ -43,6 +44,9 @@ public sealed class RewindDb(DbContextOptions<RewindDb> options) : DbContext(opt
 
     /// <summary>UPCitemdb's answers, so each barcode is looked up once.</summary>
     public DbSet<UpcLookup> UpcLookups => Set<UpcLookup>();
+
+    /// <summary>Each movie night, from its first scan to Close Out.</summary>
+    public DbSet<BusinessDay> BusinessDays => Set<BusinessDay>();
 
     /// <summary>
     /// The connection string for a Rewind database file. Foreign Keys=True sends

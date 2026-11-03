@@ -9,6 +9,7 @@ using Rewind.Core.Intake;
 using Rewind.Core.Labels;
 using Rewind.Core.Members;
 using Rewind.Core.Metadata;
+using Rewind.Core.MovieNights;
 using Rewind.Core.StoreManager;
 
 namespace Rewind.Core;
@@ -20,9 +21,9 @@ public static class RewindCoreServices
 {
     /// <summary>
     /// Adds Rewind's folders, the database and the startup that prepares it, the sheets of store labels
-    /// and member cards, whose numbers the database keeps, the members, the prices and the concession bar's
-    /// snacks. Call this before adding any other hosted service: hosted services start in the order they're
-    /// added, and everything else needs the database.
+    /// and member cards, whose numbers the database keeps, the members, the prices, the concession bar's
+    /// snacks and the business days. Call this before adding any other hosted service: hosted services start
+    /// in the order they're added, and everything else needs the database.
     /// </summary>
     public static IServiceCollection AddRewindCore(this IServiceCollection services, IConfiguration configuration)
     {
@@ -48,6 +49,7 @@ public static class RewindCoreServices
         services.AddSingleton<IMemberRoster, MemberRoster>();
         services.AddSingleton<IStorePrices, StorePrices>();
         services.AddSingleton<IConcessionBar, ConcessionBar>();
+        services.AddSingleton<IBusinessDays, BusinessDays>();
         return services;
     }
 
