@@ -16,8 +16,8 @@ public sealed class BusinessDayConfiguration : IEntityTypeConfiguration<Business
         // this generated column gives them, and the filter leaves the closed days out.
         //
         // Both are in the model, not raw SQL in a migration, because a table rebuild recreates only the
-        // indexes the model knows, so it would drop a raw one without a word. Nothing reads the column,
-        // so BusinessDay doesn't have it.
+        // indexes the model knows, so it would drop a raw one without a word (ADR-0009). Nothing reads the
+        // column, so BusinessDay doesn't have it.
         builder.Property<bool>(IsOpen).HasComputedColumnSql("\"ClosedAt\" IS NULL", stored: false);
         builder.HasIndex(IsOpen).IsUnique().HasFilter($"\"{IsOpen}\"");
     }
