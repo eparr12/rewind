@@ -5,8 +5,8 @@ namespace Rewind.UI.Tests;
 
 /// <summary>
 /// The label sheets' Core service as the Store Manager's tests set it up (ADR-0003): it answers with
-/// whatever the test gives it, which can be a task that hasn't finished, and counts the sheets it was
-/// asked to make. Its sheets carry real barcodes, drawn by Code128.
+/// whatever the test gives it, which can be a task that hasn't finished, and counts the sheets and menus
+/// it was asked to make. Its sheets and its menu carry real barcodes, drawn by Code128.
 /// </summary>
 internal sealed class FakeLabelSheets : ILabelSheets
 {
@@ -20,6 +20,17 @@ internal sealed class FakeLabelSheets : ILabelSheets
 
     /// <summary>A sheet that would pass the last number its codes can carry.</summary>
     public static readonly SheetReservation OutOfNumbers = new(SheetStatus.OutOfNumbers, null);
+
+    /// <summary>
+    /// The menu Core would draw on movie night for three snacks, at the opening prices: Candy, Popcorn and Soda,
+    /// each with a real barcode at the menu's size.
+    /// </summary>
+    public static readonly ConcessionMenu SnackMenu = new(
+        "Rewind Video",
+        200,
+        100,
+        new DateOnly(2026, 10, 23),
+        [MenuItem("Candy", 50, "CON-CANDY"), MenuItem("Popcorn", 100, "CON-POPCORN"), MenuItem("Soda", 75, "CON-SODA")]);
 
     /// <summary>What every read of the next codes answers.</summary>
     public Task<NextCodes> Next { get; set; } = Task.FromResult(new NextCodes("RV-00031", "MEM-001"));
@@ -38,6 +49,9 @@ internal sealed class FakeLabelSheets : ILabelSheets
 
     /// <summary>How many sheets of member cards the screen asked for.</summary>
     public int CardSheetsMade { get; private set; }
+
+    /// <summary>How many times the screen asked for the menu.</summary>
+    public int MenusDrawn { get; private set; }
 
     /// <summary>The token the screen's last call was given.</summary>
     public CancellationToken LastToken { get; private set; }
@@ -65,8 +79,12 @@ internal sealed class FakeLabelSheets : ILabelSheets
     public Task<MenuDrawing> DrawMenuAsync(CancellationToken cancellationToken)
     {
         LastToken = cancellationToken;
+        MenusDrawn++;
         return Menu;
     }
+
+    private static MenuLine MenuItem(string name, int priceCents, string code) =>
+        new(name, priceCents, new SheetBarcode(code, Code128.Svg(code, Code128.MenuWidthInches, Code128.MenuHeightInches)));
 
     private static Sheet NewSheet(SheetKind kind, string format, int first, int count, double widthInches, double heightInches) =>
         new(

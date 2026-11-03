@@ -90,17 +90,19 @@ Rewind saves each movie's poster in `C:\Rewind\data`, named for the movie's TMDB
 
 ## Store Manager
 
-The Store Manager screen (F5) holds the grown-up jobs: printing store labels and member cards, keeping the family's members, setting the prices, and keeping the concession bar's snacks. The clerk handbook leaves them out, since it's written for the kids (DOC-6), who use F5 to shut Rewind down at closing.
+The Store Manager screen (F5) holds the grown-up jobs: printing store labels, member cards and the concession menu, keeping the family's members, setting the prices, and keeping the concession bar's snacks. The clerk handbook leaves them out, since it's written for the kids (DOC-6), who use F5 to shut Rewind down at closing.
 
-### Labels and member cards
+### Printing
 
-F5 opens on the **Labels and cards** tab. Click **Print 30 labels**, for Avery 6460 sheets, or **Print 10 member cards**, for card stock. In the print window, print 1 copy at Scale 100, with headers and footers off and the margins as they are, never "fit to page". Press **Print**, then **Done** once the sheet is out.
+F5 opens on the **Printing** tab. Click **Print 30 labels**, for Avery 6460 sheets, or **Print 10 member cards**, for card stock. In the print window, print 1 copy at Scale 100, with headers and footers off and the margins as they are, never "fit to page". Press **Print**, then **Done** once the sheet is out.
 
 If the sheet didn't print, or jammed, press **Print this sheet again**, which prints the same numbers. Use it only then. Reprinting a sheet that did print, or printing two copies, puts each number on two labels, and Intake refuses the second case a number goes on (ADR-0006). Stay on the screen until the sheet has printed: leaving drops the sheet, and its numbers are skipped.
 
 The first time a printer prints labels, print a sheet on plain paper and hold it over a label sheet against a window, to check each barcode sits inside its label. Then print one real sheet and scan a label before printing more: the status bar should say **Store label**, and **Member card** for the first card printed.
 
 Cut out the member cards, write each member's name on the line, and laminate them.
+
+**Print the menu** prints the concession menu: the rental price and the late fee, then each snack on sale with its price and its barcode, and the day it was printed in the footer. Print it as the labels print, then press **Done**. It spends nothing, so if it didn't print, press **Print the menu** again, and print it again whenever a snack or a price changes. The footer's date is how to tell a stale menu from the one on the counter: a price changed after that day means the counter's is wrong. A long menu goes on to a second sheet, with the prices and the date on each. Laminate it, then scan a snack or two from it: the status bar should name each one.
 
 ### Members
 
@@ -112,9 +114,9 @@ On the **Prices** tab, type the rental price for one movie and the late fee in d
 
 ### Snacks
 
-On the **Snacks** tab, type a new snack's name and its price in dollars, then press **Add** or Enter. As you type the name, Rewind makes the snack's code from it, such as CON-POPCORN for Popcorn. Check the code before adding: it can't change afterwards, since the concession menu will print it as the snack's barcode. Shorten a long one, such as CON-POP for Fountain pop or SodaStream. Empty the code box, and the code follows the name again as you type it. A code is CON- and 1 to 20 letters, and it stays with its snack for good, even once the snack is deactivated (DATA-11).
+On the **Snacks** tab, type a new snack's name and its price in dollars, then press **Add** or Enter. As you type the name, Rewind makes the snack's code from it, such as CON-POPCORN for Popcorn. Check the code before adding: it can't change afterwards, since the concession menu prints it as the snack's barcode. Shorten a long one, such as CON-POP for Fountain pop or SodaStream. Empty the code box, and the code follows the name again as you type it. A code is CON- and 1 to 20 letters, and it stays with its snack for good, even once the snack is deactivated (DATA-11).
 
-**Rename** fixes a typo, and **Change price** sets a new price, which counts from the next sale on (DATA-10). **Deactivate** a snack that's no longer sold, and **Reactivate** brings it back: Rewind never deletes one (DATA-4). A different snack is a new one, with a code of its own. Rewind's log names each snack added or changed, with its code.
+**Rename** fixes a typo, and **Change price** sets a new price, which counts from the next sale on (DATA-10). The laminated menu still shows the old price, so the line then says to print the menu again from the **Printing** tab. **Deactivate** a snack that's no longer sold, and **Reactivate** brings it back: Rewind never deletes one (DATA-4). A different snack is a new one, with a code of its own. Rewind's log names each snack added or changed, with its code.
 
 Rewind starts with no snacks. Add the starting menu: Popcorn at 1.00, Fountain pop or SodaStream at 0.75, and Candy at 0.50.
 
@@ -154,7 +156,7 @@ To check the label and card sheets without a printer:
 3. Scan a barcode off the screen, zoomed in if it won't read: the status bar says `RV-00001 · Store label`. **Print 10 member cards** should give `MEM-001 · Member card`, with cut lines 0.75 in from the left and right edges and 0.5 in from the top and bottom, and a Name line above each barcode. A card someone already has shows their name instead.
 4. Do it again with `$env:Display__Zoom = '2'` set first: the PDF should come out the same size, since printing ignores the screen's zoom.
 
-A real printer's first sheet needs a check of its own; see [Labels and member cards](#labels-and-member-cards).
+A real printer's first sheet needs a check of its own; see [Printing](#printing).
 
 ## Change the database
 

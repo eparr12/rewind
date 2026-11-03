@@ -79,8 +79,8 @@ body {
   margin-top: 24px;
 }
 
-/* F5 Store Manager: the next store label and member card, each with its print button
-   (Build Plan 2.5). */
+/* F5's Printing tab: the next store label and member card, each with its print button (Build Plan
+   2.5), then the concession menu's (Build Plan 3.1). */
 .labels-and-cards {
   margin-bottom: 12px;
 }
@@ -245,6 +245,92 @@ body {
 
 .sheet-card .sheet-code {
   font-size: 12pt;
+}
+
+/* The concession menu (Build Plan 3.1): the store's prices, then a line for each snack on sale with its
+   name, its price and its barcode, which Code128 draws 3.5 in wide. Unlike a label sheet, it has no set
+   height, so a long menu goes on to a second sheet, with no line split between them. It's a table, whose
+   heading and date repeat on each sheet, and 98.css draws tables for the screen, with silver column heads,
+   so the menu sets its own. */
+.menu-sheet {
+  display: block;
+  height: auto;
+  min-height: 11in;
+  padding: 0 0.5in; /* the top and bottom margins are the head's and the foot's, which every sheet repeats */
+}
+
+.menu-sheet table {
+  width: 100%;
+  border-collapse: collapse;
+  background: none;
+  font: inherit;
+  white-space: normal;
+}
+
+.menu-sheet table > thead > tr > *,
+.menu-sheet table > tfoot > tr > *,
+.menu-sheet table > tbody > tr > * {
+  height: auto;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  font-weight: inherit;
+  text-align: left;
+}
+
+.menu-sheet table > thead > tr > th {
+  padding-top: 0.5in;
+}
+
+.menu-store-name {
+  display: block;
+  font-size: 24pt;
+  font-weight: bold;
+}
+
+.menu-store-prices {
+  display: block;
+  margin: 0.05in 0 0.2in;
+  font-size: 14pt;
+}
+
+.menu-line {
+  break-inside: avoid;
+}
+
+.menu-sheet .menu-line > td {
+  padding: 0.12in 0;
+  border-top: 0.5pt solid #000;
+  vertical-align: middle;
+}
+
+.menu-name {
+  font-size: 16pt;
+}
+
+.menu-sheet .menu-price {
+  padding-right: 0.25in;
+  font-size: 16pt;
+  font-weight: bold;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.menu-barcode {
+  width: 3.5in; /* Code128's MenuWidthInches */
+}
+
+.menu-code {
+  display: block;
+  margin-top: 0.02in;
+  font-size: 10pt;
+  text-align: center;
+}
+
+.menu-sheet .menu-date {
+  padding: 0.15in 0 0.5in;
+  border-top: 0.5pt solid #000;
+  font-size: 9pt;
 }
 
 /* F4 Intake: the title box and a line saying what to do, then the picker or the hand-entry form,
