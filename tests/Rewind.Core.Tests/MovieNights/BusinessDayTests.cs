@@ -24,7 +24,7 @@ public sealed class BusinessDayTests
         await SqliteAssert.RefusesAsync(SqliteConstraint.Unique, () => db.SaveChangesAsync(ct));
     }
 
-    // The other way to get a second open night, and the column is generated, so the index hears of it.
+    // The other way to get a second open night. The column is generated, so the index sees this change too.
     [Fact]
     public async Task SaveChanges_ReopeningADayWhileAnotherIsOpen_IsRefused()
     {
