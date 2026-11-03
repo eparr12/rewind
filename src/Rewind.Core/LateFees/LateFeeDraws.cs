@@ -7,7 +7,9 @@ namespace Rewind.Core.LateFees;
 
 /// <summary>
 /// Saves each member's one draw a night from their late-fee bag (Build Plan 3.2). <see cref="ShuffleBag"/> holds
-/// the rule, and this holds what the rule needs between draws: the bag, and the member's last card.
+/// the rule, and this holds what the rule needs between draws: the bag, and the member's last card. It counts
+/// on one clerk scanning one card at a time: all that can race a member's bag is a rescan the same night, which
+/// the unique index catches, so the bag has no concurrency token, which a second register would need.
 /// </summary>
 public sealed partial class LateFeeDraws(
     IDbContextFactory<RewindDb> dbFactory,
