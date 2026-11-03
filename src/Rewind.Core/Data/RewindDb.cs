@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Rewind.Core.Catalog;
 using Rewind.Core.Concessions;
+using Rewind.Core.LateFees;
 using Rewind.Core.Members;
 using Rewind.Core.Metadata;
 using Rewind.Core.MovieNights;
@@ -47,6 +48,9 @@ public sealed class RewindDb(DbContextOptions<RewindDb> options) : DbContext(opt
 
     /// <summary>Each movie night, from its first scan to Close Out.</summary>
     public DbSet<BusinessDay> BusinessDays => Set<BusinessDay>();
+
+    /// <summary>Each member's one draw a night from their late-fee bag.</summary>
+    public DbSet<LateFeeDraw> LateFeeDraws => Set<LateFeeDraw>();
 
     /// <summary>
     /// The connection string for a Rewind database file. Foreign Keys=True sends

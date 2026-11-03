@@ -7,6 +7,7 @@ using Rewind.Core.Data;
 using Rewind.Core.Devices;
 using Rewind.Core.Intake;
 using Rewind.Core.Labels;
+using Rewind.Core.LateFees;
 using Rewind.Core.Members;
 using Rewind.Core.Metadata;
 using Rewind.Core.MovieNights;
@@ -22,8 +23,8 @@ public static class RewindCoreServices
     /// <summary>
     /// Adds Rewind's folders, the database and the startup that prepares it, the sheets of store labels
     /// and member cards, whose numbers the database keeps, the members, the prices, the concession bar's
-    /// snacks and the business days. Call this before adding any other hosted service: hosted services start
-    /// in the order they're added, and everything else needs the database.
+    /// snacks, the business days and the late-fee draws. Call this before adding any other hosted service:
+    /// hosted services start in the order they're added, and everything else needs the database.
     /// </summary>
     public static IServiceCollection AddRewindCore(this IServiceCollection services, IConfiguration configuration)
     {
@@ -33,6 +34,7 @@ public static class RewindCoreServices
             .ValidateOnStart(); // NET-11
 
         services.AddSingleton(TimeProvider.System); // NET-8
+        services.AddSingleton(Random.Shared); // NET-8. The shared one is safe across threads, and it's a singleton here.
 
         // DATA-6: every read and write asks the factory for its own short-lived context.
         services.AddDbContextFactory<RewindDb>((provider, options) =>
@@ -50,6 +52,7 @@ public static class RewindCoreServices
         services.AddSingleton<IStorePrices, StorePrices>();
         services.AddSingleton<IConcessionBar, ConcessionBar>();
         services.AddSingleton<IBusinessDays, BusinessDays>();
+        services.AddSingleton<ILateFeeDraws, LateFeeDraws>();
         return services;
     }
 

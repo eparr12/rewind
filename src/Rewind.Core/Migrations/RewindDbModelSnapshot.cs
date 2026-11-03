@@ -224,11 +224,54 @@ namespace Rewind.Core.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Rewind.Core.LateFees.LateFeeDraw", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("BusinessDayId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Card")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("DrawnAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("FlavorMovieId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MemberId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessDayId");
+
+                    b.HasIndex("FlavorMovieId");
+
+                    b.HasIndex("MemberId", "BusinessDayId")
+                        .IsUnique();
+
+                    b.ToTable("LateFeeDraws", t =>
+                        {
+                            t.HasCheckConstraint("CK_LateFeeDraws_Card", "\"Card\" IN ('Clear', 'Overdue')");
+
+                            t.HasCheckConstraint("CK_LateFeeDraws_FlavorMovie", "\"Card\" = 'Overdue' OR \"FlavorMovieId\" IS NULL");
+                        });
+                });
+
             modelBuilder.Entity("Rewind.Core.Members.Member", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("Bag")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("CardBarcode")
                         .IsRequired()
@@ -248,6 +291,8 @@ namespace Rewind.Core.Migrations
 
                     b.ToTable("Members", t =>
                         {
+                            t.HasCheckConstraint("CK_Members_Bag", "length(\"Bag\") <= 4 AND \"Bag\" NOT GLOB '*[^CO]*' AND \"Bag\" NOT GLOB '*O*O*'");
+
                             t.HasCheckConstraint("CK_Members_CardBarcode", "\"CardBarcode\" GLOB 'MEM-[0-9][0-9][0-9]'");
 
                             t.HasCheckConstraint("CK_Members_Name", "trim(\"Name\") <> ''");
@@ -381,6 +426,26 @@ namespace Rewind.Core.Migrations
                     b.HasOne("Rewind.Core.Catalog.Movie", null)
                         .WithMany()
                         .HasForeignKey("MovieId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Rewind.Core.LateFees.LateFeeDraw", b =>
+                {
+                    b.HasOne("Rewind.Core.MovieNights.BusinessDay", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessDayId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Rewind.Core.Catalog.Movie", null)
+                        .WithMany()
+                        .HasForeignKey("FlavorMovieId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Rewind.Core.Members.Member", null)
+                        .WithMany()
+                        .HasForeignKey("MemberId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
