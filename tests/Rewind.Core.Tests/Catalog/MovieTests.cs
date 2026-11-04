@@ -6,6 +6,25 @@ namespace Rewind.Core.Tests.Catalog;
 public sealed class MovieTests
 {
     [Fact]
+    public void TitleWithYear_KnownYear_PutsTheYearAfterTheTitle() =>
+        Assert.Equal("Halloween (1978)", Movie.TitleWithYear("Halloween", 1978));
+
+    // DATA-3: an unknown year is null, so there's nothing to show for it.
+    [Fact]
+    public void TitleWithYear_UnknownYear_IsTheTitleAlone() =>
+        Assert.Equal("Halloween", Movie.TitleWithYear("Halloween", null));
+
+    [Fact]
+    public void TitleWithYear_NullTitle_IsRefused()
+    {
+        // NET-1: null on purpose, past the compiler's check, since this tests what TitleWithYear does with one.
+        Action name = () => Movie.TitleWithYear(null!, 1978);
+
+        var refusal = Assert.Throws<ArgumentNullException>(name);
+        Assert.Equal("title", refusal.ParamName);
+    }
+
+    [Fact]
     public async Task SaveChanges_DeletingMovieWithCase_IsRefused()
     {
         var ct = TestContext.Current.CancellationToken;

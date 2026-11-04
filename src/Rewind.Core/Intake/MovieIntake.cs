@@ -198,7 +198,7 @@ public sealed partial class MovieIntake(
         await db.SaveChangesAsync(cancellationToken);
         if (logger.IsEnabled(LogLevel.Information))
         {
-            var titles = string.Join(", ", movies.Select(TitleAndYear));
+            var titles = string.Join(", ", movies.Select(movie => Movie.TitleWithYear(movie.Title, movie.Year)));
             LogShelved(logger, label, titles);
         }
 
@@ -400,10 +400,6 @@ public sealed partial class MovieIntake(
         number = value;
         return true;
     }
-
-    // Such as "Halloween (1978)", for the log.
-    private static string TitleAndYear(CaseMovieEntry movie) =>
-        movie.Year is { } year ? string.Create(CultureInfo.InvariantCulture, $"{movie.Title} ({year})") : movie.Title;
 
     private static PickStatus PickStatusFor(TmdbStatus status) => status switch
     {
