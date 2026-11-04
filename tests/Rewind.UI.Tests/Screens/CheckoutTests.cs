@@ -83,6 +83,15 @@ public sealed class CheckoutTests : BunitContext
         AssertFocusedLast(cut.Find("#checkout-cash").GetAttribute("blazor:elementreference"), focuses: 1);
     }
 
+    // SEC-5: the box takes no more than the longest amount Dollars reads. Dollars does the real checking.
+    [Fact]
+    public void Render_CashBox_CapsHowMuchFits()
+    {
+        var cut = Render<Checkout>();
+
+        Assert.Equal("9", cut.Find("#checkout-cash").GetAttribute("maxlength"));
+    }
+
     // The snack buttons are for a sale, so they aren't there before one.
     [Fact]
     public void Render_NoSale_ShowsNoSnackButtons()
@@ -661,6 +670,21 @@ public sealed class CheckoutTests : BunitContext
         Assert.Equal(["RV-00042 · Halloween (1978) · $2.00"], Bill(cut));
     }
 
+    // What was typed stays in view behind the dialog, and the clerk types the money again after it.
+    [Fact]
+    public async Task CloseDialog_CashUnderTheTotal_EmptiesTheCashBox()
+    {
+        var cut = await RenderWithSaleAsync();
+        await ScanLabelAsync(cut);
+        var pay = StartPayingAsync(cut, "1.99");
+        Assert.Equal("1.99", CashTyped(cut));
+
+        await CloseDialogAsync(cut);
+        await pay;
+
+        Assert.Equal(string.Empty, CashTyped(cut));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("two")]
@@ -678,6 +702,21 @@ public sealed class CheckoutTests : BunitContext
         await pay;
     }
 
+    // What was typed stays in view behind the dialog, and the clerk types the money again after it.
+    [Fact]
+    public async Task CloseDialog_NotAnAmount_EmptiesTheCashBox()
+    {
+        var cut = await RenderWithSaleAsync();
+        await ScanLabelAsync(cut);
+        var pay = StartPayingAsync(cut, "two");
+        Assert.Equal("two", CashTyped(cut));
+
+        await CloseDialogAsync(cut);
+        await pay;
+
+        Assert.Equal(string.Empty, CashTyped(cut));
+    }
+
     [Fact]
     public async Task Submit_NothingOnTheBill_SaysSoAndSendsNothing()
     {
@@ -689,6 +728,19 @@ public sealed class CheckoutTests : BunitContext
         Assert.Empty(_counter.Tickets);
         await CloseDialogAsync(cut);
         await pay;
+    }
+
+    // The money wasn't what was wrong: it's still good once there's something to pay for.
+    [Fact]
+    public async Task CloseDialog_NothingOnTheBill_KeepsTheCash()
+    {
+        var cut = await RenderWithSaleAsync();
+        var pay = StartPayingAsync(cut, "10");
+
+        await CloseDialogAsync(cut);
+        await pay;
+
+        Assert.Equal("10", CashTyped(cut));
     }
 
     // A sale of nothing but snacks is a sale.
@@ -720,6 +772,22 @@ public sealed class CheckoutTests : BunitContext
         Assert.Equal(["Popcorn · $1.00"], Bill(cut));
         Assert.Equal("Total: $1.00", cut.Find(".checkout-total").TextContent);
         Assert.DoesNotContain(Sound.Chime, _sounds.Played);
+    }
+
+    // The dialog says to press Enter again, which only works with the money still in the box.
+    [Fact]
+    public async Task CloseDialog_CaseLeftTheShelf_KeepsTheCash()
+    {
+        var cut = await RenderWithSaleAsync();
+        await ScanLabelAsync(cut);
+        await cut.Find(".checkout-snacks button").ClickAsync(new MouseEventArgs());
+        _counter.Completing = Task.FromResult(new SaleResult(SaleStatus.NotOnShelf, 300, Label, null));
+        var pay = StartPayingAsync(cut, "10");
+
+        await CloseDialogAsync(cut);
+        await pay;
+
+        Assert.Equal("10", CashTyped(cut));
     }
 
     // The chime says the sale went through, so it waits for the save.
@@ -820,7 +888,7 @@ public sealed class CheckoutTests : BunitContext
         Assert.Empty(cut.FindAll(".checkout-change"));
         Assert.Equal("Dad · Due back tonight", cut.Find(".checkout-member").TextContent);
         Assert.Empty(Bill(cut));
-        Assert.Equal(string.Empty, cut.Find("#checkout-cash").GetAttribute("value"));
+        Assert.Equal(string.Empty, CashTyped(cut));
     }
 
     // The fee was the last sale's, and on this bill it would be charged a second time.
@@ -846,7 +914,7 @@ public sealed class CheckoutTests : BunitContext
 
         await ScanCardAsync(cut);
 
-        Assert.Equal(string.Empty, cut.Find("#checkout-cash").GetAttribute("value"));
+        Assert.Equal(string.Empty, CashTyped(cut));
     }
 
     [Fact]
@@ -893,7 +961,7 @@ public sealed class CheckoutTests : BunitContext
 
         await cut.Find(".checkout-done").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
 
-        Assert.Equal(string.Empty, cut.Find("#checkout-cash").GetAttribute("value"));
+        Assert.Equal(string.Empty, CashTyped(cut));
         AssertFocusedLast(cut.Find("#checkout-cash").GetAttribute("blazor:elementreference"), focuses: 4);
     }
 
@@ -953,7 +1021,7 @@ public sealed class CheckoutTests : BunitContext
         await cut.InvokeAsync(() => _dialogs.Close(ok: true));
         await escape;
 
-        Assert.Equal(string.Empty, cut.Find("#checkout-cash").GetAttribute("value"));
+        Assert.Equal(string.Empty, CashTyped(cut));
     }
 
     // Whatever had the focus, such as a snack button, may have gone with the sale.
@@ -1284,6 +1352,8 @@ public sealed class CheckoutTests : BunitContext
     }
 
     private static string Prompt(IRenderedComponent<Checkout> cut) => cut.Find(".checkout-prompt").TextContent;
+
+    private static string? CashTyped(IRenderedComponent<Checkout> cut) => cut.Find("#checkout-cash").GetAttribute("value");
 
     private static List<string> Bill(IRenderedComponent<Checkout> cut) =>
         [.. cut.FindAll(".checkout-ticket li").Select(line => line.TextContent)];

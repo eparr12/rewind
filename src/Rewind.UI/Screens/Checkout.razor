@@ -71,7 +71,7 @@
         @* Here with no sale too, so cash typed before a card gets its answer. *@
         <form class="field-row checkout-cash" @onsubmit="OnCashAsync" @onsubmit:preventDefault>
             <label for="checkout-cash">Cash tendered:</label>
-            <input id="checkout-cash" type="text" autocomplete="off" spellcheck="false" maxlength="9"
+            <input id="checkout-cash" type="text" autocomplete="off" spellcheck="false" maxlength="@CashLength"
                    @ref="_cashBox" @bind="_cash" @bind:event="oninput" />
             <button type="submit" class="default">Complete Sale</button>
         </form>
@@ -79,6 +79,9 @@
 </div>
 
 @code {
+    // "$99999.99", the most Dollars.TryParse reads, is nine characters.
+    private const int CashLength = 9;
+
     private static readonly Dialog UseTheLabel = new(Store.Name, "Please scan the Rewind Video label.", DialogIcon.Warning);
 
     private static readonly Dialog CardFirst = new(Store.Name, "Scan the member's card first.", DialogIcon.Warning);
@@ -412,6 +415,7 @@
         else if (!Dollars.TryParse(_cash, out var cash))
         {
             await ShowAsync(NotCash);
+            _cash = ""; // the clerk types the money again, not onto what was wrong
         }
         else
         {
@@ -431,6 +435,7 @@
                 return;
             case { Status: SaleStatus.CashShort, TotalCents: var total }:
                 await ShowAsync(new Dialog(Store.Name, $"That isn't enough. The total is {Price(total)}.", DialogIcon.Warning));
+                _cash = ""; // the clerk types the money again, not onto what was short
                 return;
             case { Status: SaleStatus.NotOnShelf, StoreLabel: { } label }:
                 // Nothing was saved, and the sale stays open without that case, for the clerk to pay again.
