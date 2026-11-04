@@ -147,7 +147,7 @@ dotnet test
 dotnet format --verify-no-changes
 ```
 
-`dotnet test` runs the Core tests (xUnit, over real SQLite files in a temporary folder) and the screen tests (bUnit). CI runs both commands on every push, and also builds and runs the firmware parser's C tests with gcc and checks `keyboard.js` with Node; [ci.yml](.github/workflows/ci.yml) has those commands.
+`dotnet test` runs the Core tests (xUnit, over real SQLite files in a temporary folder) and the screen tests (bUnit). CI runs both commands on every push, with the tests on Release. It also builds Debug, whose `#if DEBUG` code nothing else compiles there, builds and runs the firmware parser's C tests with gcc, and checks `keyboard.js` with Node; [ci.yml](.github/workflows/ci.yml) has those commands.
 
 To check the label and card sheets without a printer:
 
