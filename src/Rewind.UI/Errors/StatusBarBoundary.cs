@@ -11,6 +11,7 @@ namespace Rewind.UI.Errors;
 /// </summary>
 public sealed class StatusBarBoundary : ErrorBoundary
 {
+    // NET-1: Blazor sets every [Inject] property before the first render, so it's never read null.
     [Inject]
     private ErrorHub Errors { get; set; } = null!;
 
