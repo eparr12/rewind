@@ -30,8 +30,11 @@ public sealed class RentalTests
         Assert.Equal((600, 1, 2), (saved.ChangeCents, saved.Items.Count, saved.Lines.Count));
     }
 
-    [Fact]
-    public async Task SaveChanges_ChangeThatIsntCashLessTotal_IsRefused()
+    // A cent short or a cent over, since $6.00 is what's owed here.
+    [Theory]
+    [InlineData(599)]
+    [InlineData(601)]
+    public async Task SaveChanges_ChangeThatIsntCashLessTotal_IsRefused(int changeCents)
     {
         var ct = TestContext.Current.CancellationToken;
         await using var rewind = new TempRewind();
@@ -39,7 +42,7 @@ public sealed class RentalTests
         await using var db = rewind.OpenDb();
         var parts = await SaleParts.AddAsync(db, ct);
         var rental = parts.NewRental(totalCents: 400, cashTenderedCents: 1000);
-        rental.ChangeCents = 500;
+        rental.ChangeCents = changeCents;
         db.Rentals.Add(rental);
 
         await SqliteAssert.RefusesAsync(SqliteConstraint.Check, () => db.SaveChangesAsync(ct));
