@@ -17,12 +17,6 @@ public sealed class RentalConfiguration : IEntityTypeConfiguration<Rental>
     {
         builder.HasOne<Member>().WithMany().HasForeignKey(r => r.MemberId);
         builder.HasOne<BusinessDay>().WithMany().HasForeignKey(r => r.BusinessDayId);
-
-        // Navigations here and nowhere else in this folder: one SaveChanges has to link new items and lines
-        // to a new rental (DATA-7), and only a navigation can do that before the rental has its key.
-        builder.HasMany(r => r.Items).WithOne().HasForeignKey(i => i.RentalId);
-        builder.HasMany(r => r.Lines).WithOne().HasForeignKey(l => l.RentalId);
-
         builder.ToTable(t =>
         {
             t.HasCheckConstraint("CK_Rentals_TotalCents", "\"TotalCents\" >= 0");

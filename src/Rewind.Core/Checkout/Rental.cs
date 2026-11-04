@@ -28,6 +28,9 @@ public sealed class Rental
     /// <summary>The change given, in cents: always the cash less the total.</summary>
     public int ChangeCents { get; set; }
 
+    // The only navigations in this folder: one SaveChanges has to link new items and lines to a new rental
+    // (DATA-7), and only a navigation can do that before the rental has its key.
+
     /// <summary>The cases rented, each with the movie picked from it.</summary>
     public ICollection<RentalItem> Items { get; } = [];
 
