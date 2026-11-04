@@ -280,7 +280,7 @@ public sealed class ShellTests : BunitContext
 
         await cut.Find("button.throws").ClickAsync(new MouseEventArgs());
 
-        Assert.Equal(["Status bar closed after an error"], cut.FindAll(".status-bar-field").Select(field => field.TextContent));
+        Assert.Equal(["Status bar closed after an error. Tell the Store Manager."], cut.FindAll(".status-bar-field").Select(field => field.TextContent));
     }
 
     [Fact]
@@ -346,7 +346,7 @@ public sealed class ShellTests : BunitContext
 
         await cut.InvokeAsync(() => scanner.SetStatusThatFails(new InvalidOperationException("Test crash")));
 
-        Assert.Equal(["Status bar closed after an error"], cut.FindAll(".status-bar-field").Select(field => field.TextContent));
+        Assert.Equal(["Status bar closed after an error. Tell the Store Manager."], cut.FindAll(".status-bar-field").Select(field => field.TextContent));
     }
 
     // A failed lookup isn't the bar failing, so it stays open, still saying what was scanned, and the next
