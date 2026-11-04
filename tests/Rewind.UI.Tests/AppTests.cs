@@ -14,12 +14,13 @@ using Rewind.UI.Screens;
 namespace Rewind.UI.Tests;
 
 // OBS-5: in BlazorWebView, an exception that no ErrorBoundary catches stops the whole page, so
-// App's boundary has to catch whatever the shell throws outside its screens. The status bar
-// stands in here for any such part of the shell.
+// App's boundary has to catch whatever the shell throws outside its screens and its status bar. The
+// dialog host stands in here for any such part of the shell, being the only one every build draws.
 public sealed class AppTests : BunitContext
 {
     private readonly DialogService _dialogs;
     private readonly ScannerHub _scanner;
+    private readonly BunitJSModuleInterop _keyboard;
     private readonly FakeMemberRoster _roster = new();
     private readonly FakeApplicationLifetime _lifetime = new();
 
@@ -42,15 +43,15 @@ public sealed class AppTests : BunitContext
 
         // Each shell starts keyboard.js after its first render, and a dialog that closes hands
         // the focus back through it (UI-3).
-        var keyboard = JSInterop.SetupModule("./_content/Rewind.UI/js/keyboard.js");
-        keyboard.SetupVoid("start", _ => true).SetVoidResult();
-        keyboard.SetupVoid("restoreFocus").SetVoidResult();
+        _keyboard = JSInterop.SetupModule("./_content/Rewind.UI/js/keyboard.js");
+        _keyboard.SetupVoid("start", _ => true).SetVoidResult();
+        _keyboard.SetupVoid("restoreFocus").SetVoidResult();
     }
 
     [Fact]
     public async Task Click_PartOfTheShellThrows_ShowsErrorDialog()
     {
-        ComponentFactories.Add<StatusBar, ThrowsOnClick>();
+        ComponentFactories.Add<DialogHost, ThrowsOnClick>();
         var cut = Render<App>();
 
         await cut.Find("button.throws").ClickAsync(new MouseEventArgs());
@@ -61,7 +62,7 @@ public sealed class AppTests : BunitContext
     [Fact]
     public async Task CloseErrorDialog_ShellCrashedAfterStarting_OpensNewShellOnCheckout()
     {
-        ComponentFactories.Add<StatusBar, ThrowsOnClick>();
+        ComponentFactories.Add<DialogHost, ThrowsOnClick>();
         var cut = Render<App>();
         await cut.InvokeAsync(() => cut.FindComponent<Shell>().Instance.OnFunctionKey("F2"));
         await cut.Find("button.throws").ClickAsync(new MouseEventArgs());
@@ -77,12 +78,44 @@ public sealed class AppTests : BunitContext
     [Fact]
     public async Task CloseErrorDialog_ShellCrashedWhileStarting_ShutsRewindDown()
     {
-        ComponentFactories.Add<StatusBar, ThrowingComponent>();
+        _keyboard.SetupVoid("start", _ => true).SetException(new InvalidOperationException("Test crash"));
         var cut = Render<App>();
 
         await cut.InvokeAsync(() => _dialogs.Close(ok: true));
 
         cut.WaitForAssertion(() => Assert.True(_lifetime.StopRequested));
+    }
+
+    // The same goes for the shell that follows a crash, which hasn't started either until it has drawn itself.
+    [Fact]
+    public async Task CloseErrorDialog_NextShellCrashedWhileStarting_ShutsRewindDown()
+    {
+        ComponentFactories.Add<DialogHost, ThrowsOnClick>();
+        var cut = Render<App>();
+        await cut.Find("button.throws").ClickAsync(new MouseEventArgs());
+        _keyboard.SetupVoid("start", _ => true).SetException(new InvalidOperationException("Test crash"));
+        await cut.InvokeAsync(() => _dialogs.Close(ok: true));
+        cut.WaitForAssertion(() => Assert.Equal(DialogIcon.Error, _dialogs.Current?.Icon));
+
+        await cut.InvokeAsync(() => _dialogs.Close(ok: true));
+
+        cut.WaitForAssertion(() => Assert.True(_lifetime.StopRequested));
+    }
+
+    // The bar's own ErrorBoundary catches this one, so the shell carries on, even one still starting.
+    // A shell that can't start shuts Rewind down, which is too much over a status line.
+    [Fact]
+    public async Task CloseErrorDialog_StatusBarCrashedWhileStarting_KeepsTheSameShell()
+    {
+        ComponentFactories.Add<StatusBar, ThrowingComponent>();
+        var cut = Render<App>();
+        var shell = cut.FindComponent<Shell>().Instance;
+
+        await cut.InvokeAsync(() => _dialogs.Close(ok: true));
+        await cut.InvokeAsync(() => { }); // queued behind what the dialog's closing set off
+
+        Assert.Same(shell, cut.FindComponent<Shell>().Instance);
+        Assert.False(_lifetime.StopRequested);
     }
 
     // The shell's DialogHost throws, and so does the one in App's error content. Drawing the error
@@ -124,7 +157,7 @@ public sealed class AppTests : BunitContext
     [Fact]
     public async Task Click_ShellCrashesAgainAfterRecovering_ShowsFullErrorDialog()
     {
-        ComponentFactories.Add<StatusBar, ThrowsOnClick>();
+        ComponentFactories.Add<DialogHost, ThrowsOnClick>();
         var cut = Render<App>();
         await cut.Find("button.throws").ClickAsync(new MouseEventArgs());
         await cut.InvokeAsync(() => _dialogs.Close(ok: true));
@@ -137,7 +170,6 @@ public sealed class AppTests : BunitContext
     }
 
     // The status bar's lookup failing shows the error dialog over the shell it's in, which carries on.
-    // Handed to this boundary, it would replace the whole shell, or shut Rewind down while it started.
     [Fact]
     public async Task Receive_StatusBarLookupFails_ShowsErrorDialogOverTheSameShell()
     {

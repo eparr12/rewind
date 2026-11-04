@@ -13,9 +13,9 @@
 </div>
 
 @code {
-    // Cancelled when the status bar closes, which only happens when the shell crashes or Rewind closes,
-    // so a lookup still waiting on the database stops. The lookup is a fire-and-forget task, so
-    // OnScanned catches that (see StoreManager's _closing).
+    // Cancelled when the status bar closes, after an error of its own, when the shell crashes or when
+    // Rewind closes, so a lookup still waiting on the database stops. The lookup is a fire-and-forget
+    // task, so OnScanned catches that (see StoreManager's _closing).
     private readonly CancellationTokenSource _closing = new();
 
     private Scan? _lastScan;
@@ -50,8 +50,7 @@
     // UI-11: a scan can arrive on the scanner's thread, so it moves onto the renderer's first. What its
     // lookup throws goes to ErrorHub, open or not, which logs it and shows the error dialog over the
     // shell. The bar carries on, and the next scan looks again (OBS-4, OBS-5). DispatchExceptionAsync
-    // would take it to App's ErrorBoundary, the bar's only one, which replaces the whole shell over a
-    // name, and shuts Rewind down while the shell is still starting.
+    // would take it to the bar's ErrorBoundary, which closes the bar and leaves it closed, over a name.
     private void OnScanned(Scan scan) => _ = InvokeAsync(async () =>
     {
         try
@@ -70,8 +69,9 @@
 
     // UI-11: the status can change on the scanner's thread too, so it moves onto the renderer's first, and
     // the bar draws again, reading the status as it does. Nothing in here can fail: StateHasChanged only
-    // queues the drawing, and Blazor hands what a render throws to App's ErrorBoundary itself, as a probe
-    // showed, so a catch here would never run. Anything added here that can fail takes OnScanned's shape.
+    // queues the drawing, and Blazor hands what a render throws to the bar's ErrorBoundary itself, as a
+    // probe showed, so a catch here would never run. Anything added here that can fail takes OnScanned's
+    // shape.
     private void OnStatusChanged() => _ = InvokeAsync(StateHasChanged);
 
     // A scan is drawn with its member's or its snack's name (Build Plan 3.1), in one go. On the register,

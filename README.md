@@ -130,7 +130,7 @@ Rewind is laid out for 1024 × 768 (UI-8). On a bigger monitor, set the zoom in 
 
 ## Logs
 
-Rewind writes one log file a day to `C:\Rewind\logs`, such as `rewind-20261023.log`, and deletes each one 30 days later (OBS-2). It logs at Information: starts, Shut Downs, devices coming and going, and every error with its details.
+Rewind writes one log file a day to `C:\Rewind\logs`, such as `rewind-20261023.log`, and deletes each one 30 days later (OBS-2). It logs at Information: starts, Shut Downs, each screen the clerk opens, devices coming and going, and every error with its details.
 
 To troubleshoot, set the level to Debug in `appsettings.json`, which on the register sits next to `Rewind.Register.exe`. Debug adds detail such as every scan and every sound that fails to play. Set it back to Information afterwards: the next release's `appsettings.json` replaces the register's anyway.
 
