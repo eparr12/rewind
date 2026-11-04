@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using Rewind.Core;
 using Rewind.Core.Concessions;
 using Rewind.Core.Devices;
 using Rewind.Core.Intake;
@@ -43,6 +45,7 @@ public sealed class ShellTests : BunitContext
         Services.AddSingleton<IMemberRoster>(new FakeMemberRoster());
         Services.AddSingleton<IConcessionBar>(new FakeConcessionBar());
         Services.AddSingleton(TimeProvider.System);
+        Services.AddSingleton(Options.Create(new RewindPaths()));
 
         // On its first render, the shell imports keyboard.js and starts its F-key listener, and
         // a dialog that closes hands the focus back through it (UI-3).

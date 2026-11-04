@@ -1,13 +1,22 @@
 @implements IDisposable
+@using Microsoft.Extensions.Options
+@using Rewind.Core
 @inject IScanner Scanner
 @inject IMemberRoster Roster
 @inject IConcessionBar Bar
 @inject ErrorHub Errors
+@inject IOptions<RewindPaths> Paths
 
-@* The last scan, then the health of each optional device as it arrives (OBS-6). *@
+@* The last scan, then the health of each optional device as it arrives (OBS-6). Then the root, when it
+   isn't the register's: a Release build started from a window with Paths__Root still set runs movie
+   night on that folder, and nothing else on screen would say so. *@
 <div class="status-bar">
     <p class="status-bar-field">@LastScanText</p>
     <p class="status-bar-field">@ScannerText</p>
+    @if (!RewindPaths.IsRegisterRoot(Paths.Value.Root))
+    {
+        <p class="status-bar-field">Data: @Paths.Value.Root</p>
+    }
     <p class="status-bar-field">F1 to F5 switch screens</p>
     <p class="status-bar-field">Be kind, rewind.</p>
 </div>
