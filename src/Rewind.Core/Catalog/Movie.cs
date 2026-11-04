@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Rewind.Core.Catalog;
 
 /// <summary>
@@ -57,4 +59,15 @@ public sealed class Movie
 
     /// <summary>The cases that hold this movie.</summary>
     public ICollection<Case> Cases { get; } = [];
+
+    /// <summary>
+    /// A movie's title and the year it came out, such as "Halloween (1978)", since remakes share titles.
+    /// A movie whose year isn't known (DATA-3) has its title alone.
+    /// </summary>
+    public static string TitleWithYear(string title, int? year)
+    {
+        ArgumentNullException.ThrowIfNull(title);
+
+        return year is null ? title : string.Create(CultureInfo.InvariantCulture, $"{title} ({year})");
+    }
 }
