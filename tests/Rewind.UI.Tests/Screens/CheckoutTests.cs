@@ -559,7 +559,7 @@ public sealed class CheckoutTests : BunitContext
         Assert.Equal("Scan the next member's card.", Prompt(cut));
     }
 
-    // The wall sheet's example: bills by the dollar, and coins by the cent.
+    // Bills by the dollar, and coins by the cent.
     [Fact]
     public async Task Submit_ChangeWithCoins_NamesThem()
     {

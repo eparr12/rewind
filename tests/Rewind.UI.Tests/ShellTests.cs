@@ -309,8 +309,9 @@ public sealed class ShellTests : BunitContext
         var cut = await RenderWithASaleAsync();
         _counter.Completing = Task.FromException<SaleResult>(new InvalidOperationException("The save failed."));
         await cut.Find("#checkout-cash").InputAsync("10");
-        await cut.Find(".checkout-cash").SubmitAsync();
+        var submit = cut.Find(".checkout-cash").SubmitAsync();
         await CloseDialogAsync(cut);
+        await submit;
 
         await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
 
@@ -331,17 +332,16 @@ public sealed class ShellTests : BunitContext
         Assert.Contains("Checkout closed after an error", cut.Find("[role=tabpanel]").TextContent, StringComparison.Ordinal);
     }
 
-    // A database that's failing fails the bar's lookup and Checkout's Start on the one card. Whichever
-    // started listening first fails first, and a clerk who left Checkout and came back has the other order
-    // from a clerk who never left. In that order the bar's dialog gives way to Checkout's, which is #61, but
-    // either way the clerk presses OK and carries on.
+    // The bar starts listening before any screen does, whichever way the clerk got here, so its lookup hears the
+    // card first. On the register SQLite answers at once, so a database that's failing has the error dialog up
+    // before Checkout hears the scan, and Checkout ignores it, as it does under any dialog. That's one error, and
+    // after OK the clerk has the Checkout they had, with Start never asked.
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Receive_BarAndCheckoutBothFailOnACard_LeavesCheckoutAndTheFKeysWorking(bool leftAndCameBack)
+    public async Task Receive_BarsLookupFailsOnACard_LeavesCheckoutIgnoringTheScan(bool leftAndCameBack)
     {
         _roster.Finding = Task.FromException<MemberRow?>(new InvalidOperationException("The lookup failed."));
-        _counter.Starting = Task.FromException<SaleStart>(new InvalidOperationException("The start failed."));
         var cut = Render<Shell>();
         if (leftAndCameBack)
         {
@@ -349,7 +349,35 @@ public sealed class ShellTests : BunitContext
             await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
         }
 
+        var checkout = cut.FindComponent<Checkout>().Instance;
         await cut.InvokeAsync(() => _scanner.Receive("MEM-001"));
+
+        await CloseDialogAsync(cut);
+
+        Assert.Empty(_counter.Cards);
+        Assert.Null(_dialogs.Current);
+        Assert.Same(checkout, cut.FindComponent<Checkout>().Instance);
+    }
+
+    // Lookups that really wait could both be out when the database fails, and fail in either order. With the bar's
+    // first, Checkout's dialog replaces it, which is #61's sequence, and that stays open. Either way, one OK leaves
+    // the clerk a Checkout and working F-keys.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Receive_BarAndStartBothFailOnACard_LeavesCheckoutAndTheFKeysWorking(bool barFailsFirst)
+    {
+        var lookup = new TaskCompletionSource<MemberRow?>();
+        var start = new TaskCompletionSource<SaleStart>();
+        _roster.Finding = lookup.Task;
+        _counter.Starting = start.Task;
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => _scanner.Receive("MEM-001"));
+        Action failLookup = () => lookup.SetException(new InvalidOperationException("The lookup failed."));
+        Action failStart = () => start.SetException(new InvalidOperationException("The start failed."));
+        await cut.InvokeAsync(barFailsFirst ? failLookup : failStart);
+        await cut.InvokeAsync(barFailsFirst ? failStart : failLookup);
+
         await CloseDialogAsync(cut);
         await cut.InvokeAsync(() => { }); // queued behind the second CrashNotice's closing
 
