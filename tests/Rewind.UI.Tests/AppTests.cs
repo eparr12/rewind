@@ -86,6 +86,22 @@ public sealed class AppTests : BunitContext
         cut.WaitForAssertion(() => Assert.True(_lifetime.StopRequested));
     }
 
+    // The same goes for the shell that follows a crash, which hasn't started either until it has drawn itself.
+    [Fact]
+    public async Task CloseErrorDialog_NextShellCrashedWhileStarting_ShutsRewindDown()
+    {
+        ComponentFactories.Add<DialogHost, ThrowsOnClick>();
+        var cut = Render<App>();
+        await cut.Find("button.throws").ClickAsync(new MouseEventArgs());
+        _keyboard.SetupVoid("start", _ => true).SetException(new InvalidOperationException("Test crash"));
+        await cut.InvokeAsync(() => _dialogs.Close(ok: true));
+        cut.WaitForAssertion(() => Assert.Equal(DialogIcon.Error, _dialogs.Current?.Icon));
+
+        await cut.InvokeAsync(() => _dialogs.Close(ok: true));
+
+        cut.WaitForAssertion(() => Assert.True(_lifetime.StopRequested));
+    }
+
     // The bar's own ErrorBoundary catches this one, so the shell carries on, even one still starting.
     // A shell that can't start shuts Rewind down, which is too much over a status line.
     [Fact]
