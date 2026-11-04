@@ -1,5 +1,7 @@
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Rewind.Core;
 using Rewind.Core.Concessions;
 using Rewind.Core.Devices;
 using Rewind.Core.Members;
@@ -19,6 +21,7 @@ public sealed class StatusBarTests : BunitContext
     private readonly FakeMemberRoster _roster = new();
     private readonly FakeConcessionBar _bar = new();
     private readonly ListLogger<ErrorHub> _errorLog = new();
+    private readonly RewindPaths _paths = new();
     private bool _crashed;
 
     public StatusBarTests()
@@ -29,6 +32,31 @@ public sealed class StatusBarTests : BunitContext
         Services.AddSingleton<IMemberRoster>(_roster);
         Services.AddSingleton<IConcessionBar>(_bar);
         Services.AddSingleton(errors);
+        Services.AddSingleton(Options.Create(_paths));
+    }
+
+    // The register's bar stays as it was, so the field only ever means something's wrong.
+    [Theory]
+    [InlineData(@"C:\Rewind")]
+    [InlineData(@"c:/rewind/")]
+    public void Render_TheRegistersRoot_ShowsNoRoot(string root)
+    {
+        _paths.Root = root;
+
+        var cut = Render<StatusBar>();
+
+        Assert.DoesNotContain("Data:", cut.Find(".status-bar").TextContent, StringComparison.Ordinal);
+    }
+
+    // A Release build started from a window with Paths__Root set runs movie night on that folder.
+    [Fact]
+    public void Render_AnotherRoot_ShowsIt()
+    {
+        _paths.Root = @"C:\RewindDev";
+
+        var cut = Render<StatusBar>();
+
+        Assert.Contains(@"Data: C:\RewindDev", cut.FindAll(".status-bar-field").Select(field => field.TextContent));
     }
 
     [Fact]

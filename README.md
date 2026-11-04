@@ -25,7 +25,7 @@ Until the mini PC arrives, the store itself runs from `main` on the development 
 dotnet run -c Release --project src/Rewind.Register
 ```
 
-`$env:Paths__Root` lasts as long as its PowerShell window. A Release build started from a window that set it would run movie night on the test folder, with nothing to stop it, so first run `Remove-Item Env:Paths__Root`, or use another window.
+`$env:Paths__Root` lasts as long as its PowerShell window. A Release build started from a window that set it would run movie night on the test folder, with nothing to stop it, so first run `Remove-Item Env:Paths__Root`, or use another window. The status bar shows any folder but `C:\Rewind`, such as `Data: C:\RewindDev`, so check it before you open the store.
 
 ## Barcode scanner
 
