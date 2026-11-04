@@ -449,14 +449,32 @@ body {
 }
 
 /* UI-2: the row with the focus gets Windows 98's dotted outline, not the browser's modern ring. */
-.tmdb-picker-list tr:focus {
+.tmdb-picker-list tr:focus,
+.which-movie-list tr:focus {
   outline: 1px dotted #fff;
   outline-offset: -2px;
 }
 
-.tmdb-picker-buttons {
+.tmdb-picker-buttons,
+.which-movie-buttons {
   justify-content: flex-end;
   margin-top: 8px;
+}
+
+/* Which movie?: a case's titles and years, short enough to leave the bill in sight (UI-8), which
+   scrolls under its header for a long box set. */
+.which-movie-list {
+  max-height: 200px;
+  scroll-padding-top: 17px; /* 98.css's header height, as for the picker above */
+}
+
+.which-movie-list table {
+  width: 100%;
+}
+
+/* 98.css keeps a list's text on one line. A long title wraps instead. */
+.which-movie-list td:first-child {
+  white-space: normal;
 }
 
 /* Debug builds only: the scan simulator's row, between the screen and the status bar (TEST-5). */
