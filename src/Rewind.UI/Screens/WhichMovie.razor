@@ -1,0 +1,92 @@
+@* Which movie? (Build Plan 3.3): a case with more than one movie rents as one case, so the clerk picks the
+   movie going home, from the case's movies in a 98.css list. It opens with the first row focused. The arrow
+   keys move between the rows (keyboard.js), and Enter, a double-click or Add Movie adds the highlighted one.
+   Esc puts the case back, and stops here: past this, Checkout's own Esc would ask to cancel the whole sale.
+   That only stops Blazor's handlers, so keyboard.js still hears the arrow keys and F1 to F5. *@
+<div class="which-movie" @onkeydown="OnKeyDownAsync" @onkeydown:stopPropagation="true">
+    <div class="sunken-panel which-movie-list">
+        <table class="interactive">
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Year</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (var i = 0; i < Movies.Count; i++)
+                {
+                    var row = i;
+                    var movie = Movies[row];
+                    <tr class="@(row == _highlighted ? "highlighted" : null)"
+                        tabindex="@(row == _highlighted ? 0 : -1)"
+                        aria-selected="@(row == _highlighted ? "true" : "false")"
+                        @ref="_rows[row]"
+                        @onfocus="() => Highlight(row)"
+                        @ondblclick="() => PickAsync(row)"
+                        @onkeydown="e => OnRowKeyDownAsync(e, row)">
+                        <td>@movie.Title</td>
+                        <td>@movie.Year</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <div class="field-row which-movie-buttons">
+        <button class="default" @onclick="() => PickAsync(_highlighted)">Add Movie</button>
+        <button @onclick="OnCancel">Cancel</button>
+    </div>
+</div>
+
+@code {
+    private ElementReference[] _rows = [];
+    private int _highlighted;
+
+    /// <summary>
+    /// The case's movies, in the order Core gives them. Checkout shows this only for a case with more than
+    /// one, and a new one for each case.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<MovieInCase> Movies { get; set; } = [];
+
+    /// <summary>Called with the movie the clerk picked.</summary>
+    [Parameter]
+    public EventCallback<MovieInCase> OnPick { get; set; }
+
+    /// <summary>Called when the clerk puts the case back without picking.</summary>
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    protected override void OnInitialized() => _rows = new ElementReference[Movies.Count];
+
+    // UI-3: the arrow keys and Enter work at once, without a click on the list first.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await _rows[0].FocusAsync();
+        }
+    }
+
+    // The highlight follows the focus, which a click or keyboard.js's arrow keys move.
+    private void Highlight(int row) => _highlighted = row;
+
+    private Task PickAsync(int row) => OnPick.InvokeAsync(Movies[row]);
+
+    // UI-3: Enter on the list presses Add Movie, the default button, as in a Windows 98 dialog.
+    private async Task OnRowKeyDownAsync(KeyboardEventArgs e, int row)
+    {
+        if (e.Key == "Enter")
+        {
+            await PickAsync(row);
+        }
+    }
+
+    // UI-3: Esc cancels, from the list or from either button.
+    private async Task OnKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            await OnCancel.InvokeAsync();
+        }
+    }
+}
