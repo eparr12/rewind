@@ -26,18 +26,18 @@
             <ul class="tree-view checkout-ticket">
                 @foreach (var item in _items)
                 {
-                    <li>@item.StoreLabel · @MovieTitle.WithYear(item.Title, item.Year) · @Price(item.PriceCents)</li>
+                    <li>@item.StoreLabel · @MovieTitle.WithYear(item.Title, item.Year) · @Price.Of(item.PriceCents)</li>
                 }
                 @foreach (var line in _lines.OrderBy(line => line.LateFeeDrawId is not null))
                 {
                     @* R2's flash, the one animation UI-2 allows here: the Dialog record has no style hook,
                        so it's on the bill rather than in the box. *@
-                    <li class="@(line.LateFeeDrawId is null ? null : "overdue")">@line.Name · @Price(line.PriceCents)</li>
+                    <li class="@(line.LateFeeDrawId is null ? null : "overdue")">@line.Name · @Price.Of(line.PriceCents)</li>
                 }
             </ul>
         }
         @* The ticket's own sum, so the total on the screen is the total Core is sent. *@
-        <p class="checkout-total">Total: @Price(TicketFor(sale, 0).TotalCents)</p>
+        <p class="checkout-total">Total: @Price.Of(TicketFor(sale, 0).TotalCents)</p>
     }
 
     @if (_choosing is { } choosing)
@@ -49,11 +49,11 @@
     {
         @* Takes the focus, so Esc reaches it, with no box here to hold it. *@
         <div class="checkout-done" tabindex="-1" @ref="_donePanel">
-            <p class="checkout-change">CHANGE @Price(done.ChangeCents)</p>
+            <p class="checkout-change">CHANGE @Price.Of(done.ChangeCents)</p>
             @if (done.Breakdown.Count > 0)
             {
                 <p class="checkout-breakdown">@Breakdown(done)</p>
-                <p class="checkout-count-back">Count back from @Price(done.TotalCents): @CountBack(done)</p>
+                <p class="checkout-count-back">Count back from @Price.Of(done.TotalCents): @CountBack(done)</p>
             }
         </div>
     }
@@ -64,7 +64,7 @@
             <div class="checkout-snacks">
                 @foreach (var snack in _snacks)
                 {
-                    <button type="button" @onclick="() => AddSnack(snack)">@snack.Name @Price(snack.PriceCents)</button>
+                    <button type="button" @onclick="() => AddSnack(snack)">@snack.Name @Price.Of(snack.PriceCents)</button>
                 }
             </div>
         }
@@ -434,7 +434,7 @@
                 AfterCompleting(completed);
                 return;
             case { Status: SaleStatus.CashShort, TotalCents: var total }:
-                await ShowAsync(new Dialog(Store.Name, $"That isn't enough. The total is {Price(total)}.", DialogIcon.Warning));
+                await ShowAsync(new Dialog(Store.Name, $"That isn't enough. The total is {Price.Of(total)}.", DialogIcon.Warning));
                 _cash = ""; // the clerk types the money again, not onto what was short
                 return;
             case { Status: SaleStatus.NotOnShelf, StoreLabel: { } label }:
@@ -534,10 +534,8 @@
     private static Dialog OverdueAlert(FeeDue fee)
     {
         var overdue = fee.MovieTitle is { } title ? $"{MovieTitle.WithYear(title, fee.MovieYear)} is overdue." : "A rental is overdue.";
-        return new Dialog(Store.Name, $"OVERDUE RENTAL\n\n{overdue}\n\nLate fee: {Price(fee.PriceCents)}", DialogIcon.Warning);
+        return new Dialog(Store.Name, $"OVERDUE RENTAL\n\n{overdue}\n\nLate fee: {Price.Of(fee.PriceCents)}", DialogIcon.Warning);
     }
-
-    private static string Price(int cents) => $"${Dollars.Format(cents)}";
 
     // Such as "1 × $5, 3 × 25¢".
     private static string Breakdown(CompletedSale sale) =>
@@ -546,5 +544,5 @@
     private static string UnitName(int cents) => cents >= 100 ? $"${cents / 100}" : $"{cents}¢";
 
     // Such as "$5.00, $10.00".
-    private static string CountBack(CompletedSale sale) => string.Join(", ", sale.CountBack.Select(Price));
+    private static string CountBack(CompletedSale sale) => string.Join(", ", sale.CountBack.Select(Price.Of));
 }
