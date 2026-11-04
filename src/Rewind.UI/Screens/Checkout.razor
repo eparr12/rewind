@@ -316,12 +316,7 @@
 
         if (scan.Case is not { } found)
         {
-            await ShowAsync(new Dialog(
-                Store.Name,
-                scan.Status == CaseScanStatus.NotOnShelf
-                    ? $"{label} isn't on the shelf. It's checked out or retired.\n\nTell the Store Manager."
-                    : $"No case has the label {label}.\n\nTell the Store Manager.",
-                DialogIcon.Warning));
+            await ShowAsync(CaseRefused(label, scan.Status));
         }
         else if (found.Movies.Count == 1)
         {
@@ -398,7 +393,7 @@
 
     private void AddSnackLine(ConcessionRow snack) => _lines.Add(new TicketLine(snack.Name, snack.PriceCents, snack.Id, null));
 
-    // Enter, or Complete Sale. Core sums the ticket and refuses cash under the total, as the database does.
+    // Enter, or Complete Sale.
     private async Task OnCashAsync()
     {
         if (Busy)
@@ -409,22 +404,24 @@
         if (_sale is not { } sale)
         {
             await ShowAsync(CardFirst);
-            return;
         }
-
-        if (!HasSomethingOnIt)
+        else if (!HasSomethingOnIt)
         {
             await ShowAsync(NothingToSell);
-            return;
         }
-
-        if (!Dollars.TryParse(_cash, out var cash))
+        else if (!Dollars.TryParse(_cash, out var cash))
         {
             await ShowAsync(NotCash);
-            return;
         }
+        else
+        {
+            await SaveSaleAsync(TicketFor(sale, cash));
+        }
+    }
 
-        var ticket = TicketFor(sale, cash);
+    // Core sums the ticket and refuses cash under the total, as the database does.
+    private async Task SaveSaleAsync(Ticket ticket)
+    {
         switch (await WhileBusyAsync("Saving the sale...", token => Counter.CompleteAsync(ticket, token), _closing.Token))
         {
             case null:
@@ -519,6 +516,13 @@
     // The bill as a ticket. Copies, since the bill changes when the sale ends, and a ticket is a record of it.
     private Ticket TicketFor(OpenedSale sale, int cash) =>
         new(sale.Draw.MemberId, sale.Draw.BusinessDayId, [.. _items], [.. _lines], cash);
+
+    private static Dialog CaseRefused(string label, CaseScanStatus status) => new(
+        Store.Name,
+        status == CaseScanStatus.NotOnShelf
+            ? $"{label} isn't on the shelf. It's checked out or retired.\n\nTell the Store Manager."
+            : $"No case has the label {label}.\n\nTell the Store Manager.",
+        DialogIcon.Warning);
 
     // #58: until the flavor movie comes from the member's watch history, it may be one they've never seen, so
     // this says it's overdue, not that they watched it.
