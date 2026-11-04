@@ -220,7 +220,7 @@ public sealed class CheckoutCounterTests
         Assert.Equal(100, start.Sale?.Fee?.PriceCents);
     }
 
-    // NET-7: the token reaches the draw, so a screen that closes doesn't draw on its way out.
+    // NET-7: a screen that closes doesn't draw on its way out.
     [Fact]
     public async Task StartAsync_Cancelled_DrawsNothing()
     {
@@ -235,6 +235,23 @@ public sealed class CheckoutCounterTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(start);
         await AssertNothingDrawnAsync(rewind, ct);
+    }
+
+    // NET-7: the token goes as far as the draw, whose own tests show it stops there. The test above can't show
+    // this: a token that's already cancelled stops at the roster.
+    [Fact]
+    public async Task StartAsync_AnyCard_HandsTheTokenToTheDraw()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddMemberAsync(rewind, ClearBag, ct);
+        using var leaving = new CancellationTokenSource();
+        var draws = new HearsTheToken(Draws(rewind));
+
+        await Counter(rewind, draws: draws).StartAsync(MemberCard, leaving.Token);
+
+        Assert.Equal(leaving.Token, draws.Token);
     }
 
     [Fact]
@@ -821,6 +838,17 @@ public sealed class CheckoutCounterTests
     private sealed class NoDatabase : IDbContextFactory<RewindDb>
     {
         public RewindDb CreateDbContext() => throw new InvalidOperationException("The checkout counter opened the database.");
+    }
+
+    private sealed class HearsTheToken(ILateFeeDraws draws) : ILateFeeDraws
+    {
+        public CancellationToken Token { get; private set; }
+
+        public Task<LateFeeDrawRow> DrawAsync(int memberId, CancellationToken cancellationToken)
+        {
+            Token = cancellationToken;
+            return draws.DrawAsync(memberId, cancellationToken);
+        }
     }
 
     private sealed class LeavesOnceDrawn(ILateFeeDraws draws, CancellationTokenSource leaving) : ILateFeeDraws
