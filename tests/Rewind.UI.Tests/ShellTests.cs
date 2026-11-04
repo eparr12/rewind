@@ -30,6 +30,7 @@ public sealed class ShellTests : BunitContext
     private readonly FakeMovieIntake _intake = new();
     private readonly FakeMemberRoster _roster = new();
     private readonly FakeCheckoutCounter _counter = new();
+    private readonly FakeConcessionBar _bar = new();
     private readonly ListLogger<Shell> _shellLog = new();
     private readonly ListLogger<ErrorHub> _errorLog = new();
     private readonly CountingBoundaryLogger _boundaryLog = new();
@@ -55,7 +56,7 @@ public sealed class ShellTests : BunitContext
         Services.AddSingleton<IBarcodeTitles>(_titles);
         Services.AddSingleton<ILabelSheets>(new FakeLabelSheets());
         Services.AddSingleton<IMemberRoster>(_roster);
-        Services.AddSingleton<IConcessionBar>(new FakeConcessionBar());
+        Services.AddSingleton<IConcessionBar>(_bar);
         Services.AddSingleton<ICheckoutCounter>(_counter);
         Services.AddSingleton(TimeProvider.System);
         Services.AddSingleton(Options.Create(new RewindPaths()));
@@ -299,6 +300,35 @@ public sealed class ShellTests : BunitContext
 
         Assert.Empty(cut.FindAll(".checkout-member"));
         Assert.Equal("Scan a member card to start a rental.", cut.Find(".checkout-prompt").TextContent);
+    }
+
+    // A crash inside Checkout costs the open sale, and the transaction means none of it was saved. F1 starts over.
+    [Fact]
+    public async Task OnFunctionKey_F1AfterASaveFailed_OpensAnEmptyCheckout()
+    {
+        var cut = await RenderWithASaleAsync();
+        _counter.Completing = Task.FromException<SaleResult>(new InvalidOperationException("The save failed."));
+        await cut.Find("#checkout-cash").InputAsync("10");
+        await cut.Find(".checkout-cash").SubmitAsync();
+        await CloseDialogAsync(cut);
+
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
+
+        Assert.Equal("Scan a member card to start a rental.", cut.Find(".checkout-prompt").TextContent);
+    }
+
+    // UI-6, OBS-5: Checkout reads the snacks as it opens, so a database Rewind can't read fails it there, with the
+    // error dialog and then the panel that says how to carry on.
+    [Fact]
+    public async Task Render_CheckoutCantReadTheSnacks_ShowsErrorDialogThenClosesCheckout()
+    {
+        _bar.Listing = Task.FromException<IReadOnlyList<ConcessionRow>>(new InvalidOperationException("The read failed."));
+        var cut = Render<Shell>();
+        cut.WaitForAssertion(() => Assert.Equal(DialogIcon.Error, _dialogs.Current?.Icon));
+
+        await CloseDialogAsync(cut);
+
+        Assert.Contains("Checkout closed after an error", cut.Find("[role=tabpanel]").TextContent, StringComparison.Ordinal);
     }
 
     // A database that's failing fails the bar's lookup and Checkout's Start on the one card. Whichever

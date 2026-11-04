@@ -165,7 +165,7 @@ public sealed class CheckoutTests : BunitContext
     {
         var cut = Render<Checkout>();
 
-        var pay = PayAsync(cut, "10");
+        var pay = StartPayingAsync(cut, "10");
 
         AssertWarning(CardFirst);
         Assert.Empty(_counter.Tickets);
@@ -173,7 +173,7 @@ public sealed class CheckoutTests : BunitContext
         await pay;
     }
 
-    // The status bar names a card's member, but it can't say the card's no good (Build Plan 3.1).
+    // The status bar only names a card's member (Build Plan 3.1), so it falls to this screen to say it's no good.
     [Fact]
     public async Task Scanned_CardNobodyHas_SaysSo()
     {
@@ -343,9 +343,10 @@ public sealed class CheckoutTests : BunitContext
         await ScanLabelAsync(cut);
         await ScanLabelAsync(cut, BoxSetLabel);
 
-        await cut.Find(".which-movie tbody tr").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
+        var escape = cut.Find(".which-movie tbody tr").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
 
         Assert.Null(_dialogs.Current);
+        await escape;
         Assert.Empty(cut.FindAll(".which-movie"));
         Assert.Equal(["RV-00042 · Halloween (1978) · $2.00"], Bill(cut));
     }
@@ -399,7 +400,7 @@ public sealed class CheckoutTests : BunitContext
         AssertLoggedIgnored($"Ignored the Upc {FactoryUpc}: Checkout is still busy, a movie is being picked, or a dialog is open");
     }
 
-    // A case rents once per sale (DATA-11).
+    // A case goes home once, and the database would refuse a second line for it (DATA-11).
     [Fact]
     public async Task Scanned_CaseAlreadyOnTheBill_SaysSo()
     {
@@ -601,12 +602,13 @@ public sealed class CheckoutTests : BunitContext
     [Fact]
     public async Task Submit_OverdueSale_SendsTheFeeStartOffered()
     {
-        var cut = await RenderWithSaleAsync(OverdueSale);
+        var offered = Fee with { PriceCents = 135 };
+        var cut = await RenderWithSaleAsync(OverdueSale with { Fee = offered });
 
         await PayAsync(cut, "10");
 
         var line = Assert.Single(Assert.Single(_counter.Tickets).Lines);
-        Assert.Equal(new TicketLine(Fee.LineName, Fee.PriceCents, null, OverdueSale.Draw.Id), line);
+        Assert.Equal(new TicketLine(offered.LineName, 135, null, OverdueSale.Draw.Id), line);
     }
 
     // The ticket is the record of what the screen showed (DATA-10), so these are the prices on the bill.
@@ -624,7 +626,7 @@ public sealed class CheckoutTests : BunitContext
 
         var ticket = Assert.Single(_counter.Tickets);
         Assert.Equal(350, Assert.Single(ticket.Items).PriceCents);
-        Assert.Equal(125, Assert.Single(ticket.Lines).PriceCents);
+        Assert.Equal(new TicketLine("Popcorn", 125, Popcorn.Id, null), Assert.Single(ticket.Lines));
         Assert.Equal(475, ticket.TotalCents);
     }
 
@@ -649,7 +651,7 @@ public sealed class CheckoutTests : BunitContext
         var cut = await RenderWithSaleAsync();
         await ScanLabelAsync(cut);
 
-        var pay = PayAsync(cut, "1.99");
+        var pay = StartPayingAsync(cut, "1.99");
 
         AssertWarning("That isn't enough. The total is $2.00.");
         await CloseDialogAsync(cut);
@@ -668,7 +670,7 @@ public sealed class CheckoutTests : BunitContext
         var cut = await RenderWithSaleAsync();
         await ScanLabelAsync(cut);
 
-        var pay = PayAsync(cut, cash);
+        var pay = StartPayingAsync(cut, cash);
 
         AssertWarning("That isn't an amount of money.\n\nType it in dollars, such as 10 or 4.50.");
         Assert.Empty(_counter.Tickets);
@@ -681,7 +683,7 @@ public sealed class CheckoutTests : BunitContext
     {
         var cut = await RenderWithSaleAsync();
 
-        var pay = PayAsync(cut, "10");
+        var pay = StartPayingAsync(cut, "10");
 
         AssertWarning("There's nothing on this sale yet.\n\nScan a movie or add a snack, or press Esc.");
         Assert.Empty(_counter.Tickets);
@@ -710,7 +712,7 @@ public sealed class CheckoutTests : BunitContext
         await cut.Find(".checkout-snacks button").ClickAsync(new MouseEventArgs());
         _counter.Completing = Task.FromResult(new SaleResult(SaleStatus.NotOnShelf, 300, Label, null));
 
-        var pay = PayAsync(cut, "10");
+        var pay = StartPayingAsync(cut, "10");
 
         AssertWarning("RV-00042 isn't on the shelf any more, so it's off this sale.\n\nCheck the total, then press Enter again.");
         await CloseDialogAsync(cut);
@@ -720,7 +722,7 @@ public sealed class CheckoutTests : BunitContext
         Assert.DoesNotContain(Sound.Chime, _sounds.Played);
     }
 
-    // UI-7: the chime says the sale went through, so it waits for the save.
+    // The chime says the sale went through, so it waits for the save.
     [Fact]
     public async Task Submit_SaveStillGoing_DoesNotChimeYet()
     {
@@ -729,7 +731,7 @@ public sealed class CheckoutTests : BunitContext
         await ScanLabelAsync(cut);
         _counter.Completing = saved.Task;
 
-        var pay = PayAsync(cut, "10");
+        var pay = StartPayingAsync(cut, "10");
 
         Assert.Equal("Saving the sale...", Prompt(cut));
         Assert.DoesNotContain(Sound.Chime, _sounds.Played);
@@ -746,12 +748,13 @@ public sealed class CheckoutTests : BunitContext
         var cut = await RenderWithSaleAsync();
         await ScanLabelAsync(cut);
         _counter.Completing = saved.Task;
-        var first = PayAsync(cut, "10");
+        var first = StartPayingAsync(cut, "10");
 
-        await cut.Find(".checkout-cash").SubmitAsync();
+        var second = cut.Find(".checkout-cash").SubmitAsync();
 
         saved.SetResult(SavedSale);
         await first;
+        await second;
         Assert.Single(_counter.Tickets);
     }
 
@@ -787,7 +790,7 @@ public sealed class CheckoutTests : BunitContext
         var cut = await RenderWithSaleAsync();
         await ScanLabelAsync(cut);
         _counter.Completing = new TaskCompletionSource<SaleResult>().Task;
-        _ = PayAsync(cut, "10");
+        _ = StartPayingAsync(cut, "10");
 
         await cut.Find(".checkout-snacks button").ClickAsync(new MouseEventArgs());
 
@@ -961,8 +964,11 @@ public sealed class CheckoutTests : BunitContext
         var cashBox = cut.Find("#checkout-cash").GetAttribute("blazor:elementreference");
         _counter.Sales[MemberCard] = ClearSale;
         await ScanCardAsync(cut);
+        await ScanLabelAsync(cut);
+        var escape = cut.Find("#checkout-cash").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
 
-        await cut.Find("#checkout-cash").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
+        await cut.InvokeAsync(() => _dialogs.Close(ok: true));
+        await escape;
 
         AssertFocusedLast(cashBox, focuses: 3);
     }
@@ -985,10 +991,22 @@ public sealed class CheckoutTests : BunitContext
     {
         var cut = await RenderWithSaleAsync();
 
-        await cut.Find("#checkout-cash").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
+        var escape = cut.Find("#checkout-cash").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
 
         Assert.Null(_dialogs.Current);
         Assert.Empty(cut.FindAll(".checkout-member"));
+        await escape;
+    }
+
+    // The keys typed into the Cash box come through here too, and only Esc means anything.
+    [Fact]
+    public async Task KeyDown_AnyOtherKey_KeepsTheSale()
+    {
+        var cut = await RenderWithSaleAsync();
+
+        await cut.Find("#checkout-cash").KeyDownAsync(new KeyboardEventArgs { Key = "1" });
+
+        Assert.Equal("Dad · Due back tonight", cut.Find(".checkout-member").TextContent);
     }
 
     // Its answer would land on a screen that had moved on.
@@ -1004,7 +1022,7 @@ public sealed class CheckoutTests : BunitContext
         Assert.Equal("Dad · Due back tonight", cut.Find(".checkout-member").TextContent);
     }
 
-    // UI-4: the screen listens before it reads the snacks, so a card scanned as it opens still counts.
+    // The screen listens before it reads the snacks, so a card scanned as it opens still counts.
     [Fact]
     public async Task Scanned_WhileReadingTheSnacks_StartsTheSale()
     {
@@ -1098,7 +1116,7 @@ public sealed class CheckoutTests : BunitContext
         var cut = await RenderWithSaleAsync();
         await ScanLabelAsync(cut);
         _counter.Completing = new TaskCompletionSource<SaleResult>().Task;
-        _ = PayAsync(cut, "10");
+        _ = StartPayingAsync(cut, "10");
 
         await DisposeComponentsAsync();
 
@@ -1113,7 +1131,7 @@ public sealed class CheckoutTests : BunitContext
         var cut = await RenderWithSaleAsync();
         await ScanLabelAsync(cut);
         _counter.Completing = saved.Task;
-        var pay = PayAsync(cut, "10");
+        var pay = StartPayingAsync(cut, "10");
         await DisposeComponentsAsync();
 
         saved.SetResult(SavedSale);
@@ -1131,7 +1149,7 @@ public sealed class CheckoutTests : BunitContext
         var cut = await RenderWithSaleAsync();
         await ScanLabelAsync(cut);
         _counter.Completing = saved.Task;
-        var pay = PayAsync(cut, "10");
+        var pay = StartPayingAsync(cut, "10");
         await DisposeComponentsAsync();
 
         saved.SetCanceled(_counter.LastToken); // as EF Core ends a save whose token was cancelled
@@ -1243,7 +1261,17 @@ public sealed class CheckoutTests : BunitContext
         return cut;
     }
 
-    private static async Task PayAsync(IRenderedComponent<Checkout> cut, string cash)
+    // Types the cash and presses Enter, for a sale that completes at once. A dialog would wait for someone to
+    // close it, and the test with it, so a dialog fails the test instead.
+    private async Task PayAsync(IRenderedComponent<Checkout> cut, string cash)
+    {
+        var submit = StartPayingAsync(cut, cash);
+        Assert.Null(_dialogs.Current?.Message);
+        await submit;
+    }
+
+    // Types the cash and presses Enter, and leaves the screen answering: with a dialog up, or waiting on the save.
+    private static async Task StartPayingAsync(IRenderedComponent<Checkout> cut, string cash)
     {
         await cut.Find("#checkout-cash").InputAsync(cash);
         await cut.Find(".checkout-cash").SubmitAsync();

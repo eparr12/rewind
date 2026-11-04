@@ -36,6 +36,7 @@
                 }
             </ul>
         }
+        @* The ticket's own sum, so the total on the screen is the total Core is sent. *@
         <p class="checkout-total">Total: @Price(TicketFor(sale, 0).TotalCents)</p>
     }
 
@@ -167,7 +168,7 @@
         }
     }
 
-    // Listening before the snacks are read, so a card scanned as the screen opens still reaches it (UI-4).
+    // Listening before the snacks are read, so a card scanned as the screen opens still reaches it.
     protected override void OnInitialized() => Scanner.Scanned += OnScanned;
 
     // The clerk leaving the screen cancels the read, and that raises nothing: ComponentBase ignores a task
@@ -448,8 +449,8 @@
         }
     }
 
-    // The sale is saved: the register chimes (UI-7), and the screen shows the change. Not before: a chime
-    // ahead of a save that failed would say the sale had gone through.
+    // The sale is saved: the register chimes, and the screen shows the change. Not before: a chime ahead of a
+    // save that failed would say the sale had gone through.
     private void AfterCompleting(CompletedSale completed)
     {
         Sounds.Play(Sound.Chime);
