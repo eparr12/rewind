@@ -6,10 +6,12 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Rewind.Core;
+using Rewind.Core.Checkout;
 using Rewind.Core.Concessions;
 using Rewind.Core.Devices;
 using Rewind.Core.Intake;
 using Rewind.Core.Labels;
+using Rewind.Core.LateFees;
 using Rewind.Core.Members;
 using Rewind.Core.Metadata;
 using Rewind.Core.Sounds;
@@ -27,6 +29,7 @@ public sealed class ShellTests : BunitContext
     private readonly FakeBarcodeTitles _titles = new();
     private readonly FakeMovieIntake _intake = new();
     private readonly FakeMemberRoster _roster = new();
+    private readonly FakeCheckoutCounter _counter = new();
     private readonly ListLogger<Shell> _shellLog = new();
     private readonly ListLogger<ErrorHub> _errorLog = new();
     private readonly CountingBoundaryLogger _boundaryLog = new();
@@ -53,6 +56,7 @@ public sealed class ShellTests : BunitContext
         Services.AddSingleton<ILabelSheets>(new FakeLabelSheets());
         Services.AddSingleton<IMemberRoster>(_roster);
         Services.AddSingleton<IConcessionBar>(new FakeConcessionBar());
+        Services.AddSingleton<ICheckoutCounter>(_counter);
         Services.AddSingleton(TimeProvider.System);
         Services.AddSingleton(Options.Create(new RewindPaths()));
 
@@ -273,6 +277,58 @@ public sealed class ShellTests : BunitContext
         Assert.NotSame(checkout, cut.FindComponent<Checkout>().Instance);
     }
 
+    // #48's reason, with a sale on the screen: the error isn't Checkout's, so the bill stays as it was.
+    [Fact]
+    public async Task CloseErrorDialog_ErrorReportedOverASale_KeepsTheSale()
+    {
+        var cut = await RenderWithASaleAsync();
+        await cut.InvokeAsync(() => _errors.Report(new InvalidOperationException("Test crash")));
+
+        await CloseDialogAsync(cut);
+
+        Assert.Equal(["RV-00042 · Halloween (1978) · $2.00"], cut.FindAll(".checkout-ticket li").Select(line => line.TextContent));
+    }
+
+    [Fact]
+    public async Task OnFunctionKey_LeavingASaleAndComingBack_DropsTheSale()
+    {
+        var cut = await RenderWithASaleAsync();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F2"));
+
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
+
+        Assert.Empty(cut.FindAll(".checkout-member"));
+        Assert.Equal("Scan a member card to start a rental.", cut.Find(".checkout-prompt").TextContent);
+    }
+
+    // A database that's failing fails the bar's lookup and Checkout's Start on the one card. Whichever
+    // started listening first fails first, and a clerk who left Checkout and came back has the other order
+    // from a clerk who never left. In that order the bar's dialog gives way to Checkout's, which is #61, but
+    // either way the clerk presses OK and carries on.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Receive_BarAndCheckoutBothFailOnACard_LeavesCheckoutAndTheFKeysWorking(bool leftAndCameBack)
+    {
+        _roster.Finding = Task.FromException<MemberRow?>(new InvalidOperationException("The lookup failed."));
+        _counter.Starting = Task.FromException<SaleStart>(new InvalidOperationException("The start failed."));
+        var cut = Render<Shell>();
+        if (leftAndCameBack)
+        {
+            await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F2"));
+            await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
+        }
+
+        await cut.InvokeAsync(() => _scanner.Receive("MEM-001"));
+        await CloseDialogAsync(cut);
+        await cut.InvokeAsync(() => { }); // queued behind the second CrashNotice's closing
+
+        Assert.Null(_dialogs.Current);
+        Assert.True(cut.HasComponent<Checkout>());
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F2"));
+        Assert.True(cut.HasComponent<Return>());
+    }
+
     // What the bar throws closes the bar and nothing else, so it can't cost the clerk a sale. App's
     // ErrorBoundary, the next one up, would replace the whole shell.
     [Fact]
@@ -459,6 +515,17 @@ public sealed class ShellTests : BunitContext
     }
 
     private IEnumerable<string> LoggedLines => _shellLog.Entries.Select(entry => entry.Message);
+
+    // The shell with one case on an open sale, scanned as the scanner would scan it.
+    private async Task<IRenderedComponent<Shell>> RenderWithASaleAsync()
+    {
+        _counter.Sales["MEM-001"] = new OpenedSale("Dad", new LateFeeDrawRow(7, 3, 5, Card.Clear, null, DateTime.UnixEpoch), 200, null);
+        _counter.Cases["RV-00042"] = new CaseToRent(1, "RV-00042", [new MovieInCase(10, "Halloween", 1978)]);
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => _scanner.Receive("MEM-001"));
+        await cut.InvokeAsync(() => _scanner.Receive("RV-00042"));
+        return cut;
+    }
 
     // Closes the dialog on screen, then a turn of the renderer's thread, so what its closing sets off has
     // run before the test looks.

@@ -477,6 +477,46 @@ body {
   white-space: normal;
 }
 
+/* F1 Checkout: what to do, the member, the bill and its total, then the snacks and the cash, or the
+   change. A long bill scrolls, so what comes after it stays on a 1024 by 768 screen (UI-8). */
+.checkout-ticket {
+  max-height: 200px;
+  overflow: auto;
+  margin: 8px 0;
+}
+
+/* UI-8: large enough for a customer to read from across the counter. */
+.checkout-total,
+.checkout-change {
+  margin: 8px 0;
+  font-size: 32px;
+  font-weight: bold;
+}
+
+.checkout-snacks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+/* The panel holds the focus only so Esc reaches it, so it draws no outline. */
+.checkout-done:focus {
+  outline: none;
+}
+
+/* The R2 wall sheet's flash for an overdue rental, the one animation UI-2 allows on this screen. */
+.overdue {
+  animation: blink 0.8s steps(1, end) infinite;
+}
+
+@keyframes blink {
+  50% {
+    background: #c00;
+    color: #fff;
+  }
+}
+
 /* Debug builds only: the scan simulator's row, between the screen and the status bar (TEST-5). */
 .scan-simulator {
   margin: 4px 3px;
