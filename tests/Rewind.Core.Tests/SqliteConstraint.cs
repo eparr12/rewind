@@ -9,6 +9,9 @@ internal enum SqliteConstraint
     /// <summary>SQLITE_CONSTRAINT_CHECK: a CHECK constraint.</summary>
     Check = 275,
 
+    /// <summary>SQLITE_CONSTRAINT_FOREIGNKEY: an insert pointing at a row that isn't there.</summary>
+    ForeignKey = 787,
+
     /// <summary>
     /// SQLITE_CONSTRAINT_TRIGGER: a Restrict foreign key refusing a delete (DATA-4). SQLite enforces
     /// ON DELETE RESTRICT with a trigger of its own, so it reports this code rather than

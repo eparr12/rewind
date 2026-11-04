@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Rewind.Core.Catalog;
+using Rewind.Core.Checkout;
 using Rewind.Core.Concessions;
 using Rewind.Core.LateFees;
 using Rewind.Core.Members;
@@ -51,6 +52,15 @@ public sealed class RewindDb(DbContextOptions<RewindDb> options) : DbContext(opt
 
     /// <summary>Each member's one draw a night from their late-fee bag.</summary>
     public DbSet<LateFeeDraw> LateFeeDraws => Set<LateFeeDraw>();
+
+    /// <summary>Each completed checkout.</summary>
+    public DbSet<Rental> Rentals => Set<Rental>();
+
+    /// <summary>The cases on each rental, with the movie picked from each.</summary>
+    public DbSet<RentalItem> RentalItems => Set<RentalItem>();
+
+    /// <summary>The snacks and late fees on each rental's bill.</summary>
+    public DbSet<SaleLine> SaleLines => Set<SaleLine>();
 
     /// <summary>
     /// The connection string for a Rewind database file. Foreign Keys=True sends
