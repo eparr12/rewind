@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using NAudio.Wave;
 using Rewind.Core.Sounds;
@@ -38,7 +39,8 @@ internal sealed partial class NAudioPlayer(ILogger<NAudioPlayer> logger) : ISoun
             return; // no file for this sound, which LoadClips logged
         }
 
-        _ = Task.Run(() => Guarded(sound, () => Start(sound, clip)));
+        var asked = Stopwatch.StartNew();
+        _ = Task.Run(() => Guarded(sound, () => Start(sound, clip, asked)));
     }
 
     // Everything this class runs off its caller's thread runs in here. An exception that got
@@ -59,7 +61,7 @@ internal sealed partial class NAudioPlayer(ILogger<NAudioPlayer> logger) : ISoun
     // Each player disposes itself and its reader when the sound ends. A new one opens whichever
     // speakers are the default right now, so speakers plugged in mid-evening need no restart
     // (GEN-7, HW-4). Shared mode lets sounds overlap: an exclusive player would refuse the second.
-    private void Start(Sound sound, byte[] clip)
+    private void Start(Sound sound, byte[] clip, Stopwatch asked)
     {
         var reader = new WaveFileReader(new MemoryStream(clip, writable: false));
         var output = new WasapiPlayerBuilder().WithSharedMode().Build();
@@ -68,6 +70,7 @@ internal sealed partial class NAudioPlayer(ILogger<NAudioPlayer> logger) : ISoun
         {
             output.Init(reader);
             output.Play();
+            LogStarted(_logger, sound, asked.ElapsedMilliseconds); // ADR-0004's question: can the wait be heard?
         }
         catch
         {
@@ -142,6 +145,9 @@ internal sealed partial class NAudioPlayer(ILogger<NAudioPlayer> logger) : ISoun
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The {Sound} sound is off: {File} can't be read")]
     private static partial void LogUnreadable(ILogger logger, Exception exception, Sound sound, string file);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "The {Sound} sound started {Milliseconds} ms after it was asked for")]
+    private static partial void LogStarted(ILogger logger, Sound sound, long milliseconds);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Couldn't play the {Sound} sound; until a sound plays again, failures are logged at Debug")]
     private static partial void LogNotPlayed(ILogger logger, Exception exception, Sound sound);

@@ -1,3 +1,550 @@
-@* Screens/Checkout.razor *@
-<p>Scan a member card to start a rental.</p>
-<p>Checkout arrives in Phase 3.</p>
+@implements IDisposable
+@using System.Diagnostics
+@using Microsoft.Extensions.Logging
+@inject IScanner Scanner
+@inject ICheckoutCounter Counter
+@inject IConcessionBar Bar
+@inject DialogService Dialogs
+@inject ISoundPlayer Sounds
+@inject ILogger<Checkout> Logger
+@inject ErrorHub Errors
+
+@* F1 Checkout (Build Plan 3.3): from the member's card to the change due. Idle, it waits for a card. The
+   card opens a sale, whose bill grows with each case scanned and each snack, by button or by scan. The cash
+   completes it, and the screen shows the change and how to count it back until the next card or Esc. The open
+   sale lives in these fields (ADR-0003), and nothing of it is saved until the cash completes it, so Esc, or
+   the clerk leaving the screen, loses nothing but the open sale. An error from outside the screen leaves it
+   standing, since the shell keeps this instance (#48). The draw stands either way. *@
+<div class="checkout" @onkeydown="OnKeyDownAsync">
+    <p class="checkout-prompt">@Prompt</p>
+
+    @if (_sale is { } sale)
+    {
+        <p class="checkout-member"><strong>@sale.MemberName</strong> · Due back tonight</p>
+        @if (HasSomethingOnIt)
+        {
+            <ul class="tree-view checkout-ticket">
+                @foreach (var item in _items)
+                {
+                    <li>@item.StoreLabel · @MovieTitle.WithYear(item.Title, item.Year) · @Price(item.PriceCents)</li>
+                }
+                @foreach (var line in _lines.OrderBy(line => line.LateFeeDrawId is not null))
+                {
+                    @* R2's flash, the one animation UI-2 allows here: the Dialog record has no style hook,
+                       so it's on the bill rather than in the box. *@
+                    <li class="@(line.LateFeeDrawId is null ? null : "overdue")">@line.Name · @Price(line.PriceCents)</li>
+                }
+            </ul>
+        }
+        @* The ticket's own sum, so the total on the screen is the total Core is sent. *@
+        <p class="checkout-total">Total: @Price(TicketFor(sale, 0).TotalCents)</p>
+    }
+
+    @if (_choosing is { } choosing)
+    {
+        @* Keyed, so each case gets a new picker: it sizes its rows once, when it opens. *@
+        <WhichMovie @key="choosing.CaseId" Movies="choosing.Movies" OnPick="PickMovie" OnCancel="PutCaseBack" />
+    }
+    else if (_done is { } done)
+    {
+        @* Takes the focus, so Esc reaches it, with no box here to hold it. *@
+        <div class="checkout-done" tabindex="-1" @ref="_donePanel">
+            <p class="checkout-change">CHANGE @Price(done.ChangeCents)</p>
+            @if (done.Breakdown.Count > 0)
+            {
+                <p class="checkout-breakdown">@Breakdown(done)</p>
+                <p class="checkout-count-back">Count back from @Price(done.TotalCents): @CountBack(done)</p>
+            }
+        </div>
+    }
+    else
+    {
+        @if (_sale is not null)
+        {
+            <div class="checkout-snacks">
+                @foreach (var snack in _snacks)
+                {
+                    <button type="button" @onclick="() => AddSnack(snack)">@snack.Name @Price(snack.PriceCents)</button>
+                }
+            </div>
+        }
+        @* Here with no sale too, so cash typed before a card gets its answer. *@
+        <form class="field-row checkout-cash" @onsubmit="OnCashAsync" @onsubmit:preventDefault>
+            <label for="checkout-cash">Cash tendered:</label>
+            <input id="checkout-cash" type="text" autocomplete="off" spellcheck="false" maxlength="@CashLength"
+                   @ref="_cashBox" @bind="_cash" @bind:event="oninput" />
+            <button type="submit" class="default">Complete Sale</button>
+        </form>
+    }
+</div>
+
+@code {
+    // "$99999.99", the most Dollars.TryParse reads, is nine characters.
+    private const int CashLength = 9;
+
+    private static readonly Dialog UseTheLabel = new(Store.Name, "Please scan the Rewind Video label.", DialogIcon.Warning);
+
+    private static readonly Dialog CardFirst = new(Store.Name, "Scan the member's card first.", DialogIcon.Warning);
+
+    private static readonly Dialog FinishThisSale = new(Store.Name, "Finish this sale, or press Esc to cancel it.", DialogIcon.Warning);
+
+    private static readonly Dialog CardNobodyHas = new(
+        Store.Name,
+        "Nobody has that card yet.\n\nTell the Store Manager.",
+        DialogIcon.Warning);
+
+    private static readonly Dialog CardTurnedOff = new(
+        Store.Name,
+        "That member's card has been turned off.\n\nTell the Store Manager.",
+        DialogIcon.Warning);
+
+    private static readonly Dialog NothingToSell = new(
+        Store.Name,
+        "There's nothing on this sale yet.\n\nScan a movie or add a snack, or press Esc.",
+        DialogIcon.Warning);
+
+    private static readonly Dialog NotCash = new(
+        Store.Name,
+        "That isn't an amount of money.\n\nType it in dollars, such as 10 or 4.50.",
+        DialogIcon.Warning);
+
+    // Info, not Warning: a warning plays the error chord, which means something's wrong, and asking before
+    // dropping a sale is routine, since the clerk pressed Esc on purpose. Intake asks the same way.
+    private static readonly Dialog CancelThisSale = new(
+        Store.Name,
+        "Cancel this sale?\n\nNothing from it has been saved.",
+        DialogIcon.Info,
+        CanCancel: true);
+
+    // Cancelled when the clerk leaves the screen, so a read or a save still waiting on the database stops.
+    private readonly CancellationTokenSource _closing = new();
+
+    // The open sale's bill (ADR-0003), which goes to Core as a ticket when the cash completes it.
+    private readonly List<TicketItem> _items = [];
+    private readonly List<TicketLine> _lines = [];
+
+    private ElementReference _cashBox;
+    private ElementReference _donePanel;
+    private bool _focusCash = true;
+    private bool _focusDone;
+    private string _cash = "";
+    private string? _busy;
+
+    // Read once, as the screen opens: changing a price or a snack means leaving for F5, and coming back
+    // opens a new screen, which reads them again.
+    private IReadOnlyList<ConcessionRow> _snacks = [];
+
+    // The open sale. Null when the screen is idle or showing the change.
+    private OpenedSale? _sale;
+
+    // The case whose movie the clerk is picking. Null the rest of the time.
+    private CaseToRent? _choosing;
+
+    // The sale just completed, whose change is on screen until the next card or Esc.
+    private CompletedSale? _done;
+
+    private bool Busy => _busy is not null;
+
+    private bool HasSomethingOnIt => _items.Count > 0 || _lines.Count > 0;
+
+    // One line that always says what's happening or what to do next (UI-6).
+    private string Prompt
+    {
+        get
+        {
+            if (_busy is { } busy)
+            {
+                return busy;
+            }
+
+            if (_choosing is not null)
+            {
+                return "Which movie is going home? Press Enter to pick it, or Esc to put the case back.";
+            }
+
+            if (_sale is not null)
+            {
+                return "Scan each movie, add snacks, then type the cash and press Enter.";
+            }
+
+            return _done is not null ? "Scan the next member's card." : "Scan a member card to start a rental.";
+        }
+    }
+
+    // Listening before the snacks are read, so a card scanned as the screen opens still reaches it.
+    protected override void OnInitialized() => Scanner.Scanned += OnScanned;
+
+    // The clerk leaving the screen cancels the read, and that raises nothing: ComponentBase ignores a task
+    // that was cancelled, so a component needs no catch for it.
+    protected override async Task OnInitializedAsync() =>
+        _snacks = [.. (await Bar.ListAsync(_closing.Token)).Where(snack => snack.IsActive)];
+
+    // UI-3: the Cash box has the focus, so Enter completes the sale. Scans need none (UI-4).
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusDone)
+        {
+            _focusDone = false;
+            await _donePanel.FocusAsync();
+        }
+        else if (_focusCash)
+        {
+            _focusCash = false;
+            await _cashBox.FocusAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        Scanner.Scanned -= OnScanned;
+        _closing.Cancel();
+        _closing.Dispose();
+    }
+
+    // UI-11, as in Intake: a scan can arrive on the scanner's thread, and an exception here would only fault
+    // the Task that InvokeAsync returns, which nobody awaits, so it goes to the screen's ErrorBoundary. Once
+    // the clerk has left there's no boundary to give it to, so it goes to ErrorHub instead.
+    private void OnScanned(Scan scan) => _ = InvokeAsync(async () =>
+    {
+        try
+        {
+            await OnScanAsync(scan);
+        }
+        catch (Exception e) when (_closing.IsCancellationRequested)
+        {
+            Errors.ReportFromComponent(nameof(Checkout), e);
+        }
+        catch (Exception e)
+        {
+            await DispatchExceptionAsync(e);
+        }
+    });
+
+    private async Task OnScanAsync(Scan scan)
+    {
+        // A scan raised as the clerk left can still arrive. _closing is disposed by then, so reading its Token
+        // would throw, not cancel. An unknown barcode has had its chord from ScannerHub (HW-5).
+        if (scan.Kind == ScanKind.Unknown || _closing.IsCancellationRequested)
+        {
+            return;
+        }
+
+        // One thing at a time: a scan while Core answers, while the clerk picks a movie, or while a dialog
+        // waits for an answer would start something new in the middle of it.
+        if (Busy || _choosing is not null || Dialogs.Current is not null)
+        {
+            LogScanIgnored(Logger, scan.Kind, scan.Code);
+            return;
+        }
+
+        switch (scan.Kind)
+        {
+            case ScanKind.MemberCard:
+                await OnCardAsync(scan.Code);
+                break;
+            case ScanKind.StoreLabel:
+                await OnLabelAsync(scan.Code);
+                break;
+            case ScanKind.Concession:
+                await OnSnackCodeAsync(scan.Code);
+                break;
+            default:
+                await ShowAsync(UseTheLabel); // a factory UPC, which only Intake takes
+                break;
+        }
+
+        StateHasChanged(); // a scan isn't a UI event, so Blazor doesn't draw by itself
+    }
+
+    // The card opens a sale, from idle or from the last sale's change. Mid-sale it would drop the bill.
+    private async Task OnCardAsync(string card)
+    {
+        if (_sale is not null)
+        {
+            await ShowAsync(FinishThisSale);
+            return;
+        }
+
+        if (await WhileBusyAsync("Looking up the card...", token => Counter.StartAsync(card, token), _closing.Token) is not { } start)
+        {
+            return;
+        }
+
+        if (start.Sale is { } sale)
+        {
+            await OpenSaleAsync(sale);
+        }
+        else
+        {
+            await ShowAsync(start.Status == SaleStartStatus.MemberInactive ? CardTurnedOff : CardNobodyHas);
+        }
+    }
+
+    private async Task OpenSaleAsync(OpenedSale sale)
+    {
+        _sale = sale;
+        _done = null;
+        _cash = "";
+        _focusCash = true;
+        if (sale.Fee is { } fee)
+        {
+            await ShowAsync(OverdueAlert(fee));
+            _lines.Add(new TicketLine(fee.LineName, fee.PriceCents, null, sale.Draw.Id));
+
+            // A Cash box new since the last sale's change couldn't take the focus behind the dialog, so the
+            // dialog has nothing to give it back to.
+            _focusCash = true;
+        }
+    }
+
+    // A case with one movie goes straight on the bill, and one with more asks which is going home.
+    private async Task OnLabelAsync(string label)
+    {
+        if (_sale is not { } sale)
+        {
+            await ShowAsync(CardFirst);
+            return;
+        }
+
+        if (_items.Exists(item => item.StoreLabel == label))
+        {
+            await ShowAsync(new Dialog(Store.Name, $"{label} is already on this sale.", DialogIcon.Warning));
+            return;
+        }
+
+        if (await WhileBusyAsync($"Looking up {label}...", token => Counter.ScanCaseAsync(label, token), _closing.Token) is not { } scan)
+        {
+            return;
+        }
+
+        if (scan.Case is not { } found)
+        {
+            await ShowAsync(CaseRefused(label, scan.Status));
+        }
+        else if (found.Movies.Count == 1)
+        {
+            AddCase(sale, found, found.Movies[0]);
+        }
+        else
+        {
+            _choosing = found;
+        }
+    }
+
+    // Enter, a double-click or Add Movie in Which movie?
+    private void PickMovie(MovieInCase movie)
+    {
+        if (_sale is { } sale && _choosing is { } choosing)
+        {
+            AddCase(sale, choosing, movie);
+        }
+
+        _choosing = null;
+        _focusCash = true;
+    }
+
+    // Esc or Cancel in Which movie?: the sale carries on without that case.
+    private void PutCaseBack()
+    {
+        _choosing = null;
+        _focusCash = true;
+    }
+
+    private void AddCase(OpenedSale sale, CaseToRent found, MovieInCase movie) =>
+        _items.Add(new TicketItem(found.CaseId, found.StoreLabel, movie.MovieId, movie.Title, movie.Year, sale.RentalPriceCents));
+
+    // A snack's barcode on the laminated concession menu. The menu may be older than the bar's list, so a
+    // code can be nobody's, or a snack's that's no longer sold.
+    private async Task OnSnackCodeAsync(string code)
+    {
+        if (_sale is null)
+        {
+            await ShowAsync(CardFirst);
+            return;
+        }
+
+        var snack = await WhileBusyAsync($"Looking up {code}...", token => Bar.FindByCodeAsync(code, token), _closing.Token);
+        if (_closing.IsCancellationRequested)
+        {
+            return; // no answer, and no screen for a dialog to belong to
+        }
+
+        if (snack is null)
+        {
+            await ShowAsync(new Dialog(Store.Name, $"No snack has the code {code}.\n\nTell the Store Manager.", DialogIcon.Warning));
+        }
+        else if (!snack.IsActive)
+        {
+            await ShowAsync(new Dialog(Store.Name, $"{snack.Name} isn't on sale any more.", DialogIcon.Warning));
+        }
+        else
+        {
+            AddSnackLine(snack);
+        }
+    }
+
+    // The buttons, which hand the focus straight back, so that Enter completes the sale rather than adding
+    // another of the same.
+    private void AddSnack(ConcessionRow snack)
+    {
+        if (!Busy)
+        {
+            AddSnackLine(snack);
+            _focusCash = true;
+        }
+    }
+
+    private void AddSnackLine(ConcessionRow snack) => _lines.Add(new TicketLine(snack.Name, snack.PriceCents, snack.Id, null));
+
+    // Enter, or Complete Sale.
+    private async Task OnCashAsync()
+    {
+        if (Busy)
+        {
+            return; // a second Enter while the first is saving
+        }
+
+        if (_sale is not { } sale)
+        {
+            await ShowAsync(CardFirst);
+        }
+        else if (!HasSomethingOnIt)
+        {
+            await ShowAsync(NothingToSell);
+        }
+        else if (!Dollars.TryParse(_cash, out var cash))
+        {
+            await ShowAsync(NotCash);
+            _cash = ""; // the clerk types the money again, not onto what was wrong
+        }
+        else
+        {
+            await SaveSaleAsync(TicketFor(sale, cash));
+        }
+    }
+
+    // Core sums the ticket and refuses cash under the total, as the database does.
+    private async Task SaveSaleAsync(Ticket ticket)
+    {
+        switch (await WhileBusyAsync("Saving the sale...", token => Counter.CompleteAsync(ticket, token), _closing.Token))
+        {
+            case null:
+                return; // the clerk left the screen before it was saved
+            case { Status: SaleStatus.Completed, Sale: { } completed }:
+                AfterCompleting(completed);
+                return;
+            case { Status: SaleStatus.CashShort, TotalCents: var total }:
+                await ShowAsync(new Dialog(Store.Name, $"That isn't enough. The total is {Price(total)}.", DialogIcon.Warning));
+                _cash = ""; // the clerk types the money again, not onto what was short
+                return;
+            case { Status: SaleStatus.NotOnShelf, StoreLabel: { } label }:
+                // Nothing was saved, and the sale stays open without that case, for the clerk to pay again.
+                _items.RemoveAll(item => item.StoreLabel == label);
+                await ShowAsync(new Dialog(
+                    Store.Name,
+                    $"{label} isn't on the shelf any more, so it's off this sale.\n\nCheck the total, then press Enter again.",
+                    DialogIcon.Warning));
+                return;
+            case { Status: var status }:
+                // OBS-5: the screen checks for an empty ticket before it asks, so any other answer is a bug.
+                throw new UnreachableException($"Completing the sale came back {status}, which Checkout checks for before it asks.");
+        }
+    }
+
+    // The sale is saved: the register chimes, and the screen shows the change. Not before: a chime ahead of a
+    // save that failed would say the sale had gone through.
+    private void AfterCompleting(CompletedSale completed)
+    {
+        Sounds.Play(Sound.Chime);
+        EndSale();
+        _done = completed;
+        _focusDone = true;
+    }
+
+    private void EndSale()
+    {
+        _sale = null;
+        _items.Clear();
+        _lines.Clear();
+        _cash = "";
+    }
+
+    // UI-3: Esc steps back. From the change, it goes to idle. From an open sale it asks first if anything's on
+    // the bill. Which movie? handles its own. Not while Core answers: its answer would land on a screen that
+    // had moved on.
+    private async Task OnKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key != "Escape" || Busy)
+        {
+            return;
+        }
+
+        if (_done is not null)
+        {
+            _done = null;
+            _focusCash = true;
+        }
+        else if (_sale is not null && (!HasSomethingOnIt || await ShowAsync(CancelThisSale)))
+        {
+            EndSale();
+            _focusCash = true;
+        }
+    }
+
+    // Shows what Rewind is doing until the database answers. Null when the clerk left the screen first.
+    private async Task<T?> WhileBusyAsync<T>(string doing, Func<CancellationToken, Task<T>> call, CancellationToken token)
+        where T : class?
+    {
+        _busy = doing;
+        StateHasChanged(); // drawn now, even for a scan, which Blazor doesn't draw for by itself
+        try
+        {
+            return await call(token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            return null;
+        }
+        finally
+        {
+            _busy = null;
+        }
+    }
+
+    // Drawn first, so the screen behind the dialog shows what happened, not what was happening.
+    private Task<bool> ShowAsync(Dialog dialog)
+    {
+        StateHasChanged();
+        return Dialogs.ShowAsync(dialog);
+    }
+
+    // The bill as a ticket. Copies, since the bill changes when the sale ends, and a ticket is a record of it.
+    private Ticket TicketFor(OpenedSale sale, int cash) =>
+        new(sale.Draw.MemberId, sale.Draw.BusinessDayId, [.. _items], [.. _lines], cash);
+
+    private static Dialog CaseRefused(string label, CaseScanStatus status) => new(
+        Store.Name,
+        status == CaseScanStatus.NotOnShelf
+            ? $"{label} isn't on the shelf. It's checked out or retired.\n\nTell the Store Manager."
+            : $"No case has the label {label}.\n\nTell the Store Manager.",
+        DialogIcon.Warning);
+
+    // #58: until the flavor movie comes from the member's watch history, it may be one they've never seen, so
+    // this says it's overdue, not that they watched it.
+    private static Dialog OverdueAlert(FeeDue fee)
+    {
+        var overdue = fee.MovieTitle is { } title ? $"{MovieTitle.WithYear(title, fee.MovieYear)} is overdue." : "A rental is overdue.";
+        return new Dialog(Store.Name, $"OVERDUE RENTAL\n\n{overdue}\n\nLate fee: {Price(fee.PriceCents)}", DialogIcon.Warning);
+    }
+
+    private static string Price(int cents) => $"${Dollars.Format(cents)}";
+
+    // Such as "1 × $5, 3 × 25¢".
+    private static string Breakdown(CompletedSale sale) =>
+        string.Join(", ", sale.Breakdown.Select(part => $"{part.Count} × {UnitName(part.UnitCents)}"));
+
+    private static string UnitName(int cents) => cents >= 100 ? $"${cents / 100}" : $"{cents}¢";
+
+    // Such as "$5.00, $10.00".
+    private static string CountBack(CompletedSale sale) => string.Join(", ", sale.CountBack.Select(Price));
+}

@@ -6,10 +6,12 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Rewind.Core;
+using Rewind.Core.Checkout;
 using Rewind.Core.Concessions;
 using Rewind.Core.Devices;
 using Rewind.Core.Intake;
 using Rewind.Core.Labels;
+using Rewind.Core.LateFees;
 using Rewind.Core.Members;
 using Rewind.Core.Metadata;
 using Rewind.Core.Sounds;
@@ -27,6 +29,8 @@ public sealed class ShellTests : BunitContext
     private readonly FakeBarcodeTitles _titles = new();
     private readonly FakeMovieIntake _intake = new();
     private readonly FakeMemberRoster _roster = new();
+    private readonly FakeCheckoutCounter _counter = new();
+    private readonly FakeConcessionBar _bar = new();
     private readonly ListLogger<Shell> _shellLog = new();
     private readonly ListLogger<ErrorHub> _errorLog = new();
     private readonly CountingBoundaryLogger _boundaryLog = new();
@@ -52,7 +56,8 @@ public sealed class ShellTests : BunitContext
         Services.AddSingleton<IBarcodeTitles>(_titles);
         Services.AddSingleton<ILabelSheets>(new FakeLabelSheets());
         Services.AddSingleton<IMemberRoster>(_roster);
-        Services.AddSingleton<IConcessionBar>(new FakeConcessionBar());
+        Services.AddSingleton<IConcessionBar>(_bar);
+        Services.AddSingleton<ICheckoutCounter>(_counter);
         Services.AddSingleton(TimeProvider.System);
         Services.AddSingleton(Options.Create(new RewindPaths()));
 
@@ -273,6 +278,115 @@ public sealed class ShellTests : BunitContext
         Assert.NotSame(checkout, cut.FindComponent<Checkout>().Instance);
     }
 
+    // #48's reason, with a sale on the screen: the error isn't Checkout's, so the bill stays as it was.
+    [Fact]
+    public async Task CloseErrorDialog_ErrorReportedOverASale_KeepsTheSale()
+    {
+        var cut = await RenderWithASaleAsync();
+        await cut.InvokeAsync(() => _errors.Report(new InvalidOperationException("Test crash")));
+
+        await CloseDialogAsync(cut);
+
+        Assert.Equal(["RV-00042 · Halloween (1978) · $2.00"], cut.FindAll(".checkout-ticket li").Select(line => line.TextContent));
+    }
+
+    [Fact]
+    public async Task OnFunctionKey_LeavingASaleAndComingBack_DropsTheSale()
+    {
+        var cut = await RenderWithASaleAsync();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F2"));
+
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
+
+        Assert.Empty(cut.FindAll(".checkout-member"));
+        Assert.Equal("Scan a member card to start a rental.", cut.Find(".checkout-prompt").TextContent);
+    }
+
+    // A crash inside Checkout costs the open sale, and the transaction means none of it was saved. F1 starts over.
+    [Fact]
+    public async Task OnFunctionKey_F1AfterASaveFailed_OpensAnEmptyCheckout()
+    {
+        var cut = await RenderWithASaleAsync();
+        _counter.Completing = Task.FromException<SaleResult>(new InvalidOperationException("The save failed."));
+        await cut.Find("#checkout-cash").InputAsync("10");
+        var submit = cut.Find(".checkout-cash").SubmitAsync();
+        await CloseDialogAsync(cut);
+        await submit;
+
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
+
+        Assert.Equal("Scan a member card to start a rental.", cut.Find(".checkout-prompt").TextContent);
+    }
+
+    // UI-6, OBS-5: Checkout reads the snacks as it opens, so a database Rewind can't read fails it there, with the
+    // error dialog and then the panel that says how to carry on.
+    [Fact]
+    public async Task Render_CheckoutCantReadTheSnacks_ShowsErrorDialogThenClosesCheckout()
+    {
+        _bar.Listing = Task.FromException<IReadOnlyList<ConcessionRow>>(new InvalidOperationException("The read failed."));
+        var cut = Render<Shell>();
+        cut.WaitForAssertion(() => Assert.Equal(DialogIcon.Error, _dialogs.Current?.Icon));
+
+        await CloseDialogAsync(cut);
+
+        Assert.Contains("Checkout closed after an error", cut.Find("[role=tabpanel]").TextContent, StringComparison.Ordinal);
+    }
+
+    // The bar starts listening before any screen does, whichever way the clerk got here, so its lookup hears the
+    // card first. On the register SQLite answers at once, so a database that's failing has the error dialog up
+    // before Checkout hears the scan, and Checkout ignores it, as it does under any dialog. That's one error, and
+    // after OK the clerk has the Checkout they had, with Start never asked.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Receive_BarsLookupFailsOnACard_LeavesCheckoutIgnoringTheScan(bool leftAndCameBack)
+    {
+        _roster.Finding = Task.FromException<MemberRow?>(new InvalidOperationException("The lookup failed."));
+        var cut = Render<Shell>();
+        if (leftAndCameBack)
+        {
+            await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F2"));
+            await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
+        }
+
+        var checkout = cut.FindComponent<Checkout>().Instance;
+        await cut.InvokeAsync(() => _scanner.Receive("MEM-001"));
+
+        await CloseDialogAsync(cut);
+
+        Assert.Empty(_counter.Cards);
+        Assert.Null(_dialogs.Current);
+        Assert.Same(checkout, cut.FindComponent<Checkout>().Instance);
+    }
+
+    // Lookups that really wait could both be out when the database fails, and fail in either order. With the bar's
+    // first, Checkout's dialog replaces it, which is #61's sequence, and that stays open. Either way, one OK leaves
+    // the clerk a Checkout and working F-keys.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Receive_BarAndStartBothFailOnACard_LeavesCheckoutAndTheFKeysWorking(bool barFailsFirst)
+    {
+        var lookup = new TaskCompletionSource<MemberRow?>();
+        var start = new TaskCompletionSource<SaleStart>();
+        _roster.Finding = lookup.Task;
+        _counter.Starting = start.Task;
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => _scanner.Receive("MEM-001"));
+        Action failLookup = () => lookup.SetException(new InvalidOperationException("The lookup failed."));
+        Action failStart = () => start.SetException(new InvalidOperationException("The start failed."));
+        await cut.InvokeAsync(barFailsFirst ? failLookup : failStart);
+        await cut.InvokeAsync(barFailsFirst ? failStart : failLookup);
+
+        await CloseDialogAsync(cut);
+        await cut.InvokeAsync(() => { }); // queued behind the second CrashNotice's closing
+
+        Assert.Null(_dialogs.Current);
+        Assert.True(cut.HasComponent<Checkout>());
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F2"));
+        Assert.True(cut.HasComponent<Return>());
+    }
+
     // What the bar throws closes the bar and nothing else, so it can't cost the clerk a sale. App's
     // ErrorBoundary, the next one up, would replace the whole shell.
     [Fact]
@@ -459,6 +573,17 @@ public sealed class ShellTests : BunitContext
     }
 
     private IEnumerable<string> LoggedLines => _shellLog.Entries.Select(entry => entry.Message);
+
+    // The shell with one case on an open sale, scanned as the scanner would scan it.
+    private async Task<IRenderedComponent<Shell>> RenderWithASaleAsync()
+    {
+        _counter.Sales["MEM-001"] = new OpenedSale("Dad", new LateFeeDrawRow(7, 3, 5, Card.Clear, null, DateTime.UnixEpoch), 200, null);
+        _counter.Cases["RV-00042"] = new CaseToRent(1, "RV-00042", [new MovieInCase(10, "Halloween", 1978)]);
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => _scanner.Receive("MEM-001"));
+        await cut.InvokeAsync(() => _scanner.Receive("RV-00042"));
+        return cut;
+    }
 
     // Closes the dialog on screen, then a turn of the renderer's thread, so what its closing sets off has
     // run before the test looks.

@@ -88,6 +88,12 @@ Rewind reads the token once, as it starts, so restart it after setting or changi
 
 Rewind saves each movie's poster in `C:\Rewind\data`, named for the movie's TMDB ID: `posters\948.jpg` at 342 pixels wide for the register's screens, and `thumbs\948.jpg` at 154 for the phone catalog. Posters aren't in Git (GIT-6) or in the backups, which hold only the database.
 
+## Checkout
+
+Checkout (F1) takes a sale from the member's card to the change due. The open sale lives on the screen, and nothing of it is saved until the cash completes it, so Esc or leaving the screen loses only the open sale. The member's late-fee draw stands either way, and a fee is charged once per draw ([ADR-0010](docs/adr/0010-a-late-fee-is-charged-once-per-draw.md)).
+
+To try it in a Debug build, first add a member and a snack in the Store Manager (F5), and shelve a case in Intake (F4). Then open Checkout (F1), type `MEM-001` into the scan simulator and press Enter, then `RV-00042`, then `CON-POPCORN`. Type `10` in the Cash tendered box and press Enter: the screen shows the change and how to count it back.
+
 ## Store Manager
 
 The Store Manager screen (F5) holds the grown-up jobs: printing store labels, member cards and the concession menu, keeping the family's members, setting the prices, and keeping the concession bar's snacks. The clerk handbook leaves them out, since it's written for the kids (DOC-6), who use F5 to shut Rewind down at closing.
@@ -132,7 +138,7 @@ Rewind is laid out for 1024 × 768 (UI-8). On a bigger monitor, set the zoom in 
 
 Rewind writes one log file a day to `C:\Rewind\logs`, such as `rewind-20261023.log`, and deletes each one 30 days later (OBS-2). It logs at Information: starts, Shut Downs, each screen the clerk opens, devices coming and going, and every error with its details.
 
-To troubleshoot, set the level to Debug in `appsettings.json`, which on the register sits next to `Rewind.Register.exe`. Debug adds detail such as every scan and every sound that fails to play. Set it back to Information afterwards: the next release's `appsettings.json` replaces the register's anyway.
+To troubleshoot, set the level to Debug in `appsettings.json`, which on the register sits next to `Rewind.Register.exe`. Debug adds detail such as every scan, how long each sound took to start, and every sound that fails to play. Set it back to Information afterwards: the next release's `appsettings.json` replaces the register's anyway.
 
 ```json
 "Log": { "MinimumLevel": "Debug" }
