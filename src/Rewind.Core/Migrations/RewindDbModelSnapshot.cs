@@ -189,6 +189,118 @@ namespace Rewind.Core.Migrations
                     b.ToTable("MovieGenres");
                 });
 
+            modelBuilder.Entity("Rewind.Core.Checkout.Rental", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("BusinessDayId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CashTenderedCents")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ChangeCents")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MemberId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("RentedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TotalCents")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessDayId");
+
+                    b.HasIndex("MemberId");
+
+                    b.ToTable("Rentals", t =>
+                        {
+                            t.HasCheckConstraint("CK_Rentals_CashTenderedCents", "\"CashTenderedCents\" >= \"TotalCents\"");
+
+                            t.HasCheckConstraint("CK_Rentals_ChangeCents", "\"ChangeCents\" = \"CashTenderedCents\" - \"TotalCents\"");
+
+                            t.HasCheckConstraint("CK_Rentals_TotalCents", "\"TotalCents\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Rewind.Core.Checkout.RentalItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CaseId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MovieId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PriceCents")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("RentalId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CaseId", "MovieId");
+
+                    b.HasIndex("RentalId", "CaseId")
+                        .IsUnique();
+
+                    b.ToTable("RentalItems", t =>
+                        {
+                            t.HasCheckConstraint("CK_RentalItems_PriceCents", "\"PriceCents\" BETWEEN 0 AND 9999");
+                        });
+                });
+
+            modelBuilder.Entity("Rewind.Core.Checkout.SaleLine", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("ConcessionItemId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("LateFeeDrawId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PriceCents")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("RentalId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConcessionItemId");
+
+                    b.HasIndex("LateFeeDrawId")
+                        .IsUnique();
+
+                    b.HasIndex("RentalId");
+
+                    b.ToTable("SaleLines", t =>
+                        {
+                            t.HasCheckConstraint("CK_SaleLines_Name", "trim(\"Name\") <> '' AND length(\"Name\") <= 217");
+
+                            t.HasCheckConstraint("CK_SaleLines_PriceCents", "\"PriceCents\" BETWEEN 0 AND 9999");
+
+                            t.HasCheckConstraint("CK_SaleLines_Source", "(\"ConcessionItemId\" IS NULL) <> (\"LateFeeDrawId\" IS NULL)");
+                        });
+                });
+
             modelBuilder.Entity("Rewind.Core.Concessions.ConcessionItem", b =>
                 {
                     b.Property<int>("Id")
@@ -430,6 +542,55 @@ namespace Rewind.Core.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Rewind.Core.Checkout.Rental", b =>
+                {
+                    b.HasOne("Rewind.Core.MovieNights.BusinessDay", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessDayId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Rewind.Core.Members.Member", null)
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Rewind.Core.Checkout.RentalItem", b =>
+                {
+                    b.HasOne("Rewind.Core.Checkout.Rental", null)
+                        .WithMany("Items")
+                        .HasForeignKey("RentalId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Rewind.Core.Catalog.CaseMovie", null)
+                        .WithMany()
+                        .HasForeignKey("CaseId", "MovieId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Rewind.Core.Checkout.SaleLine", b =>
+                {
+                    b.HasOne("Rewind.Core.Concessions.ConcessionItem", null)
+                        .WithMany()
+                        .HasForeignKey("ConcessionItemId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Rewind.Core.LateFees.LateFeeDraw", null)
+                        .WithMany()
+                        .HasForeignKey("LateFeeDrawId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Rewind.Core.Checkout.Rental", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("RentalId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Rewind.Core.LateFees.LateFeeDraw", b =>
                 {
                     b.HasOne("Rewind.Core.MovieNights.BusinessDay", null)
@@ -453,6 +614,13 @@ namespace Rewind.Core.Migrations
             modelBuilder.Entity("Rewind.Core.Catalog.Movie", b =>
                 {
                     b.Navigation("Cast");
+                });
+
+            modelBuilder.Entity("Rewind.Core.Checkout.Rental", b =>
+                {
+                    b.Navigation("Items");
+
+                    b.Navigation("Lines");
                 });
 #pragma warning restore 612, 618
         }
