@@ -1,7 +1,9 @@
 @implements IDisposable
+@using Microsoft.Extensions.Logging
 @inject IJSRuntime JS
 @inject DialogService Dialogs
 @inject ErrorHub Errors
+@inject ILogger<Shell> Logger
 
 <div class="window shell">
     <div class="title-bar">
@@ -42,7 +44,19 @@
     {
         <ScanSimulator />
     }
-    <StatusBar />
+    @* What the bar throws stops here, rather than at App's ErrorBoundary, which would replace the whole
+       shell and lose a sale over a status line. The bar stays closed: recovery never reopens what just
+       crashed on its own (OBS-5), and a bar that can't draw would only bring the error dialog back. *@
+    <StatusBarBoundary>
+        <ChildContent>
+            <StatusBar />
+        </ChildContent>
+        <ErrorContent>
+            <div class="status-bar">
+                <p class="status-bar-field">Status bar closed after an error</p>
+            </div>
+        </ErrorContent>
+    </StatusBarBoundary>
     @if (_crashed)
     {
         <CrashNotice OnClosed="AfterCrash" />
@@ -120,8 +134,15 @@
     }
 
     // A screen picked after a crash starts afresh, so an F-key or a tab always leads out of an error.
+    // Only a screen that really opens goes in the log (OBS-3): F1 on Checkout, or an error dialog closing
+    // over it, leaves the same Checkout up, and a line there would say otherwise.
     private void Open(Screen screen)
     {
+        if (screen != _screen || _checkoutClosed)
+        {
+            LogOpened(Logger, screen.Name);
+        }
+
         _screen = screen;
         _checkoutClosed = false;
         _boundary?.Recover();
@@ -151,7 +172,8 @@
         Open(CheckoutScreen);
     }
 
-    // OBS-5: the WinForms thread's error dialog also ends on Checkout.
+    // OBS-5: the error dialog ErrorHub asks for also ends on Checkout. A clerk already there keeps the
+    // Checkout they had, with any sale on it: DynamicComponent keeps its instance while Type stays the same.
     private void AfterCrash()
     {
         _crashed = false;
@@ -160,8 +182,9 @@
 
     private void OnDialogChanged() => _ = InvokeAsync(StateHasChanged);
 
-    // OBS-5: ErrorHub reports an exception on the WinForms thread, outside every screen.
-    // CrashNotice shows the error dialog; a second crash before OK changes nothing.
+    // OBS-5: ErrorHub reports an exception from outside the screen on show: from the WinForms thread, a
+    // screen the clerk has left, or the status bar. CrashNotice shows the error dialog; a second crash
+    // before OK changes nothing.
     private void OnCrashed() => _ = InvokeAsync(() =>
     {
         _crashed = true;

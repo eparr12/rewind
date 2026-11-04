@@ -4,8 +4,8 @@ using Microsoft.AspNetCore.Components.Rendering;
 namespace Rewind.UI.Tests;
 
 /// <summary>
-/// Stands in for a part of the shell outside the screens, such as the status bar: it draws
-/// fine, but its button throws.
+/// Stands in for a part of the shell outside the screens, such as the status bar or the dialog
+/// host: it draws fine, but its button throws.
 /// </summary>
 internal sealed class ThrowsOnClick : ComponentBase
 {

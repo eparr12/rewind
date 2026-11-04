@@ -2,10 +2,11 @@
 @inject IHostApplicationLifetime Lifetime
 
 @* OBS-5: the root component that MainForm shows, and the last ErrorBoundary before
-   BlazorWebView. Each screen has its own in the shell (UI-6); this one catches what the rest of
-   the shell throws, such as the status bar, the tabs or a dialog's buttons. BlazorWebView can't
-   recover from an exception that no ErrorBoundary catches: it stops the page without logging
-   anything, and the register answers no key or click until Rewind is ended in Task Manager. *@
+   BlazorWebView. Each screen has its own in the shell (UI-6), and so does the status bar; this
+   one catches what the rest of the shell throws, such as the tabs or a dialog's buttons.
+   BlazorWebView can't recover from an exception that no ErrorBoundary catches: it stops the page
+   without logging anything, and the register answers no key or click until Rewind is ended in
+   Task Manager. *@
 <ErrorBoundary @ref="_boundary">
     <ChildContent>
         <Shell OnStarted="ShellStarted" />

@@ -4,13 +4,13 @@ namespace Rewind.UI.Errors;
 
 /// <summary>
 /// Handles the exceptions that escape Blazor (OBS-5), and those that no ErrorBoundary should get. A
-/// screen's ErrorBoundary catches its exceptions, and App's catches the rest of the shell's. Program.cs
-/// sends this hub what reaches Application.ThreadException, which only WinForms code such as
-/// MainForm can throw and which the shell answers with the same dialog, and what reaches
-/// AppDomain.UnhandledException, which can only be logged. Program.cs also sends it why Rewind
-/// couldn't start, and shows the same reason in a plain message box. A screen sends it what a
-/// background event of its own throws once the clerk has left it, and the status bar sends it what
-/// its lookups throw.
+/// screen's ErrorBoundary catches its exceptions, and App's catches the rest of the shell's, apart from
+/// the status bar's, which has its own. Program.cs sends this hub what reaches
+/// Application.ThreadException, which only WinForms code such as MainForm can throw and which the
+/// shell answers with the same dialog, and what reaches AppDomain.UnhandledException, which can only
+/// be logged. Program.cs also sends it why Rewind couldn't start, and shows the same reason in a plain
+/// message box. A screen sends it what a background event of its own throws once the clerk has left
+/// it, and the status bar sends it what its lookups throw and what its ErrorBoundary catches.
 /// </summary>
 /// <remarks>
 /// BlazorWebView itself never passes an exception on to either event. One that no ErrorBoundary
@@ -21,10 +21,9 @@ namespace Rewind.UI.Errors;
 /// DispatchExceptionAsync throws, and the Task faults with nobody to see it. So a screen sends
 /// such an exception here instead, with <see cref="ReportFromComponent"/>.
 /// <para>
-/// The status bar's lookups come here too, even while it's open. Its only ErrorBoundary is App's,
-/// which replaces the whole shell, and shuts Rewind down when the shell hasn't finished starting:
-/// too much over a name. Here, the shell shows the error dialog and carries on, and the next scan
-/// looks again.
+/// The status bar's lookups come here too, even while it's open. Its ErrorBoundary closes the bar and
+/// leaves it closed: too much over a name. Here, the shell shows the error dialog and carries on, and
+/// the next scan looks again.
 /// </para>
 /// </remarks>
 public sealed partial class ErrorHub(ILogger<ErrorHub> logger)
@@ -37,7 +36,8 @@ public sealed partial class ErrorHub(ILogger<ErrorHub> logger)
 
     /// <summary>
     /// Logs an exception that reached the WinForms thread, then raises <see cref="Crashed"/>
-    /// so the shell can show the error dialog and go back to Checkout.
+    /// so the shell can show the error dialog and go back to Checkout. A clerk already there keeps
+    /// the sale they had on it.
     /// </summary>
     public void Report(Exception exception)
     {
@@ -46,11 +46,11 @@ public sealed partial class ErrorHub(ILogger<ErrorHub> logger)
     }
 
     /// <summary>
-    /// Logs an exception from a component's background event that no ErrorBoundary can or should get,
-    /// then raises <see cref="Crashed"/>, as <see cref="Report"/> does. That's a screen's once the
-    /// clerk has left it, such as a save that failed, since its ErrorBoundary went with it, and the
-    /// status bar's lookup, open or not (see the remarks). The log names the component (OBS-3), such as
-    /// nameof(Intake), so nobody has to work it out from the stack trace.
+    /// Logs an exception from a component, then raises <see cref="Crashed"/>, as <see cref="Report"/>
+    /// does. That's a background event's from a screen the clerk has left, such as a save that failed,
+    /// since its ErrorBoundary went with it; the status bar's lookup, open or not (see the remarks); and
+    /// whatever reaches the status bar's own ErrorBoundary. The log names the component (OBS-3), such
+    /// as nameof(Intake), so nobody has to work it out from the stack trace.
     /// </summary>
     public void ReportFromComponent(string component, Exception exception)
     {

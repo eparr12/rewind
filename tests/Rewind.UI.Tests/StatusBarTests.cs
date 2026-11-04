@@ -250,7 +250,7 @@ public sealed class StatusBarTests : BunitContext
     }
 
     // A failed lookup goes to ErrorHub even while the bar is open, so the shell shows the error dialog
-    // and carries on. App's ErrorBoundary, the bar's only one, would replace the whole shell over a name.
+    // and carries on. The bar's ErrorBoundary would close it, and leave it closed, over a name.
     [Fact]
     public async Task Scanned_LookupFails_ReportsItToErrorHub()
     {
@@ -275,8 +275,8 @@ public sealed class StatusBarTests : BunitContext
         Assert.Equal("MEM-001 · Member card", LastScan(cut));
     }
 
-    // The status bar closes only when the shell crashes or Rewind closes, and that stops a lookup still
-    // waiting on the database.
+    // The status bar closes after an error of its own, when the shell crashes or when Rewind closes, and
+    // that stops a lookup still waiting on the database.
     [Fact]
     public async Task Dispose_WhileLookingUp_CancelsTheLookup()
     {
