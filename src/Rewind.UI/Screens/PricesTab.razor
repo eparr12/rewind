@@ -106,7 +106,7 @@ else
         {
             case { Status: PriceChangeStatus.Saved, Prices: { } saved }:
                 Show(saved);
-                _notice = $"Saved. A movie rents for ${Dollars.Format(saved.RentalPriceCents)}, and the late fee is ${Dollars.Format(saved.LateFeeCents)}.";
+                _notice = $"Saved. A movie rents for {Price.Of(saved.RentalPriceCents)}, and the late fee is {Price.Of(saved.LateFeeCents)}.";
                 _focus = _lastBox;
                 return;
             case { Status: PriceChangeStatus.RentalPriceNotValid }:
