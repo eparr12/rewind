@@ -23,6 +23,11 @@ jobs:
       - name: Build
         run: dotnet build -c Release
 
+      # Program.cs's #if DEBUG blocks and BuildInfo's Debug branch compile only here. They only
+      # have to compile: the tests stay on Release.
+      - name: Build Debug
+        run: dotnet build -c Debug
+
       - name: Check formatting
         run: dotnet format --verify-no-changes --no-restore
 
