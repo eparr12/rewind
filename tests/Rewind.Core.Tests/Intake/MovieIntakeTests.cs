@@ -551,7 +551,7 @@ public sealed class MovieIntakeTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
-        var intake = Intake(rewind, dbFactory: new LabelTakenJustBeforeEachSave(rewind));
+        var intake = Intake(rewind, dbFactory: new BeforeEachSave(rewind, token => TakeTheLabelAsync(rewind, token)));
         var halloween = await PickedAsync(intake, TmdbJson.HalloweenId);
 
         var shelving = await intake.ShelveAsync(Label, FactoryUpc, [halloween], ct);
@@ -1070,29 +1070,6 @@ public sealed class MovieIntakeTests : IDisposable
     private sealed class NoDatabase : IDbContextFactory<RewindDb>
     {
         public RewindDb CreateDbContext() => throw new InvalidOperationException("EnterByHand opened the database.");
-    }
-
-    // Contexts each of whose saves another case beats to the label: just before the save, a case
-    // labeled RV-00042 is saved through a context of its own.
-    private sealed class LabelTakenJustBeforeEachSave(TempRewind rewind) : IDbContextFactory<RewindDb>
-    {
-        public RewindDb CreateDbContext() =>
-            new(new DbContextOptionsBuilder<RewindDb>()
-                .UseSqlite(RewindDb.ConnectionStringFor(rewind.Paths.Database))
-                .AddInterceptors(new TakeTheLabelFirst(rewind))
-                .Options);
-    }
-
-    private sealed class TakeTheLabelFirst(TempRewind rewind) : SaveChangesInterceptor
-    {
-        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
-            DbContextEventData eventData,
-            InterceptionResult<int> result,
-            CancellationToken cancellationToken = default)
-        {
-            await TakeTheLabelAsync(rewind, cancellationToken);
-            return result;
-        }
     }
 
     // Contexts that cancel the clerk's token the moment a save commits, as if the clerk left the

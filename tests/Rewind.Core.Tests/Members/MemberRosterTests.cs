@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Rewind.Core.Data;
@@ -134,7 +133,9 @@ public sealed class MemberRosterTests
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
 
-        var change = await Roster(rewind, new CardTakenJustBeforeEachSave(rewind)).AddAsync("Grandma", Card, ct);
+        var momFirst = new BeforeEachSave(rewind, token => AddMemberAsync(rewind, "Mom", Card, token));
+
+        var change = await Roster(rewind, momFirst).AddAsync("Grandma", Card, ct);
 
         var mom = Assert.Single(await SavedMembersAsync(rewind, ct));
         Assert.Equal(new MemberChange(MemberChangeStatus.CardInUse, mom), change);
@@ -521,28 +522,5 @@ public sealed class MemberRosterTests
     private sealed class NoDatabase : IDbContextFactory<RewindDb>
     {
         public RewindDb CreateDbContext() => throw new InvalidOperationException("The roster opened the database.");
-    }
-
-    // Contexts each of whose saves another member beats to the card: just before the save, Mom is
-    // saved with MEM-001 through a context of her own.
-    private sealed class CardTakenJustBeforeEachSave(TempRewind rewind) : IDbContextFactory<RewindDb>
-    {
-        public RewindDb CreateDbContext() =>
-            new(new DbContextOptionsBuilder<RewindDb>()
-                .UseSqlite(RewindDb.ConnectionStringFor(rewind.Paths.Database))
-                .AddInterceptors(new TakeTheCardFirst(rewind))
-                .Options);
-    }
-
-    private sealed class TakeTheCardFirst(TempRewind rewind) : SaveChangesInterceptor
-    {
-        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
-            DbContextEventData eventData,
-            InterceptionResult<int> result,
-            CancellationToken cancellationToken = default)
-        {
-            await AddMemberAsync(rewind, "Mom", Card, cancellationToken);
-            return result;
-        }
     }
 }
