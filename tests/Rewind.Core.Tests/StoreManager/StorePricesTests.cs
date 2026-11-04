@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Rewind.Core.Data;
@@ -168,8 +167,9 @@ public sealed class StorePricesTests
         var ct = TestContext.Current.CancellationToken;
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
+        var sheetFirst = new BeforeEachSave(rewind, token => MakeASheetAsync(rewind, token));
 
-        await new StorePrices(new SheetMadeJustBeforeEachSave(rewind), NullLogger<StorePrices>.Instance).SaveAsync("3", "1", ct);
+        await new StorePrices(sheetFirst, NullLogger<StorePrices>.Instance).SaveAsync("3", "1", ct);
 
         await using var db = rewind.OpenDb();
         var settings = await db.StoreSettings.AsNoTracking().SingleAsync(ct);
@@ -216,29 +216,12 @@ public sealed class StorePricesTests
         public RewindDb CreateDbContext() => throw new InvalidOperationException("The prices opened the database.");
     }
 
-    // Contexts each of whose saves a sheet of labels beats: just before the save, the next label number
-    // moves on by a sheet, through a context of its own, as LabelSheets would move it.
-    private sealed class SheetMadeJustBeforeEachSave(TempRewind rewind) : IDbContextFactory<RewindDb>
+    // The next label number moves on by a sheet, through a context of its own, as LabelSheets would move it.
+    private static async Task MakeASheetAsync(TempRewind rewind, CancellationToken cancellationToken)
     {
-        public RewindDb CreateDbContext() =>
-            new(new DbContextOptionsBuilder<RewindDb>()
-                .UseSqlite(RewindDb.ConnectionStringFor(rewind.Paths.Database))
-                .AddInterceptors(new MakeASheetFirst(rewind))
-                .Options);
-    }
-
-    private sealed class MakeASheetFirst(TempRewind rewind) : SaveChangesInterceptor
-    {
-        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
-            DbContextEventData eventData,
-            InterceptionResult<int> result,
-            CancellationToken cancellationToken = default)
-        {
-            await using var db = rewind.OpenDb();
-            var settings = await db.StoreSettings.SingleAsync(cancellationToken);
-            settings.NextStoreLabelNumber += LabelSheets.LabelsPerSheet;
-            await db.SaveChangesAsync(cancellationToken);
-            return result;
-        }
+        await using var db = rewind.OpenDb();
+        var settings = await db.StoreSettings.SingleAsync(cancellationToken);
+        settings.NextStoreLabelNumber += LabelSheets.LabelsPerSheet;
+        await db.SaveChangesAsync(cancellationToken);
     }
 }

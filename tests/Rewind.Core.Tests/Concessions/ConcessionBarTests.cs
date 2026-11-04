@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Rewind.Core.Concessions;
@@ -132,15 +131,17 @@ public sealed class ConcessionBarTests
         Assert.Equal([owner], await SavedItemsAsync(rewind, ct));
     }
 
-    // The code was free when the bar looked, and another item took it before the save.
+    // The code was free when the bar looked, and another item took it before the save: Popcorn is saved
+    // with CON-POPCORN through a context of its own, just before this save.
     [Fact]
     public async Task AddAsync_CodeTakenDuringTheSave_IsCodeInUse()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
+        var popcornFirst = new BeforeEachSave(rewind, token => AddItemAsync(rewind, "Popcorn", Code, 100, token));
 
-        var change = await Bar(rewind, new CodeTakenJustBeforeEachSave(rewind)).AddAsync("Kettle corn", Code, "1.25", ct);
+        var change = await Bar(rewind, popcornFirst).AddAsync("Kettle corn", Code, "1.25", ct);
 
         Assert.Equal(ConcessionChangeStatus.CodeInUse, change.Status);
         Assert.Equal("Popcorn", change.Item?.Name);
@@ -513,28 +514,5 @@ public sealed class ConcessionBarTests
     private sealed class NoDatabase : IDbContextFactory<RewindDb>
     {
         public RewindDb CreateDbContext() => throw new InvalidOperationException("The concession bar opened the database.");
-    }
-
-    // Contexts each of whose saves another item beats to the code: just before the save, Popcorn is saved
-    // with CON-POPCORN through a context of its own.
-    private sealed class CodeTakenJustBeforeEachSave(TempRewind rewind) : IDbContextFactory<RewindDb>
-    {
-        public RewindDb CreateDbContext() =>
-            new(new DbContextOptionsBuilder<RewindDb>()
-                .UseSqlite(RewindDb.ConnectionStringFor(rewind.Paths.Database))
-                .AddInterceptors(new TakeTheCodeFirst(rewind))
-                .Options);
-    }
-
-    private sealed class TakeTheCodeFirst(TempRewind rewind) : SaveChangesInterceptor
-    {
-        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
-            DbContextEventData eventData,
-            InterceptionResult<int> result,
-            CancellationToken cancellationToken = default)
-        {
-            await AddItemAsync(rewind, "Popcorn", Code, 100, cancellationToken);
-            return result;
-        }
     }
 }

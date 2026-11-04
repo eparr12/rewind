@@ -1,7 +1,6 @@
 using System.Net;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Rewind.Core.Data;
@@ -253,7 +252,7 @@ public sealed class BarcodeTitlesTests : IAsyncLifetime
     {
         var ct = TestContext.Current.CancellationToken;
         _upcItemDb.AnswerLookup(UpcJson.TommyBoyUpc, UpcJson.NoItems);
-        _titles = new BarcodeTitles(Client(), _pacer, new BeatenToEachSave(_rewind), _rewind.Time, NullLogger<BarcodeTitles>.Instance);
+        _titles = new BarcodeTitles(Client(), _pacer, new BeforeEachSave(_rewind, SaveATitleFirstAsync), _rewind.Time, NullLogger<BarcodeTitles>.Instance);
 
         var title = await LookUpAsync(UpcJson.TommyBoyUpc);
 
@@ -291,28 +290,11 @@ public sealed class BarcodeTitlesTests : IAsyncLifetime
 
     private UpcItemDbClient Client() => new(_http, Options.Create(new UpcItemDbOptions()), NullLogger<UpcItemDbClient>.Instance);
 
-    // Contexts each of whose saves another save beats: just before it, a row for Tommy Boy is saved
-    // through a context of its own.
-    private sealed class BeatenToEachSave(TempRewind rewind) : IDbContextFactory<RewindDb>
+    // The other save that beats a lookup's: a row for Tommy Boy, through a context of its own.
+    private async Task SaveATitleFirstAsync(CancellationToken cancellationToken)
     {
-        public RewindDb CreateDbContext() =>
-            new(new DbContextOptionsBuilder<RewindDb>()
-                .UseSqlite(RewindDb.ConnectionStringFor(rewind.Paths.Database))
-                .AddInterceptors(new SaveFirst(rewind))
-                .Options);
-    }
-
-    private sealed class SaveFirst(TempRewind rewind) : SaveChangesInterceptor
-    {
-        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
-            DbContextEventData eventData,
-            InterceptionResult<int> result,
-            CancellationToken cancellationToken = default)
-        {
-            await using var other = rewind.OpenDb();
-            other.UpcLookups.Add(new UpcLookup { Upc = UpcJson.TommyBoyUpc, ProductTitle = "Tommy Boy (DVD)", LookedUpAt = rewind.Time.GetUtcNow().UtcDateTime });
-            await other.SaveChangesAsync(cancellationToken);
-            return result;
-        }
+        await using var other = _rewind.OpenDb();
+        other.UpcLookups.Add(new UpcLookup { Upc = UpcJson.TommyBoyUpc, ProductTitle = "Tommy Boy (DVD)", LookedUpAt = _rewind.Time.GetUtcNow().UtcDateTime });
+        await other.SaveChangesAsync(cancellationToken);
     }
 }
