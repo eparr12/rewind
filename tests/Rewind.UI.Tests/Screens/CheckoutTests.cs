@@ -1114,8 +1114,8 @@ public sealed class CheckoutTests : BunitContext
         Assert.False(_scanner.IsListenedTo);
     }
 
-    // A scan the scanner's thread raised just before the clerk left reaches the screen afterwards. Its token
-    // went with it, so nothing is asked, and nothing is raised.
+    // A scan the scanner's thread raised just before the clerk left reaches the screen afterwards. The screen
+    // has closed, so nothing is asked, and nothing is raised.
     [Fact]
     public async Task Dispose_ScanRaisedJustBefore_RaisesNothing()
     {
@@ -1228,8 +1228,8 @@ public sealed class CheckoutTests : BunitContext
         Assert.Null(_dialogs.Current);
     }
 
-    // The cancellation leaving causes goes nowhere: WhileBusyAsync catches it before the scan's own handler,
-    // which would otherwise send it to ErrorHub as an error from a closed screen.
+    // The cancellation leaving causes goes nowhere: WhileBusyAsync catches it, and ScanningScreen drops any
+    // that gets past it, rather than sending it to ErrorHub as an error from a closed screen.
     [Fact]
     public async Task Dispose_WhileLookingUpACard_RaisesNothingOnceCancelled()
     {
@@ -1291,6 +1291,24 @@ public sealed class CheckoutTests : BunitContext
         await ScanCardAsync(cut);
 
         Assert.True(Renderer.UnhandledException.IsCompleted);
+        Assert.False(_crashed);
+    }
+
+    // ADR-0011: a card's lookup that answers after the clerk left, rather than being cancelled, would open
+    // the OVERDUE RENTAL alert over the next screen. The dialogs outlive the screen, so it shows nothing instead.
+    [Fact]
+    public async Task Dispose_CardAnswersAfterTheClerkLeft_ShowsNoDialog()
+    {
+        var answer = new TaskCompletionSource<SaleStart>();
+        _counter.Starting = answer.Task;
+        var cut = Render<Checkout>();
+        await ScanCardAsync(cut);
+        await DisposeComponentsAsync();
+
+        answer.SetResult(new SaleStart(SaleStartStatus.Started, OverdueSale)); // the draw, saved as the clerk left
+        await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind the screen's own continuation
+
+        Assert.Null(_dialogs.Current);
         Assert.False(_crashed);
     }
 

@@ -387,8 +387,8 @@ public sealed class MembersTabTests : BunitContext
     }
 
     // Leaving mid-save shows nothing. A scan's save runs as a fire-and-forget task, which ComponentBase
-    // never sees, so the tab catches its own cancellation. Without the catch, the cancellation would go
-    // to ErrorHub as an error from a closed screen, and the clerk would see the error dialog.
+    // never sees, so ScanningScreen catches the cancellation itself. Without the catch, it would go to
+    // ErrorHub as an error from a closed screen, and the clerk would see the error dialog.
     [Fact]
     public async Task Dispose_WhileAdding_RaisesNothingOnceCancelled()
     {
@@ -474,8 +474,7 @@ public sealed class MembersTabTests : BunitContext
     }
 
     // A scan the scanner's thread raised just before the clerk left reaches the tab afterwards, with a
-    // name typed. Its token went with it, so nobody is added, and nothing is raised. Reading that token
-    // would throw, and the clerk would see the error dialog wherever they went.
+    // name typed. The tab has closed, so nobody is added, and nothing is raised.
     [Fact]
     public async Task Dispose_ScanRaisedJustBefore_RaisesNothing()
     {
@@ -487,6 +486,7 @@ public sealed class MembersTabTests : BunitContext
         raisedJustBefore(new Scan(ScanKind.MemberCard, "MEM-003"));
         await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind anything the scan started
 
+        Assert.Empty(_roster.Calls);
         Assert.False(Renderer.UnhandledException.IsCompleted);
         Assert.False(_crashed);
     }

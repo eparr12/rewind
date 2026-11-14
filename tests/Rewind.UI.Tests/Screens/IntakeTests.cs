@@ -1409,9 +1409,8 @@ public sealed class IntakeTests : BunitContext
         Assert.False(_scanner.IsListenedTo);
     }
 
-    // A scan the scanner's thread raised just before the clerk left reaches the screen afterwards. Its
-    // token went with it, so the barcode isn't looked up, and nothing is raised. Reading that token
-    // would throw, and the clerk would see the error dialog wherever they went.
+    // A scan the scanner's thread raised just before the clerk left reaches the screen afterwards. The
+    // screen has closed, so the barcode isn't looked up, and nothing is raised.
     [Fact]
     public async Task Dispose_ScanRaisedJustBefore_RaisesNothing()
     {
@@ -1422,6 +1421,7 @@ public sealed class IntakeTests : BunitContext
         raisedJustBefore(new Scan(ScanKind.Upc, TommyBoyUpc));
         await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind anything the scan started
 
+        Assert.Empty(_titles.Lookups);
         Assert.False(Renderer.UnhandledException.IsCompleted);
         Assert.False(_crashed);
     }
@@ -1439,8 +1439,8 @@ public sealed class IntakeTests : BunitContext
         Assert.True(_titles.LastToken.IsCancellationRequested);
     }
 
-    // The cancellation leaving causes goes nowhere: WhileBusyAsync catches it before the scan's own
-    // handler, which would otherwise send it to ErrorHub as an error from a closed screen.
+    // The cancellation leaving causes goes nowhere: WhileBusyAsync catches it, and ScanningScreen drops
+    // any that gets past it, rather than sending it to ErrorHub as an error from a closed screen.
     [Fact]
     public async Task Dispose_WhileLookingUp_RaisesNothingOnceCancelled()
     {
@@ -1456,7 +1456,6 @@ public sealed class IntakeTests : BunitContext
     }
 
     // The same for a label scan's save, whose fake, unlike the lookup's, waits for the test to cancel it.
-    // An await added to the scan path outside WhileBusyAsync would send this cancellation to ErrorHub.
     [Fact]
     public async Task Dispose_WhileShelving_RaisesNothingOnceCancelled()
     {
@@ -1531,6 +1530,44 @@ public sealed class IntakeTests : BunitContext
         counted.SetCanceled(_intake.LastCountToken); // as EF Core ends a query whose token was cancelled
         await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind the screen's own continuation
 
+        Assert.False(Renderer.UnhandledException.IsCompleted);
+    }
+
+    // ADR-0011: a label scan's save that answers after the clerk left, rather than being cancelled, would
+    // open its dialog over the next screen. The dialogs outlive the screen, so it shows nothing instead.
+    [Fact]
+    public async Task Dispose_ShelvingAnswersAfterTheClerkLeft_ShowsNoDialog()
+    {
+        var shelving = new TaskCompletionSource<Shelving>();
+        var cut = await RenderWithTommyBoyPickedAsync();
+        _intake.Shelving = shelving.Task;
+        await ScanLabelAsync(cut, Label);
+        await DisposeComponentsAsync();
+
+        shelving.SetResult(new Shelving(ShelveStatus.LabelInUse, null)); // Core's answer, as the clerk left
+        await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind the screen's own continuation
+
+        Assert.Null(_dialogs.Current);
+        Assert.False(_crashed);
+    }
+
+    // ADR-0011: the case the register can meet. TMDB's refusal, such as a 429 or a 5xx, can be in already
+    // when the clerk presses an F-key, and TmdbClient reads it as TryLater, not as a cancellation, since it
+    // checks the token only when a call fails. "TMDB didn't answer" would then open over the next screen,
+    // so it shows nothing instead.
+    [Fact]
+    public async Task Dispose_SearchAnswersAfterTheClerkLeft_ShowsNoDialog()
+    {
+        var searched = new TaskCompletionSource<TmdbSearch>();
+        _intake.Search = searched.Task;
+        var cut = Render<Intake>();
+        _ = SearchAsync(cut, "Halloween");
+        await DisposeComponentsAsync();
+
+        searched.SetResult(new TmdbSearch(TmdbStatus.TryLater, [])); // TMDB's refusal, read as the clerk left
+        await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind the screen's own continuation
+
+        Assert.Null(_dialogs.Current);
         Assert.False(Renderer.UnhandledException.IsCompleted);
     }
 

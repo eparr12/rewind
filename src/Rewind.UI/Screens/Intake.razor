@@ -1,15 +1,12 @@
-@implements IDisposable
+@inherits ScanningScreen
 @using System.Diagnostics
 @using System.Globalization
 @using Microsoft.Extensions.Logging
-@inject IScanner Scanner
 @inject IBarcodeTitles Titles
 @inject IMovieIntake Movies
-@inject DialogService Dialogs
 @inject ISoundPlayer Sounds
 @inject TimeProvider Time
 @inject ILogger<Intake> Logger
-@inject ErrorHub Errors
 
 @* F4 Intake (Build Plan 2.2 to 2.4, ADR-0005): a DVD, from its factory UPC to a labeled case on
    the shelf. Scan the UPC, and UPCitemdb's title for it goes in the title box and is searched for
@@ -90,15 +87,10 @@ else if (_matches is { Count: > 0 } matches)
         DialogIcon.Info,
         CanCancel: true);
 
-    // Cancelled when the clerk leaves the screen, so a lookup, a search, a pick or a label scan's
-    // save still waiting on UPCitemdb, TMDB or the database stops.
-    private readonly CancellationTokenSource _closing = new();
-
     private ElementReference _titleBox;
     private bool _focusTitle = true;
     private string _title = "";
     private string _searched = "";
-    private string? _busy;
     private IReadOnlyList<TmdbMatch>? _matches;
 
     // The open case's movies, in the order they were added (ADR-0005). Each movie added makes a new
@@ -129,8 +121,6 @@ else if (_matches is { Count: > 0 } matches)
     // register the count is in before the screen first draws, and a case needs a movie first.
     private int? _onShelf;
 
-    private bool Busy => _busy is not null;
-
     private bool LookingUp => _stopLookup is not null;
 
     // One line that always says what's happening or what to do next (UI-6), or answers what the
@@ -139,7 +129,7 @@ else if (_matches is { Count: > 0 } matches)
     {
         get
         {
-            if (_busy is { } busy)
+            if (Doing is { } busy)
             {
                 return busy;
             }
@@ -184,13 +174,10 @@ else if (_matches is { Count: > 0 } matches)
         _ => "Scan the DVD's barcode, or type its title and press Enter.",
     };
 
-    // Listening before the count is read, so a scan while it's read still reaches the screen (UI-4).
-    protected override void OnInitialized() => Scanner.Scanned += OnScanned;
-
     // The clerk leaving the screen cancels the count, and that raises nothing: ComponentBase ignores
     // a task that was cancelled, so a component needs no catch for it (Microsoft Learn, "ASP.NET
     // Core Blazor synchronization context").
-    protected override async Task OnInitializedAsync() => _onShelf = await Movies.CountOnShelfAsync(_closing.Token);
+    protected override async Task OnInitializedAsync() => _onShelf = await Movies.CountOnShelfAsync(Closing);
 
     // UI-3: the title box has the focus when the screen opens and after each movie, so the clerk
     // can just type. While the picker or the hand-entry form is open, it has the focus instead.
@@ -203,50 +190,19 @@ else if (_matches is { Count: > 0 } matches)
         }
     }
 
-    public void Dispose()
-    {
-        Scanner.Scanned -= OnScanned;
-        _closing.Cancel();
-        _closing.Dispose();
-    }
-
-    // UI-4: a scan reaches the screen from the scanner, whatever has the focus. UI-11: it can arrive
-    // on the scanner's thread, and an exception here would only fault the Task that InvokeAsync
-    // returns, which nobody awaits, so it goes to DispatchExceptionAsync and the screen's
-    // ErrorBoundary. Once the clerk has left, DispatchExceptionAsync throws, since the renderer has no
-    // component to give it to, so an error then goes to ErrorHub instead, which logs it and shows the
-    // error dialog (OBS-5). One thrown while the screen is open is handed on in the same turn, so it
-    // reaches the ErrorBoundary before the screen can be disposed. WhileBusyAsync has already caught
-    // the cancellation that leaving causes, so an await added outside it would send that to ErrorHub.
-    private void OnScanned(Scan scan) => _ = InvokeAsync(async () =>
-    {
-        try
-        {
-            await OnScanAsync(scan);
-        }
-        catch (Exception e) when (_closing.IsCancellationRequested)
-        {
-            Errors.ReportFromComponent(nameof(Intake), e);
-        }
-        catch (Exception e)
-        {
-            await DispatchExceptionAsync(e);
-        }
-    });
-
     // A factory UPC starts the next DVD, and a store label puts the open case on the shelf. Nothing
     // else means anything here (HW-5).
-    private async Task OnScanAsync(Scan scan)
+    protected override async Task OnScanAsync(Scan scan)
     {
-        if (scan.Kind is not (ScanKind.Upc or ScanKind.StoreLabel) || _closing.IsCancellationRequested)
+        if (scan.Kind is not (ScanKind.Upc or ScanKind.StoreLabel))
         {
-            return; // nor does a scan that arrives as the clerk leaves the screen
+            return;
         }
 
         // One thing at a time: a scan while a DVD is looked up, searched for or picked, while a case
         // is being saved, or while a dialog waits for an answer, would start something new in the
         // middle of it.
-        if (Busy || Dialogs.Current is not null)
+        if (Busy || DialogOpen)
         {
             LogScanIgnored(Logger, scan.Kind, scan.Code);
             return;
@@ -304,7 +260,7 @@ else if (_matches is { Count: > 0 } matches)
     // (UI-11).
     private async Task<BarcodeTitle?> StoppableLookupAsync(string upc)
     {
-        using var stop = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token);
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(Closing);
         _stopLookup = stop;
         try
         {
@@ -325,7 +281,7 @@ else if (_matches is { Count: > 0 } matches)
             return; // a report that arrives after its lookup ended
         }
 
-        _busy = LookingUpLine(upc, wait);
+        Doing = LookingUpLine(upc, wait);
         StateHasChanged();
     }
 
@@ -348,7 +304,7 @@ else if (_matches is { Count: > 0 } matches)
     {
         _matches = null;
         _handEntry = false; // the picker takes its place
-        if (await WhileBusyAsync("Searching TMDB...", token => Movies.SearchAsync(title, token), _closing.Token) is not { } search)
+        if (await WhileBusyAsync("Searching TMDB...", token => Movies.SearchAsync(title, token), Closing) is not { } search)
         {
             return;
         }
@@ -384,7 +340,7 @@ else if (_matches is { Count: > 0 } matches)
         }
 
         var adding = $"Adding {MovieTitle.WithYear(match.Title, match.Year)}...";
-        if (await WhileBusyAsync(adding, token => Movies.PickAsync(match.TmdbId, token), _closing.Token) is not { } pick)
+        if (await WhileBusyAsync(adding, token => Movies.PickAsync(match.TmdbId, token), Closing) is not { } pick)
         {
             return;
         }
@@ -487,7 +443,7 @@ else if (_matches is { Count: > 0 } matches)
         }
 
         var saving = $"Putting {label} on the shelf...";
-        switch (await WhileBusyAsync(saving, token => Movies.ShelveAsync(label, _barcode, _movies, token), _closing.Token))
+        switch (await WhileBusyAsync(saving, token => Movies.ShelveAsync(label, _barcode, _movies, token), Closing))
         {
             case null:
                 return; // the clerk left the screen before it was saved
@@ -579,34 +535,6 @@ else if (_matches is { Count: > 0 } matches)
         _movies = [];
         _title = "";
         _focusTitle = true;
-    }
-
-    // Shows what Rewind is doing until UPCitemdb, TMDB or the database answers. Null when the call
-    // was stopped, by the clerk leaving the screen or pressing Esc.
-    private async Task<T?> WhileBusyAsync<T>(string doing, Func<CancellationToken, Task<T>> call, CancellationToken token)
-        where T : class
-    {
-        _busy = doing;
-        StateHasChanged(); // drawn now, even for a scan, which Blazor doesn't draw for by itself
-        try
-        {
-            return await call(token);
-        }
-        catch (OperationCanceledException) when (token.IsCancellationRequested)
-        {
-            return null;
-        }
-        finally
-        {
-            _busy = null;
-        }
-    }
-
-    // Drawn first, so the screen behind the dialog shows what happened, not what was happening.
-    private Task<bool> ShowAsync(Dialog dialog)
-    {
-        StateHasChanged();
-        return Dialogs.ShowAsync(dialog);
     }
 
     // Such as "Looking up 032429258373 in 7 seconds...", while the lookup waits its turn.

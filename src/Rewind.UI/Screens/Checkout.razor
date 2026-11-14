@@ -1,13 +1,10 @@
-@implements IDisposable
+@inherits ScanningScreen
 @using System.Diagnostics
 @using Microsoft.Extensions.Logging
-@inject IScanner Scanner
 @inject ICheckoutCounter Counter
 @inject IConcessionBar Bar
-@inject DialogService Dialogs
 @inject ISoundPlayer Sounds
 @inject ILogger<Checkout> Logger
-@inject ErrorHub Errors
 
 @* F1 Checkout (Build Plan 3.3): from the member's card to the change due. Idle, it waits for a card. The
    card opens a sale, whose bill grows with each case scanned and each snack, by button or by scan. The cash
@@ -116,9 +113,6 @@
         DialogIcon.Info,
         CanCancel: true);
 
-    // Cancelled when the clerk leaves the screen, so a read or a save still waiting on the database stops.
-    private readonly CancellationTokenSource _closing = new();
-
     // The open sale's bill (ADR-0003), which goes to Core as a ticket when the cash completes it.
     private readonly List<TicketItem> _items = [];
     private readonly List<TicketLine> _lines = [];
@@ -128,7 +122,6 @@
     private bool _focusCash = true;
     private bool _focusDone;
     private string _cash = "";
-    private string? _busy;
 
     // Read once, as the screen opens: changing a price or a snack means leaving for F5, and coming back
     // opens a new screen, which reads them again.
@@ -143,8 +136,6 @@
     // The sale just completed, whose change is on screen until the next card or Esc.
     private CompletedSale? _done;
 
-    private bool Busy => _busy is not null;
-
     private bool HasSomethingOnIt => _items.Count > 0 || _lines.Count > 0;
 
     // One line that always says what's happening or what to do next (UI-6).
@@ -152,7 +143,7 @@
     {
         get
         {
-            if (_busy is { } busy)
+            if (Doing is { } busy)
             {
                 return busy;
             }
@@ -171,13 +162,10 @@
         }
     }
 
-    // Listening before the snacks are read, so a card scanned as the screen opens still reaches it.
-    protected override void OnInitialized() => Scanner.Scanned += OnScanned;
-
     // The clerk leaving the screen cancels the read, and that raises nothing: ComponentBase ignores a task
     // that was cancelled, so a component needs no catch for it.
     protected override async Task OnInitializedAsync() =>
-        _snacks = [.. (await Bar.ListAsync(_closing.Token)).Where(snack => snack.IsActive)];
+        _snacks = [.. (await Bar.ListAsync(Closing)).Where(snack => snack.IsActive)];
 
     // UI-3: the Cash box has the focus, so Enter completes the sale. Scans need none (UI-4).
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -194,44 +182,17 @@
         }
     }
 
-    public void Dispose()
+    protected override async Task OnScanAsync(Scan scan)
     {
-        Scanner.Scanned -= OnScanned;
-        _closing.Cancel();
-        _closing.Dispose();
-    }
-
-    // UI-11, as in Intake: a scan can arrive on the scanner's thread, and an exception here would only fault
-    // the Task that InvokeAsync returns, which nobody awaits, so it goes to the screen's ErrorBoundary. Once
-    // the clerk has left there's no boundary to give it to, so it goes to ErrorHub instead.
-    private void OnScanned(Scan scan) => _ = InvokeAsync(async () =>
-    {
-        try
-        {
-            await OnScanAsync(scan);
-        }
-        catch (Exception e) when (_closing.IsCancellationRequested)
-        {
-            Errors.ReportFromComponent(nameof(Checkout), e);
-        }
-        catch (Exception e)
-        {
-            await DispatchExceptionAsync(e);
-        }
-    });
-
-    private async Task OnScanAsync(Scan scan)
-    {
-        // A scan raised as the clerk left can still arrive. _closing is disposed by then, so reading its Token
-        // would throw, not cancel. An unknown barcode has had its chord from ScannerHub (HW-5).
-        if (scan.Kind == ScanKind.Unknown || _closing.IsCancellationRequested)
+        // An unknown barcode has had its chord from ScannerHub (HW-5).
+        if (scan.Kind == ScanKind.Unknown)
         {
             return;
         }
 
         // One thing at a time: a scan while Core answers, while the clerk picks a movie, or while a dialog
         // waits for an answer would start something new in the middle of it.
-        if (Busy || _choosing is not null || Dialogs.Current is not null)
+        if (Busy || _choosing is not null || DialogOpen)
         {
             LogScanIgnored(Logger, scan.Kind, scan.Code);
             return;
@@ -265,7 +226,7 @@
             return;
         }
 
-        if (await WhileBusyAsync("Looking up the card...", token => Counter.StartAsync(card, token), _closing.Token) is not { } start)
+        if (await WhileBusyAsync("Looking up the card...", token => Counter.StartAsync(card, token), Closing) is not { } start)
         {
             return;
         }
@@ -312,7 +273,7 @@
             return;
         }
 
-        if (await WhileBusyAsync($"Looking up {label}...", token => Counter.ScanCaseAsync(label, token), _closing.Token) is not { } scan)
+        if (await WhileBusyAsync($"Looking up {label}...", token => Counter.ScanCaseAsync(label, token), Closing) is not { } scan)
         {
             return;
         }
@@ -363,12 +324,9 @@
             return;
         }
 
-        var snack = await WhileBusyAsync($"Looking up {code}...", token => Bar.FindByCodeAsync(code, token), _closing.Token);
-        if (_closing.IsCancellationRequested)
-        {
-            return; // no answer, and no screen for a dialog to belong to
-        }
-
+        // Null when no snack has the code, and when the clerk left before Core answered. The dialog below is
+        // for the first: once the clerk has left, ShowAsync shows nothing.
+        var snack = await WhileBusyAsync($"Looking up {code}...", token => Bar.FindByCodeAsync(code, token), Closing);
         if (snack is null)
         {
             await ShowAsync(new Dialog(Store.Name, $"No snack has the code {code}.\n\nTell the Store Manager.", DialogIcon.Warning));
@@ -426,7 +384,7 @@
     // Core sums the ticket and refuses cash under the total, as the database does.
     private async Task SaveSaleAsync(Ticket ticket)
     {
-        switch (await WhileBusyAsync("Saving the sale...", token => Counter.CompleteAsync(ticket, token), _closing.Token))
+        switch (await WhileBusyAsync("Saving the sale...", token => Counter.CompleteAsync(ticket, token), Closing))
         {
             case null:
                 return; // the clerk left the screen before it was saved
@@ -489,33 +447,6 @@
             EndSale();
             _focusCash = true;
         }
-    }
-
-    // Shows what Rewind is doing until the database answers. Null when the clerk left the screen first.
-    private async Task<T?> WhileBusyAsync<T>(string doing, Func<CancellationToken, Task<T>> call, CancellationToken token)
-        where T : class?
-    {
-        _busy = doing;
-        StateHasChanged(); // drawn now, even for a scan, which Blazor doesn't draw for by itself
-        try
-        {
-            return await call(token);
-        }
-        catch (OperationCanceledException) when (token.IsCancellationRequested)
-        {
-            return null;
-        }
-        finally
-        {
-            _busy = null;
-        }
-    }
-
-    // Drawn first, so the screen behind the dialog shows what happened, not what was happening.
-    private Task<bool> ShowAsync(Dialog dialog)
-    {
-        StateHasChanged();
-        return Dialogs.ShowAsync(dialog);
     }
 
     // The bill as a ticket. Copies, since the bill changes when the sale ends, and a ticket is a record of it.
