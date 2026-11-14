@@ -22,4 +22,10 @@ public sealed class RentalItem
     /// A later price change doesn't touch it (DATA-10).
     /// </summary>
     public int PriceCents { get; set; }
+
+    /// <summary>
+    /// When the case came back, in UTC (DATA-8), or null while it's out. A case is out on one rental at a
+    /// time (DATA-11). A return belongs to no business day, so this time is all it keeps.
+    /// </summary>
+    public DateTime? ReturnedAt { get; set; }
 }

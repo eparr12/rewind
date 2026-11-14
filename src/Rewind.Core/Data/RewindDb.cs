@@ -7,6 +7,7 @@ using Rewind.Core.LateFees;
 using Rewind.Core.Members;
 using Rewind.Core.Metadata;
 using Rewind.Core.MovieNights;
+using Rewind.Core.Returns;
 using Rewind.Core.StoreManager;
 
 namespace Rewind.Core.Data;
@@ -61,6 +62,9 @@ public sealed class RewindDb(DbContextOptions<RewindDb> options) : DbContext(opt
 
     /// <summary>The snacks and late fees on each rental's bill.</summary>
     public DbSet<SaleLine> SaleLines => Set<SaleLine>();
+
+    /// <summary>Who watched each rented movie, with their stars.</summary>
+    public DbSet<Viewing> WatchLog => Set<Viewing>();
 
     /// <summary>
     /// The connection string for a Rewind database file. Foreign Keys=True sends

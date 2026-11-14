@@ -15,7 +15,7 @@ namespace Rewind.Core.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.14");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.15");
 
             modelBuilder.Entity("Rewind.Core.Catalog.Case", b =>
                 {
@@ -247,7 +247,14 @@ namespace Rewind.Core.Migrations
                     b.Property<int>("RentalId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTime?>("ReturnedAt")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("CaseId")
+                        .IsUnique()
+                        .HasFilter("\"ReturnedAt\" IS NULL");
 
                     b.HasIndex("CaseId", "MovieId");
 
@@ -466,6 +473,34 @@ namespace Rewind.Core.Migrations
                     b.ToTable("BusinessDays");
                 });
 
+            modelBuilder.Entity("Rewind.Core.Returns.Viewing", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MemberId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("RentalItemId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("Stars")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MemberId");
+
+                    b.HasIndex("RentalItemId", "MemberId")
+                        .IsUnique();
+
+                    b.ToTable("WatchLog", t =>
+                        {
+                            t.HasCheckConstraint("CK_WatchLog_Stars", "\"Stars\" BETWEEN 1 AND 5");
+                        });
+                });
+
             modelBuilder.Entity("Rewind.Core.StoreManager.StoreSettings", b =>
                 {
                     b.Property<int>("Id")
@@ -607,6 +642,21 @@ namespace Rewind.Core.Migrations
                     b.HasOne("Rewind.Core.Members.Member", null)
                         .WithMany()
                         .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Rewind.Core.Returns.Viewing", b =>
+                {
+                    b.HasOne("Rewind.Core.Members.Member", null)
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Rewind.Core.Checkout.RentalItem", null)
+                        .WithMany()
+                        .HasForeignKey("RentalItemId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
