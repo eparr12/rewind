@@ -1114,8 +1114,8 @@ public sealed class CheckoutTests : BunitContext
         Assert.False(_scanner.IsListenedTo);
     }
 
-    // A scan the scanner's thread raised just before the clerk left reaches the screen afterwards. Its token
-    // went with it, so nothing is asked, and nothing is raised.
+    // A scan the scanner's thread raised just before the clerk left reaches the screen afterwards. The screen
+    // has closed, so nothing is asked, and nothing is raised.
     [Fact]
     public async Task Dispose_ScanRaisedJustBefore_RaisesNothing()
     {
@@ -1228,8 +1228,8 @@ public sealed class CheckoutTests : BunitContext
         Assert.Null(_dialogs.Current);
     }
 
-    // The cancellation leaving causes goes nowhere: WhileBusyAsync catches it before the scan's own handler,
-    // which would otherwise send it to ErrorHub as an error from a closed screen.
+    // The cancellation leaving causes goes nowhere: WhileBusyAsync catches it, and ScanningScreen drops any
+    // that gets past it, rather than sending it to ErrorHub as an error from a closed screen.
     [Fact]
     public async Task Dispose_WhileLookingUpACard_RaisesNothingOnceCancelled()
     {

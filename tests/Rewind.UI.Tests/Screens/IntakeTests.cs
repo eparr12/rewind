@@ -1409,9 +1409,8 @@ public sealed class IntakeTests : BunitContext
         Assert.False(_scanner.IsListenedTo);
     }
 
-    // A scan the scanner's thread raised just before the clerk left reaches the screen afterwards. Its
-    // token went with it, so the barcode isn't looked up, and nothing is raised. Reading that token
-    // would throw, and the clerk would see the error dialog wherever they went.
+    // A scan the scanner's thread raised just before the clerk left reaches the screen afterwards. The
+    // screen has closed, so the barcode isn't looked up, and nothing is raised.
     [Fact]
     public async Task Dispose_ScanRaisedJustBefore_RaisesNothing()
     {
@@ -1440,8 +1439,8 @@ public sealed class IntakeTests : BunitContext
         Assert.True(_titles.LastToken.IsCancellationRequested);
     }
 
-    // The cancellation leaving causes goes nowhere: WhileBusyAsync catches it before the scan's own
-    // handler, which would otherwise send it to ErrorHub as an error from a closed screen.
+    // The cancellation leaving causes goes nowhere: WhileBusyAsync catches it, and ScanningScreen drops
+    // any that gets past it, rather than sending it to ErrorHub as an error from a closed screen.
     [Fact]
     public async Task Dispose_WhileLookingUp_RaisesNothingOnceCancelled()
     {
@@ -1457,7 +1456,6 @@ public sealed class IntakeTests : BunitContext
     }
 
     // The same for a label scan's save, whose fake, unlike the lookup's, waits for the test to cancel it.
-    // An await added to the scan path outside WhileBusyAsync would send this cancellation to ErrorHub.
     [Fact]
     public async Task Dispose_WhileShelving_RaisesNothingOnceCancelled()
     {

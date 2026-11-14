@@ -1,10 +1,7 @@
-@implements IDisposable
+@inherits ScanningScreen
 @using System.Diagnostics
-@inject IScanner Scanner
 @inject IMemberRoster Roster
-@inject DialogService Dialogs
 @inject ISoundPlayer Sounds
-@inject ErrorHub Errors
 
 @* F5's Members tab (Build Plan 3.1): the family's members, each with the card printed for them. Type a
    new member's name, then scan their card, and they're added. Rename fixes a typo, since someone new is
@@ -15,7 +12,7 @@
     <label for="members-name">New member's name:</label>
     @* Member.MaxNameLength is Core's backstop; the box stops there first. *@
     <input id="members-name" type="text" autocomplete="off" spellcheck="false" maxlength="@Member.MaxNameLength"
-           disabled="@_busy" @ref="_nameBox" @bind="_name" @bind:event="oninput" />
+           disabled="@_saving" @ref="_nameBox" @bind="_name" @bind:event="oninput" />
 </div>
 <p class="members-prompt">@Line</p>
 
@@ -47,14 +44,14 @@ else
                         {
                             <td>
                                 <input class="members-rename" type="text" autocomplete="off" spellcheck="false"
-                                       aria-label="@($"{member.Name}'s name")" maxlength="@Member.MaxNameLength" disabled="@_busy"
+                                       aria-label="@($"{member.Name}'s name")" maxlength="@Member.MaxNameLength" disabled="@_saving"
                                        @ref="_renameBox" @bind="_newName" @bind:event="oninput" @onkeydown="OnRenameKeyDownAsync" />
                             </td>
                             <td>@member.CardBarcode</td>
                             <td>@Active(member)</td>
                             <td class="members-buttons">
-                                <button disabled="@_busy" @onclick="SaveRenameAsync">Save</button>
-                                <button disabled="@_busy" @onclick="CancelRename">Cancel</button>
+                                <button disabled="@_saving" @onclick="SaveRenameAsync">Save</button>
+                                <button disabled="@_saving" @onclick="CancelRename">Cancel</button>
                             </td>
                         }
                         else
@@ -77,11 +74,6 @@ else
 @code {
     private const string Prompt = "Type the new member's name, then scan their card.";
 
-    // Cancelled when the clerk leaves the tab, or F5, so a read or a save still waiting on the database
-    // stops. A button's wait reaches ComponentBase, which ignores the cancellation; a scan's is a
-    // fire-and-forget task, so OnScanned catches it (see StoreManager's _closing).
-    private readonly CancellationTokenSource _closing = new();
-
     private ElementReference _nameBox;
     private ElementReference _renameBox;
 
@@ -95,7 +87,7 @@ else
     private string? _notice;
 
     // While Core saves, nothing else starts, and a scan is ignored.
-    private bool _busy;
+    private bool _saving;
 
     // The member whose name is being fixed, and the name as typed so far.
     private int? _renaming;
@@ -105,16 +97,15 @@ else
     private bool _focusRename;
 
     // While a name is being fixed, the other rows' buttons wait.
-    private bool Locked => _busy || _renaming is not null;
+    private bool Locked => _saving || _renaming is not null;
 
     // UI-6: one line always says what to do. While a name is fixed, a scan is ignored, so the line says how
     // to finish, as the Snacks tab's does, rather than to scan a card.
     private string Line => _notice ?? (_renaming is null ? Prompt : "Fix the name, then press Enter. Esc leaves it as it was.");
 
-    protected override void OnInitialized() => Scanner.Scanned += OnScanned;
-
-    // The clerk leaving cancels the read, and that raises nothing (see _closing).
-    protected override async Task OnInitializedAsync() => _members = await Roster.ListAsync(_closing.Token);
+    // The clerk leaving cancels the read, and that raises nothing, since ComponentBase ignores a task that
+    // was cancelled (see StoreManager's _closing).
+    protected override async Task OnInitializedAsync() => _members = await Roster.ListAsync(Closing);
 
     // UI-3: the name box has the focus when the tab opens and after each change, so the Store Manager
     // can type the next name; the rename box has it while a name is being fixed.
@@ -132,53 +123,17 @@ else
         }
     }
 
-    public void Dispose()
-    {
-        Scanner.Scanned -= OnScanned;
-        _closing.Cancel();
-        _closing.Dispose();
-    }
-
-    // UI-4: a scan reaches the tab from the scanner, whatever has the focus. UI-11: it can arrive on the
-    // scanner's thread, and an exception in here would only fault the Task that InvokeAsync returns,
-    // which nobody awaits, so it goes to DispatchExceptionAsync and the screen's ErrorBoundary. That
-    // makes it a fire-and-forget task, which ComponentBase never sees, so the clerk leaving mid-save is
-    // caught here. Once the tab is gone, DispatchExceptionAsync throws, since the renderer has no
-    // component to give an exception to, so a real error after the clerk left goes to ErrorHub
-    // instead, which logs it and shows the error dialog (OBS-5). One thrown while the tab is open is
-    // handed on in the same turn of the renderer's thread, as a probe showed, so it reaches the
-    // ErrorBoundary before the tab can be disposed.
-    private void OnScanned(Scan scan) => _ = InvokeAsync(async () =>
-    {
-        try
-        {
-            await OnScanAsync(scan);
-        }
-        catch (OperationCanceledException) when (_closing.IsCancellationRequested)
-        {
-            // the clerk left the tab while the member was being added
-        }
-        catch (Exception e) when (_closing.IsCancellationRequested)
-        {
-            Errors.ReportFromComponent(nameof(MembersTab), e);
-        }
-        catch (Exception e)
-        {
-            await DispatchExceptionAsync(e);
-        }
-    });
-
     // Only a member card means anything here (HW-5); the status bar says what anything else was. One
     // thing at a time: a scan while the list is read, while Core saves, while a name is being fixed or
     // while a dialog waits for an answer would start something new in the middle of it.
-    private async Task OnScanAsync(Scan scan)
+    protected override async Task OnScanAsync(Scan scan)
     {
-        if (scan.Kind != ScanKind.MemberCard || _closing.IsCancellationRequested)
+        if (scan.Kind != ScanKind.MemberCard)
         {
             return;
         }
 
-        if (_members is not { } members || Locked || Dialogs.Current is not null)
+        if (_members is not { } members || Locked || DialogOpen)
         {
             return;
         }
@@ -191,21 +146,21 @@ else
     // to the list from its answer, so nothing is read again after the save (NET-7).
     private async Task AddAsync(IReadOnlyList<MemberRow> members, string card)
     {
-        _busy = true;
+        _saving = true;
         StateHasChanged(); // a scan isn't a UI event, so the box shows disabled only once it's drawn
         MemberChange change;
         try
         {
-            change = await Roster.AddAsync(_name, card, _closing.Token);
+            change = await Roster.AddAsync(_name, card, Closing);
         }
         finally
         {
-            _busy = false;
+            _saving = false;
         }
 
         // As in F5's print flow: the clerk left while Core saved, so nothing here is shown any more,
         // and a dialog would open over whatever screen is showing now.
-        if (_closing.IsCancellationRequested)
+        if (Closing.IsCancellationRequested)
         {
             return;
         }
@@ -226,8 +181,7 @@ else
                 _focusName = true;
                 return;
             case { Status: MemberChangeStatus.CardInUse, Member: { } owner }:
-                StateHasChanged(); // drawn first, so the box behind the dialog isn't left disabled
-                await Dialogs.ShowAsync(CardInUse(owner));
+                await ShowAsync(CardInUse(owner));
                 _focusName = true;
                 return;
             default:
@@ -266,20 +220,20 @@ else
 
     private async Task SaveRenameAsync()
     {
-        if (_busy || _renaming is not { } memberId || _members is not { } members)
+        if (_saving || _renaming is not { } memberId || _members is not { } members)
         {
             return;
         }
 
-        _busy = true;
+        _saving = true;
         MemberChange change;
         try
         {
-            change = await Roster.RenameAsync(memberId, _newName, _closing.Token);
+            change = await Roster.RenameAsync(memberId, _newName, Closing);
         }
         finally
         {
-            _busy = false;
+            _saving = false;
         }
 
         switch (change)
@@ -306,15 +260,15 @@ else
             return;
         }
 
-        _busy = true;
+        _saving = true;
         MemberChange change;
         try
         {
-            change = await Roster.SetActiveAsync(member.Id, !member.IsActive, _closing.Token);
+            change = await Roster.SetActiveAsync(member.Id, !member.IsActive, Closing);
         }
         finally
         {
-            _busy = false;
+            _saving = false;
         }
 
         if (change is not { Status: MemberChangeStatus.Saved, Member: { } changed })
