@@ -63,7 +63,9 @@ public sealed class RentalItemTests
         await SqliteAssert.RefusesAsync(SqliteConstraint.Unique, () => db.SaveChangesAsync(ct));
     }
 
-    // DATA-11: a case is out on one rental at a time, so it can't go out again until it's back.
+    // DATA-11: a case is out on one rental at a time, so it can't go out again until it's back, whichever movie
+    // is picked from it. The second item picks the double feature's other movie, which an index on the pair, or
+    // on the movie, would let through.
     [Fact]
     public async Task SaveChanges_SecondOpenItemForOneCase_IsRefused()
     {
@@ -77,7 +79,7 @@ public sealed class RentalItemTests
         db.RentalItems.Add(Item(first, parts.CaseId, parts.MovieId));
         await db.SaveChangesAsync(ct);
 
-        db.RentalItems.Add(Item(second, parts.CaseId, parts.MovieId));
+        db.RentalItems.Add(Item(second, parts.CaseId, parts.SecondMovieId));
 
         await SqliteAssert.RefusesAsync(SqliteConstraint.Unique, () => db.SaveChangesAsync(ct));
     }
