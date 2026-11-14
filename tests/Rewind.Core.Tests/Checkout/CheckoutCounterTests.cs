@@ -673,6 +673,30 @@ public sealed class CheckoutCounterTests
         Assert.Equal(CaseStatus.OnShelf, await StatusOfAsync(rewind, found.CaseId, ct));
     }
 
+    // The other refusal only a mistake can send: the case was put On shelf by hand with its rental still open, so it
+    // scans as on the shelf. One open rental per case refuses the item, whichever movie is picked, on a sale of its
+    // own (DATA-11), and the transaction takes the rental with it.
+    [Fact]
+    public async Task CompleteAsync_CaseOnTheShelfWithItsRentalStillOpen_LetsTheRefusalThrough()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddMemberAsync(rewind, ClearBag, ct);
+        await AddCaseAsync(rewind, Label, [new Movie { Title = "Scream", Year = 1996 }, new Movie { Title = "Halloween", Year = 1978 }], ct);
+        var sale = await StartedAsync(rewind, ct);
+        var found = await FoundAsync(rewind, Label, ct);
+        await Counter(rewind).CompleteAsync(TicketFor(sale, [ItemFor(found, sale)], [], 1000), ct);
+        await SetStatusAsync(rewind, found.CaseId, CaseStatus.OnShelf, ct);
+
+        var complete = () => Counter(rewind).CompleteAsync(TicketFor(sale, [ItemFor(found, sale, pick: 1)], [], 1000), ct);
+
+        await SqliteAssert.RefusesAsync(SqliteConstraint.Unique, complete);
+        await using var db = rewind.OpenDb();
+        Assert.Equal(1, await db.Rentals.CountAsync(ct));
+        Assert.Equal(CaseStatus.OnShelf, await StatusOfAsync(rewind, found.CaseId, ct));
+    }
+
     // OBS-3: a checkout is a key event.
     [Fact]
     public async Task CompleteAsync_Completed_LogsTheSale()

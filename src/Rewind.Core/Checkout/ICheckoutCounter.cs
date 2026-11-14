@@ -30,7 +30,8 @@ public interface ICheckoutCounter
     /// Completes a sale: saves the rental, its items and lines, and each case's new status, all or nothing
     /// (DATA-7). An empty ticket, cash under the total, or a case that's no longer on the shelf comes back as
     /// that status, and nothing is saved. A second fee line for one draw throws: the unique index refuses it,
-    /// and only a second register or a bug could send one (ADR-0010).
+    /// and only a second register or a bug could send one (ADR-0010). A second open rental for one case throws
+    /// the same way, and only a hand edit that put a case On shelf with its rental still open could send one.
     /// </summary>
     Task<SaleResult> CompleteAsync(Ticket ticket, CancellationToken cancellationToken);
 }

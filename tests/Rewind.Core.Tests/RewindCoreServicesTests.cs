@@ -8,6 +8,7 @@ using Rewind.Core.LateFees;
 using Rewind.Core.Members;
 using Rewind.Core.Metadata;
 using Rewind.Core.MovieNights;
+using Rewind.Core.Returns;
 using Rewind.Core.StoreManager;
 
 namespace Rewind.Core.Tests;
@@ -145,6 +146,21 @@ public sealed class RewindCoreServicesTests
         await using var provider = services.BuildServiceProvider();
 
         Assert.IsType<CheckoutCounter>(provider.GetRequiredService<ICheckoutCounter>());
+    }
+
+    // Return will inject it, and a host without it would only fail once F2 opened.
+    [Fact]
+    public async Task AddRewindCore_AnyHost_ProvidesTheReturnDesk()
+    {
+        // A full path on Linux too, as for the label sheets above.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddRewindCore(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { [$"{RewindPaths.SectionName}:Root"] = Path.GetTempPath() })
+            .Build());
+        await using var provider = services.BuildServiceProvider();
+
+        Assert.IsType<ReturnDesk>(provider.GetRequiredService<IReturnDesk>());
     }
 
     // The services that use it are singletons, so two scans can reach it at once. A Random of its own wouldn't
