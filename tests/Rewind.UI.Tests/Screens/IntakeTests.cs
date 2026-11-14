@@ -1568,7 +1568,7 @@ public sealed class IntakeTests : BunitContext
         await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind the screen's own continuation
 
         Assert.Null(_dialogs.Current);
-        Assert.False(_crashed);
+        Assert.False(Renderer.UnhandledException.IsCompleted);
     }
 
     private static Task<TmdbSearch> Found(params TmdbMatch[] matches) =>
