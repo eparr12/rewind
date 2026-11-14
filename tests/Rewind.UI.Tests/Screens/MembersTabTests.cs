@@ -487,6 +487,7 @@ public sealed class MembersTabTests : BunitContext
         raisedJustBefore(new Scan(ScanKind.MemberCard, "MEM-003"));
         await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind anything the scan started
 
+        Assert.Empty(_roster.Calls);
         Assert.False(Renderer.UnhandledException.IsCompleted);
         Assert.False(_crashed);
     }

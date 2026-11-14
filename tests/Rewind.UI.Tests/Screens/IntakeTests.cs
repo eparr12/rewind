@@ -1422,6 +1422,7 @@ public sealed class IntakeTests : BunitContext
         raisedJustBefore(new Scan(ScanKind.Upc, TommyBoyUpc));
         await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind anything the scan started
 
+        Assert.Empty(_titles.Lookups);
         Assert.False(Renderer.UnhandledException.IsCompleted);
         Assert.False(_crashed);
     }
