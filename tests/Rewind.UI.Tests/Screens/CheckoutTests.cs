@@ -1294,6 +1294,24 @@ public sealed class CheckoutTests : BunitContext
         Assert.False(_crashed);
     }
 
+    // ADR-0011: a card's lookup that answers after the clerk left, rather than being cancelled, would open
+    // the OVERDUE RENTAL alert over the next screen. The dialogs outlive the screen, so it shows nothing instead.
+    [Fact]
+    public async Task Dispose_CardAnswersAfterTheClerkLeft_ShowsNoDialog()
+    {
+        var answer = new TaskCompletionSource<SaleStart>();
+        _counter.Starting = answer.Task;
+        var cut = Render<Checkout>();
+        await ScanCardAsync(cut);
+        await DisposeComponentsAsync();
+
+        answer.SetResult(new SaleStart(SaleStartStatus.Started, OverdueSale)); // the draw, saved as the clerk left
+        await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind the screen's own continuation
+
+        Assert.Null(_dialogs.Current);
+        Assert.False(_crashed);
+    }
+
     // A scan, as the scanner's thread raises it, then a turn of the screen's own thread, so the screen has
     // handled it before the test looks.
     private async Task ScanAsync(IRenderedComponent<Checkout> cut, ScanKind kind, string code)
