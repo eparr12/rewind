@@ -59,7 +59,7 @@ public sealed partial class LateFeeDraws(
             MemberId = memberId,
             BusinessDayId = businessDayId,
             Card = card,
-            FlavorMovieId = card == Card.Overdue ? await PickFlavorMovieAsync(db, cancellationToken) : null,
+            FlavorMovieId = card == Card.Overdue ? await PickFlavorMovieAsync(db, memberId, cancellationToken) : null,
             DrawnAt = time.GetUtcNow().UtcDateTime, // NET-8, DATA-8
         };
         db.LateFeeDraws.Add(draw);
@@ -85,16 +85,38 @@ public sealed partial class LateFeeDraws(
             .Select(d => (Card?)d.Card)
             .FirstOrDefaultAsync(cancellationToken);
 
-    // Ordered, so a seeded Random picks the same movie every time (TEST-4).
-    private async Task<int?> PickFlavorMovieAsync(RewindDb db, CancellationToken cancellationToken)
+    // The Overview: a movie from the member's watch history, so the alert names one they've seen. Until they've
+    // watched something, any movie in the collection, and none while the collection is empty.
+    private async Task<int?> PickFlavorMovieAsync(RewindDb db, int memberId, CancellationToken cancellationToken)
     {
-        var movies = await db.Movies
+        var movies = await WatchedAsync(db, memberId, cancellationToken);
+        if (movies.Count == 0)
+        {
+            movies = await CollectionAsync(db, cancellationToken);
+        }
+
+        return movies.Count == 0 ? null : movies[random.Next(movies.Count)];
+    }
+
+    // Any movie the watch log says the member watched, with stars or without. It filters the collection, so each
+    // movie is listed once, and one watched five times is no likelier than one watched once. Ordered, as the
+    // collection is (TEST-4).
+    private static Task<List<int>> WatchedAsync(RewindDb db, int memberId, CancellationToken cancellationToken) =>
+        db.Movies
+            .AsNoTracking()
+            .Where(m => db.RentalItems.Any(item => item.MovieId == m.Id
+                && db.WatchLog.Any(viewing => viewing.RentalItemId == item.Id && viewing.MemberId == memberId)))
+            .OrderBy(m => m.Id)
+            .Select(m => m.Id)
+            .ToListAsync(cancellationToken);
+
+    // Ordered, so a seeded Random picks the same movie every time (TEST-4).
+    private static Task<List<int>> CollectionAsync(RewindDb db, CancellationToken cancellationToken) =>
+        db.Movies
             .AsNoTracking()
             .OrderBy(m => m.Id)
             .Select(m => m.Id)
             .ToListAsync(cancellationToken);
-        return movies.Count == 0 ? null : movies[random.Next(movies.Count)];
-    }
 
     // Information (OBS-3): the card a member drew is what they'll ask about, and a late fee on a bill follows it.
     [LoggerMessage(Level = LogLevel.Information, Message = "Member {CardBarcode}, {Name}, drew {Card} on business day {BusinessDayId}")]

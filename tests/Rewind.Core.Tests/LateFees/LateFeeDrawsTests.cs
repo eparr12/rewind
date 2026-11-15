@@ -3,10 +3,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Rewind.Core.Catalog;
+using Rewind.Core.Checkout;
 using Rewind.Core.Data;
 using Rewind.Core.LateFees;
 using Rewind.Core.Members;
 using Rewind.Core.MovieNights;
+using Rewind.Core.Returns;
 
 namespace Rewind.Core.Tests.LateFees;
 
@@ -19,6 +21,8 @@ public sealed class LateFeeDrawsTests
 
     // Not a bag this member's own draw would leave, so a test can tell the two apart.
     private const string AnotherScansBag = "C";
+
+    private const int Seed = 42; // TEST-4: for two draws that must pick alike
 
     [Fact]
     public async Task DrawAsync_ThreeNights_LeavesOneCardInTheSavedBag()
@@ -212,7 +216,7 @@ public sealed class LateFeeDrawsTests
     }
 
     [Fact]
-    public async Task DrawAsync_SeveralMovies_PicksFromTheWholeCollection()
+    public async Task DrawAsync_NoWatchHistory_PicksFromTheWholeCollection()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var rewind = new TempRewind();
@@ -223,6 +227,108 @@ public sealed class LateFeeDrawsTests
         var draws = await DrawForEachAsync(rewind, members, ct);
 
         Assert.Equal(movies.Select(id => (int?)id), draws.Select(d => d.FlavorMovieId).Distinct().Order());
+    }
+
+    // The Overview: the flavor movie comes from the member's watch history. They watched two of the four movies,
+    // so over forty draws, a pick from the whole collection would land outside it about half the time.
+    [Fact]
+    public async Task DrawAsync_MemberWithWatchHistory_PicksOnlyFromIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var movies = await AddMoviesAsync(rewind, 4, ct);
+        var members = await AddMembersAsync(rewind, ManyMembers, bag: "O", ct);
+        await AddWatchedAsync(rewind, members, movies[1], Viewing.MaxStars, ct);
+        await AddWatchedAsync(rewind, members, movies[3], Viewing.MaxStars, ct);
+
+        var draws = await DrawForEachAsync(rewind, members, ct);
+
+        int?[] watched = [movies[1], movies[3]];
+        Assert.Equal(watched, draws.Select(d => d.FlavorMovieId).Distinct().Order());
+    }
+
+    // A member's history is their own, as their bag is: what Mom watched comes up for nobody else.
+    [Fact]
+    public async Task DrawAsync_AnotherMembersWatchHistory_DoesNotCount()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var movies = await AddMoviesAsync(rewind, 2, ct);
+        var family = await AddMembersAsync(rewind, ManyMembers + 1, bag: "O", ct);
+        var (members, mom) = (family[..^1], family[^1]);
+        await AddWatchedAsync(rewind, members, movies[0], Viewing.MaxStars, ct);
+        await AddWatchedAsync(rewind, [mom], movies[1], Viewing.MaxStars, ct);
+
+        var draws = await DrawForEachAsync(rewind, members, ct);
+
+        Assert.All(draws, draw => Assert.Equal(movies[0], draw.FlavorMovieId));
+    }
+
+    // DATA-3: a skipped rating is no stars, and they still watched it.
+    [Fact]
+    public async Task DrawAsync_WatchedWithNoStars_CountsAsWatched()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var movies = await AddMoviesAsync(rewind, 2, ct);
+        var members = await AddMembersAsync(rewind, ManyMembers, bag: "O", ct);
+        await AddWatchedAsync(rewind, members, movies[1], stars: null, ct);
+
+        var draws = await DrawForEachAsync(rewind, members, ct);
+
+        Assert.All(draws, draw => Assert.Equal(movies[1], draw.FlavorMovieId));
+    }
+
+    // Each movie counts once, however often they've watched it. They watched the first movie nine times and the
+    // second once, so counting each viewing would name the second one draw in ten, not about half the time.
+    [Fact]
+    public async Task DrawAsync_MovieWatchedManyTimes_CountsOnce()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var movies = await AddMoviesAsync(rewind, 2, ct);
+        var members = await AddMembersAsync(rewind, ManyMembers, bag: "O", ct);
+        for (var viewings = 0; viewings < 9; viewings++)
+        {
+            await AddWatchedAsync(rewind, members, movies[0], Viewing.MaxStars, ct);
+        }
+
+        await AddWatchedAsync(rewind, members, movies[1], Viewing.MaxStars, ct);
+
+        var draws = await DrawForEachAsync(rewind, members, ct);
+
+        Assert.InRange(draws.Count(draw => draw.FlavorMovieId == movies[1]), ManyMembers / 4, ManyMembers * 3 / 4);
+    }
+
+    // TEST-4: SQLite promises no order for rows a query doesn't sort, but it reads one file the same way every
+    // time, so two draws over the same rows would agree even if nothing sorted them. The second draw reads such
+    // rows backwards, so the two agree only if the list is sorted before the pick. With two movies to pick from,
+    // an unsorted list read backwards puts the other one where the pick lands.
+    [Theory]
+    [InlineData(0)] // the whole collection
+    [InlineData(2)] // their watch history
+    public async Task DrawAsync_SameSeedTwice_PicksTheSameMovie(int watched)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var movies = await AddMoviesAsync(rewind, 2, ct);
+        var dad = await AddMemberAsync(rewind, "MEM-001", bag: "O", ct);
+        var mom = await AddMemberAsync(rewind, "MEM-002", bag: "O", ct);
+        foreach (var movie in movies[..watched])
+        {
+            await AddWatchedAsync(rewind, [dad, mom], movie, Viewing.MaxStars, ct);
+        }
+
+        var dads = await Draws(rewind, random: new Random(Seed)).DrawAsync(dad, ct);
+        var moms = await Draws(rewind, new BackwardsReads(rewind), random: new Random(Seed)).DrawAsync(mom, ct);
+
+        Assert.NotNull(dads.FlavorMovieId);
+        Assert.Equal(dads.FlavorMovieId, moms.FlavorMovieId);
     }
 
     // The reshuffle rule reads the member's last card from their draws, so Members needs no second column.
@@ -414,8 +520,8 @@ public sealed class LateFeeDrawsTests
     }
 
     private static LateFeeDraws Draws(
-        TempRewind rewind, IDbContextFactory<RewindDb>? dbFactory = null, ILogger<LateFeeDraws>? logger = null) =>
-        new(dbFactory ?? rewind.DbFactory, Days(rewind), rewind.Time, rewind.Random, logger ?? NullLogger<LateFeeDraws>.Instance);
+        TempRewind rewind, IDbContextFactory<RewindDb>? dbFactory = null, ILogger<LateFeeDraws>? logger = null, Random? random = null) =>
+        new(dbFactory ?? rewind.DbFactory, Days(rewind), rewind.Time, random ?? rewind.Random, logger ?? NullLogger<LateFeeDraws>.Instance);
 
     private static BusinessDays Days(TempRewind rewind) => new(rewind.DbFactory, rewind.Time, NullLogger<BusinessDays>.Instance);
 
@@ -475,6 +581,27 @@ public sealed class LateFeeDrawsTests
     {
         await using var db = rewind.OpenDb();
         db.LateFeeDraws.AddRange(members.Select(member => new LateFeeDraw { MemberId = member, BusinessDayId = night, Card = card, DrawnAt = drawnAt }));
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    // A rental of the movie last week, back that night, which these members watched, each with these stars. The
+    // first of them rented it. Each call is another case and another rental, as watching a movie again would be.
+    private static async Task AddWatchedAsync(TempRewind rewind, int[] members, int movie, int? stars, CancellationToken cancellationToken)
+    {
+        var lastWeek = Now(rewind).AddDays(-7);
+        await using var db = rewind.OpenDb();
+        var night = new BusinessDay { OpenedAt = lastWeek, ClosedAt = lastWeek };
+        var dvd = new Case { StoreLabel = "RV-" + (await db.Cases.CountAsync(cancellationToken) + 1).ToString("00000", CultureInfo.InvariantCulture) };
+        db.AddRange(night, dvd);
+        await db.SaveChangesAsync(cancellationToken);
+
+        var item = new RentalItem { CaseId = dvd.Id, MovieId = movie, ReturnedAt = lastWeek };
+        db.AddRange(
+            new CaseMovie { CaseId = dvd.Id, MovieId = movie },
+            new Rental { MemberId = members[0], BusinessDayId = night.Id, RentedAt = lastWeek, Items = { item } });
+        await db.SaveChangesAsync(cancellationToken);
+
+        db.WatchLog.AddRange(members.Select(member => new Viewing { RentalItemId = item.Id, MemberId = member, Stars = stars }));
         await db.SaveChangesAsync(cancellationToken);
     }
 

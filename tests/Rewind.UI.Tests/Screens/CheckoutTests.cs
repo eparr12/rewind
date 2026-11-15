@@ -231,8 +231,8 @@ public sealed class CheckoutTests : BunitContext
         Assert.Empty(cut.FindAll(".checkout-ticket"));
     }
 
-    // #58: it opens with OVERDUE RENTAL, and says the movie's overdue rather than that they watched it, since
-    // until the watch log it may be one they've never seen. The dialog plays the chord itself.
+    // It opens with OVERDUE RENTAL, and says the movie's overdue rather than that they watched it, since for a
+    // member who hasn't watched anything yet it may be one they've never seen. The dialog plays the chord itself.
     [Fact]
     public async Task Scanned_OverdueCard_ShowsTheAlert()
     {

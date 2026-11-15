@@ -460,8 +460,8 @@
             : $"No case has the label {label}.\n\nTell the Store Manager.",
         DialogIcon.Warning);
 
-    // #58: until the flavor movie comes from the member's watch history, it may be one they've never seen, so
-    // this says it's overdue, not that they watched it.
+    // This says the movie's overdue, not that they watched it: a member who hasn't watched anything yet gets a
+    // movie from the whole collection, which may be one they've never seen.
     private static Dialog OverdueAlert(FeeDue fee)
     {
         var overdue = fee.MovieTitle is { } title ? $"{MovieTitle.WithYear(title, fee.MovieYear)} is overdue." : "A rental is overdue.";
