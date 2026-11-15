@@ -3,7 +3,10 @@ namespace Rewind.Core.Returns;
 /// <summary>What a returned case's scan did, and if it did nothing, why (NET-12).</summary>
 public enum CheckInStatus
 {
-    /// <summary>The case is back On shelf, and its rental item has its return time.</summary>
+    /// <summary>
+    /// The case is back On shelf, and its rental item has its return time. A case that was On shelf already with its
+    /// rental still open, which only a hand edit leaves, is checked in too, and the log has a warning.
+    /// </summary>
     CheckedIn,
 
     /// <summary>No case has this label, or it isn't a store label. Nothing changes.</summary>

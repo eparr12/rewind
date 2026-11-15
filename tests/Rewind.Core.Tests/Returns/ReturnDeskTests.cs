@@ -78,6 +78,25 @@ public sealed class ReturnDeskTests
         Assert.Equal(["ava", "Dad", "Mom"], rental.People.Select(p => p.Name));
     }
 
+    // The renter is named whether they're active or not. Dad was deactivated while the case was out, so the check-in
+    // still names Dad, and asks only the members who are active.
+    [Fact]
+    public async Task CheckInAsync_RenterDeactivatedSince_StillNamesThemAndDoesntAskThem()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var family = await AddFamilyAsync(rewind, ct);
+        await AddCaseAsync(rewind, Label, Halloween, ct);
+        await RentAsync(rewind, ct, Label);
+        await new MemberRoster(rewind.DbFactory, NullLogger<MemberRoster>.Instance).SetActiveAsync(family.Dad, isActive: false, ct);
+
+        var rental = await CheckedInAsync(rewind, Label, ct);
+
+        Assert.Equal("Dad", rental.RentedBy);
+        Assert.Equal(["ava", "Mom"], rental.People.Select(p => p.Name));
+    }
+
     [Fact]
     public async Task CheckInAsync_LabelInLowerCase_IsReadAsAScanIs()
     {
@@ -296,6 +315,31 @@ public sealed class ReturnDeskTests
 
         Assert.Equal(CheckInStatus.CheckedIn, checkIn.Status);
         Assert.NotNull(Assert.Single(await ItemsAsync(rewind, ct)).ReturnedAt);
+    }
+
+    // OBS-3: the scan puts the hand edit right, so the log is the only place it shows, beside the check-in's own line.
+    // It's the rental's second case, so its item and its rental have different numbers.
+    [Fact]
+    public async Task CheckInAsync_CaseOnTheShelfWithItsRentalStillOpen_LogsAWarning()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddFamilyAsync(rewind, ct);
+        await AddCaseAsync(rewind, Label, Halloween, ct);
+        await AddCaseAsync(rewind, OtherLabel, Scream, ct);
+        await RentAsync(rewind, ct, Label, OtherLabel);
+        await SetStatusAsync(rewind, OtherLabel, CaseStatus.OnShelf, ct);
+        var log = new ListLogger<ReturnDesk>();
+
+        await Desk(rewind, logger: log).CheckInAsync(OtherLabel, ct);
+
+        Assert.Equal(
+            [
+                (LogLevel.Warning, "Case RV-00043 was on the shelf with rental item 2 still open, which only a hand edit leaves, so it's checked in", (Exception?)null),
+                (LogLevel.Information, "Checked in case RV-00043, rental item 2 of rental 1", null),
+            ],
+            log.Entries);
     }
 
     // Each case is scanned on its own and closes only its own item, so the other stays out until it's scanned. The

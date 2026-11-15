@@ -9,15 +9,19 @@ public interface IReturnDesk
 {
     /// <summary>
     /// Checks in the case with this store label: its open rental item gets the clock's time as its return time,
-    /// and the case goes back On shelf, in one save (DATA-7), before anyone is asked who watched. The open rental
-    /// item is what says a case is out, whatever the case's status says. The label is read as a scan is, so
-    /// rv-00042 is RV-00042, and a barcode that isn't a store label is no case's. A return opens no movie night,
-    /// and one that comes back on a later night checks in the same way, with nothing charged. A case that's on
-    /// the shelf already comes back <see cref="CheckInStatus.AlreadyOnShelf"/>, with its last rental to ask about
-    /// while that rental's watch log is empty. One marked checked out with no rental out, which only a hand edit
-    /// leaves, goes back on the shelf as <see cref="CheckInStatus.Reshelved"/>, with nobody to ask. A retired case
-    /// is refused, and nothing changes. Once the return is saved, a cancel can't take the answer back (NET-7).
+    /// and the case goes back On shelf, in one save (DATA-7), before anyone is asked who watched. The label is read
+    /// as a scan is, so rv-00042 is RV-00042, and a barcode that isn't a store label is no case's. A return opens no
+    /// movie night, and one that comes back on a later night checks in the same way, with nothing charged. A case
+    /// on the shelf with no rental out comes back <see cref="CheckInStatus.AlreadyOnShelf"/>, with its last rental
+    /// to ask about while that rental's watch log is empty. A retired case is refused, and nothing changes. Once the
+    /// return is saved, a cancel can't take the answer back (NET-7).
     /// </summary>
+    /// <remarks>
+    /// The open rental item is what says a case is out, and the case's status follows it (ADR-0012). Where a hand
+    /// edit has left them out of step, the scan puts it right and logs a warning. A case On shelf with its rental
+    /// open is checked in, and one marked checked out with no rental out goes back on the shelf as
+    /// <see cref="CheckInStatus.Reshelved"/>, with nobody to ask.
+    /// </remarks>
     Task<CheckIn> CheckInAsync(string storeLabel, CancellationToken cancellationToken);
 
     /// <summary>

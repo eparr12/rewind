@@ -71,10 +71,12 @@ public sealed partial class ReturnDesk(
             return WatchLogStatus.NoWatchers; // nothing to save, so nothing to look up
         }
 
-        // BEGIN IMMEDIATE, as for a check-in, so a second answer can't land between the look and the save.
+        // ADR-0012: saved once, so any row at all means the item has its watch log. BEGIN IMMEDIATE, as for a
+        // check-in, so a second answer can't land between the look and the save.
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        if (await IsLoggedAsync(db, rentalItemId, cancellationToken))
+        await ThrowIfNotBackAsync(db, rentalItemId, cancellationToken);
+        if (await db.WatchLog.AnyAsync(v => v.RentalItemId == rentalItemId, cancellationToken))
         {
             return WatchLogStatus.AlreadyLogged;
         }
@@ -90,11 +92,20 @@ public sealed partial class ReturnDesk(
     // the transaction, so once the commit is in, nothing is left for a cancel to stop (NET-7).
     private async Task<CheckIn> ReturnAsync(RewindDb db, IDbContextTransaction transaction, Case found, RentalItem open, CancellationToken cancellationToken)
     {
+        var saidCheckedOut = found.Status == CaseStatus.CheckedOut;
         var rental = await RentalToAskAsync(db, open.Id, found.StoreLabel, cancellationToken);
         open.ReturnedAt = time.GetUtcNow().UtcDateTime; // NET-8, DATA-8
         found.Status = CaseStatus.OnShelf;
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+
+        // A case On shelf with its rental open is a hand edit's, the one that makes Checkout's CompleteAsync throw.
+        // The scan has put it right, so the warning is the edit's only trace.
+        if (!saidCheckedOut)
+        {
+            LogShelvedWithRentalOpen(logger, found.StoreLabel, open.Id);
+        }
+
         LogCheckedIn(logger, found.StoreLabel, open.Id, open.RentalId);
         return new CheckIn(CheckInStatus.CheckedIn, rental);
     }
@@ -127,7 +138,8 @@ public sealed partial class ReturnDesk(
 
     // DATA-8: the night is its business day's, not the rental's own time, since a night can run past midnight. The
     // people come from the roster, so the screen lists the family as the Store Manager does, less anyone
-    // deactivated.
+    // deactivated. The roster reads on a connection of its own while this one holds the write lock. That's safe for
+    // a read, which WAL lets through (DATA-1), but a write there would wait out the 30-second timeout and fail.
     private async Task<ReturnedRental> RentalToAskAsync(RewindDb db, int rentalItemId, string storeLabel, CancellationToken cancellationToken)
     {
         var rental = await (
@@ -158,19 +170,20 @@ public sealed partial class ReturnDesk(
         }
     }
 
-    // ADR-0012: saved once, so any row at all means the item has its watch log. Return asks who watched only once a
-    // case is back, and rental items are never deleted (DATA-4), so an item that isn't there or isn't back is a bug.
-    private static async Task<bool> IsLoggedAsync(RewindDb db, int rentalItemId, CancellationToken cancellationToken)
+    // Return asks who watched only once a case is back, and rental items are never deleted (DATA-4), so an item that
+    // isn't there or isn't back is a bug. The wrapper tells an item that isn't there from one with no return time.
+    private static async Task ThrowIfNotBackAsync(RewindDb db, int rentalItemId, CancellationToken cancellationToken)
     {
         var item = await db.RentalItems
             .AsNoTracking()
             .Where(i => i.Id == rentalItemId)
-            .Select(i => new { i.ReturnedAt, Logged = db.WatchLog.Any(v => v.RentalItemId == i.Id) })
+            .Select(i => new { i.ReturnedAt })
             .SingleOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"There's no rental item {rentalItemId}, though rental items are never deleted.");
-        return item.ReturnedAt is null
-            ? throw new InvalidOperationException($"Rental item {rentalItemId} isn't back yet, and nobody is asked who watched until it is.")
-            : item.Logged;
+        if (item.ReturnedAt is null)
+        {
+            throw new InvalidOperationException($"Rental item {rentalItemId} isn't back yet, and nobody is asked who watched until it is.");
+        }
     }
 
     // Information (OBS-3): a return is a key event, and closes the rental item a checkout opened.
@@ -180,6 +193,10 @@ public sealed partial class ReturnDesk(
     // Warning (OBS-3): a handled problem, and the only trace of the hand edit that made it.
     [LoggerMessage(Level = LogLevel.Warning, Message = "Case {StoreLabel} was checked out with no rental out, which only a hand edit leaves, so it's back on the shelf")]
     private static partial void LogReshelved(ILogger logger, string storeLabel);
+
+    // Warning (OBS-3) too: the other hand edit's only trace, beside the check-in's own line.
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Case {StoreLabel} was on the shelf with rental item {RentalItemId} still open, which only a hand edit leaves, so it's checked in")]
+    private static partial void LogShelvedWithRentalOpen(ILogger logger, string storeLabel, int rentalItemId);
 
     // Information (OBS-3): the watch log is the heirloom, and this is the one time a rental item's is written.
     [LoggerMessage(Level = LogLevel.Information, Message = "Logged who watched rental item {RentalItemId}: watchers {Watchers}")]
