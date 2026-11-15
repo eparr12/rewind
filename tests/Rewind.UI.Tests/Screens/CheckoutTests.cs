@@ -432,15 +432,16 @@ public sealed class CheckoutTests : BunitContext
         AssertWarning("No case has the label RV-99999.\n\nTell the Store Manager.");
     }
 
+    // A case that has just come back is still out until it's scanned on Return (ADR-0012).
     [Fact]
-    public async Task Scanned_CaseNotOnTheShelf_SaysSo()
+    public async Task Scanned_CaseNotOnTheShelf_SaysToScanItOnReturnFirst()
     {
         var cut = await RenderWithSaleAsync();
         _counter.Scanning = Task.FromResult(new CaseScan(CaseScanStatus.NotOnShelf, null));
 
         await ScanLabelAsync(cut);
 
-        AssertWarning("RV-00042 isn't on the shelf. It's checked out or retired.\n\nTell the Store Manager.");
+        AssertWarning("RV-00042 isn't on the shelf. It's checked out or retired.\n\nIf it just came back, scan it on Return (F2) first. If not, tell the Store Manager.");
         Assert.Empty(Bill(cut));
     }
 
