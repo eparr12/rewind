@@ -9,8 +9,9 @@ namespace Rewind.Core.Tests;
 /// <summary>
 /// Contexts whose connections read backwards wherever a query leaves the order to SQLite, for a test that a
 /// result doesn't rest on an order SQLite never promised (TEST-4). SQLite's reverse_unordered_selects pragma is
-/// there for finding those. A pragma lasts as long as its connection, so these connections aren't pooled, and
-/// none goes back to the pool the other contexts draw from.
+/// there for finding those. It's set on connections opened asynchronously, as Core opens all of its own, so a
+/// connection opened synchronously reads in the usual order. A pragma lasts as long as its connection, so these
+/// connections aren't pooled, and none goes back to the pool the other contexts draw from.
 /// </summary>
 internal sealed class BackwardsReads(TempRewind rewind) : IDbContextFactory<RewindDb>
 {
