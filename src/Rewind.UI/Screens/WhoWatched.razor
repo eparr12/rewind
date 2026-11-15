@@ -1,0 +1,109 @@
+@using System.Globalization
+
+@* Who watched? (Build Plan 3.4): once a case is back, the clerk says who watched its movie, and the stars each
+   of them gave, in a 98.css group box with a list beside each person's name. Everyone starts on Didn't watch,
+   the renter too, so the watch log holds only what the clerk said. Save hands the screen each person who
+   watched, with their stars or none. Skip, Esc, and Save with nobody chosen all skip, and a skip saves nothing
+   (ADR-0012). The form opens with the first list focused. Enter in any list presses Save, the default button,
+   since keyboard.js has Enter in a drop-down list submit its form. Esc stops here, as Which movie?'s does, so
+   the screen around the form never hears it. That only stops Blazor's handlers, so keyboard.js still hears
+   Enter and F1 to F5. *@
+<fieldset class="who-watched">
+    <legend>Who watched?</legend>
+    <form class="who-watched-form" @onsubmit="SaveAsync" @onsubmit:preventDefault
+          @onkeydown="OnKeyDownAsync" @onkeydown:stopPropagation="true">
+        <div class="sunken-panel who-watched-people">
+            @for (var i = 0; i < People.Count; i++)
+            {
+                var row = i;
+                var person = People[row];
+                <label for="@ListId(person)">@person.Name:</label>
+                <select id="@ListId(person)" @ref="_lists[row]" @bind="_answers[row]">
+                    <option value="@DidntWatch">Didn't watch</option>
+                    <option value="@NoStars">Watched, no stars</option>
+                    @for (var stars = Viewing.MinStars; stars <= Viewing.MaxStars; stars++)
+                    {
+                        <option value="@stars">@StarsText(stars)</option>
+                    }
+                </select>
+            }
+        </div>
+        <div class="field-row who-watched-buttons">
+            <button type="submit" class="default" @ref="_saveButton">Save</button>
+            <button type="button" @onclick="OnSkip">Skip</button>
+        </div>
+    </form>
+</fieldset>
+
+@code {
+    // A list's value for someone who didn't watch, and for someone who watched and gave no stars. Every other
+    // value is a number of stars.
+    private const string DidntWatch = "didnt-watch";
+    private const string NoStars = "no-stars";
+
+    private ElementReference[] _lists = [];
+    private string[] _answers = [];
+    private ElementReference _saveButton;
+
+    /// <summary>
+    /// The people to ask, from <see cref="ReturnedRental.People"/>, each with a list, in the order given. The
+    /// screen shows a new form for each return, so the form starts everyone on Didn't watch once, as it opens,
+    /// and a redraw keeps what the clerk picked.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<MemberRow> People { get; set; } = [];
+
+    /// <summary>
+    /// Called with each person who watched, with their stars, or null stars for none (DATA-3), in the order
+    /// given, when the clerk saves. Never with an empty list: Save with nobody chosen skips instead.
+    /// </summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<Watcher>> OnSave { get; set; }
+
+    /// <summary>Called when the clerk skips, by Skip, Esc or Save with nobody chosen. Nothing is to be saved.</summary>
+    [Parameter]
+    public EventCallback OnSkip { get; set; }
+
+    protected override void OnInitialized()
+    {
+        _lists = new ElementReference[People.Count];
+        _answers = [.. People.Select(_ => DidntWatch)];
+    }
+
+    // UI-3: the clerk can pick from the first list at once. With nobody to ask there's no list, so Save, the
+    // default button, has the focus, as in a Windows 98 dialog.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await (_lists.Length > 0 ? _lists[0] : _saveButton).FocusAsync();
+        }
+    }
+
+    // Words, not star characters, which the pixel font may not have. Each choice then starts with a character of
+    // its own, so typing 5 picks 5 stars, as typing does in a Windows 98 list.
+    private static string StarsText(int stars) => stars == 1 ? "1 star" : $"{stars} stars";
+
+    private static string ListId(MemberRow person) => $"who-watched-{person.Id}";
+
+    // DATA-3: watched with no stars goes out as null, never 0.
+    private static int? StarsIn(string answer) => answer == NoStars ? null : int.Parse(answer, CultureInfo.InvariantCulture);
+
+    // Core answers NoWatchers for an empty list, but nobody chosen is a skip, so the screen hears it as one.
+    private Task SaveAsync()
+    {
+        List<Watcher> watchers = [.. People.Zip(_answers)
+            .Where(pair => pair.Second != DidntWatch)
+            .Select(pair => new Watcher(pair.First.Id, StarsIn(pair.Second)))];
+        return watchers.Count == 0 ? OnSkip.InvokeAsync() : OnSave.InvokeAsync(watchers);
+    }
+
+    // UI-3: Esc skips, from any list or button.
+    private async Task OnKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            await OnSkip.InvokeAsync();
+        }
+    }
+}

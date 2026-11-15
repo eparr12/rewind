@@ -456,7 +456,8 @@ body {
 }
 
 .tmdb-picker-buttons,
-.which-movie-buttons {
+.which-movie-buttons,
+.who-watched-buttons {
   justify-content: flex-end;
   margin-top: 8px;
 }
@@ -475,6 +476,23 @@ body {
 /* 98.css keeps a list's text on one line. A long title wraps instead. */
 .which-movie-list td:first-child {
   white-space: normal;
+}
+
+/* Who watched?: each person's name beside their list, lined up as the hand-entry form's labels and
+   boxes are, with Save and Skip under them on the right, as in a Windows 98 dialog. A big family
+   scrolls inside the panel, so the buttons stay in sight on a 1024 by 768 screen (UI-8). */
+.who-watched-form {
+  width: fit-content; /* as wide as the panel, so the buttons line up with its right edge */
+}
+
+.who-watched-people {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  align-items: center;
+  justify-items: start;
+  gap: 6px 8px;
+  max-height: 200px; /* seven people at 98.css's 21 px a list; an eighth scrolls */
+  padding: 6px 8px;
 }
 
 /* F1 Checkout: what to do, the member, the bill and its total, then the snacks and the cash, or the
