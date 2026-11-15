@@ -41,7 +41,7 @@ public sealed class WhoWatchedTests : BunitContext
     }
 
     // Words, not star characters, which the pixel font may not have. Each choice starts with a character of
-    // its own, so typing one picks it, as typing 5 picks 5 stars.
+    // its own, the key that picks it, so the browser's own type-ahead picks the same choice as the form, or none.
     [Fact]
     public void Render_EachList_OffersSevenChoicesEachStartingWithItsOwnCharacter()
     {
@@ -234,13 +234,116 @@ public sealed class WhoWatchedTests : BunitContext
         Assert.Empty(keysAtTheScreen);
     }
 
+    // UI-3: a key picks the choice that starts with it, at once, for the person whose list it's typed in.
+    [Fact]
+    public async Task KeyDown_FiveInAList_PicksFiveStarsForThatPersonAlone()
+    {
+        var cut = RenderForm();
+
+        await TypeAsync(cut, Dad, "5");
+
+        Assert.Equal(["Didn't watch", "5 stars", "Didn't watch"], Lists(cut).Select(Chosen));
+    }
+
+    // The browser's own type-ahead joins keys typed within a second, so 4 then 5 would look for "45" and stay on
+    // 4 stars. The form picks by each key, so the last one wins, and Save sends what the list shows. bUnit has no
+    // type-ahead, so this pins the form's half.
+    [Fact]
+    public async Task KeyDown_FourThenFive_EndsOnFiveStarsAndSavesFive()
+    {
+        var cut = RenderForm();
+        await TypeAsync(cut, Dad, "4");
+
+        await TypeAsync(cut, Dad, "5");
+        await Button(cut, "Save").ClickAsync(new MouseEventArgs());
+
+        Assert.Equal("5 stars", Chosen(ListOf(cut, Dad)));
+        Assert.Equal([new Watcher(Dad.Id, 5)], Assert.Single(_saved));
+    }
+
+    // A key picks by its choice's words, compared without case, as typing in a list ignores it.
+    [Theory]
+    [InlineData("W")]
+    [InlineData("w")]
+    public async Task KeyDown_WInEitherCase_PicksWatchedNoStars(string key)
+    {
+        var cut = RenderForm();
+
+        await TypeAsync(cut, Dad, key);
+
+        Assert.Equal("Watched, no stars", Chosen(ListOf(cut, Dad)));
+    }
+
+    [Theory]
+    [InlineData("D")]
+    [InlineData("d")]
+    public async Task KeyDown_DInEitherCase_PutsThemBackOnDidntWatch(string key)
+    {
+        var cut = RenderForm();
+        await PickAsync(cut, Dad, "3 stars");
+
+        await TypeAsync(cut, Dad, key);
+
+        Assert.Equal("Didn't watch", Chosen(ListOf(cut, Dad)));
+    }
+
+    // Only a choice's first character picks it, so any other character leaves the pick alone.
+    [Theory]
+    [InlineData("a")]
+    [InlineData("0")]
+    [InlineData("6")]
+    public async Task KeyDown_CharacterThatStartsNoChoice_ChangesNothing(string key)
+    {
+        var cut = RenderForm();
+        await PickAsync(cut, Dad, "3 stars");
+
+        await TypeAsync(cut, Dad, key);
+
+        Assert.Equal("3 stars", Chosen(ListOf(cut, Dad)));
+    }
+
+    // Delete starts with D, but it's a named key, not the character D.
+    [Fact]
+    public async Task KeyDown_Delete_ChangesNothing()
+    {
+        var cut = RenderForm();
+        await PickAsync(cut, Dad, "3 stars");
+
+        await TypeAsync(cut, Dad, "Delete");
+
+        Assert.Equal("3 stars", Chosen(ListOf(cut, Dad)));
+    }
+
+    // With Ctrl, Alt or Meta held, a key is a shortcut, not typing.
+    [Theory]
+    [InlineData("Ctrl")]
+    [InlineData("Alt")]
+    [InlineData("Meta")]
+    public async Task KeyDown_FiveWithAModifierHeld_ChangesNothing(string modifier)
+    {
+        var cut = RenderForm();
+
+        await ListOf(cut, Dad).KeyDownAsync(new KeyboardEventArgs
+        {
+            Key = "5",
+            CtrlKey = modifier == "Ctrl",
+            AltKey = modifier == "Alt",
+            MetaKey = modifier == "Meta",
+        });
+
+        Assert.Equal("Didn't watch", Chosen(ListOf(cut, Dad)));
+    }
+
+    // A key that neither picks nor skips leaves both the picks and the screen alone.
     [Fact]
     public async Task KeyDown_AnyOtherKey_DoesNothing()
     {
         var cut = RenderForm();
+        await PickAsync(cut, Mom, "3 stars");
 
-        await Lists(cut)[0].KeyDownAsync(new KeyboardEventArgs { Key = "a" });
+        await TypeAsync(cut, Mom, "a");
 
+        Assert.Equal(["3 stars", "Didn't watch", "Didn't watch"], Lists(cut).Select(Chosen));
         Assert.False(_skipped);
         Assert.Empty(_saved);
     }
@@ -256,10 +359,18 @@ public sealed class WhoWatchedTests : BunitContext
     // Picks a choice by its words, from the list beside the person's name, as the clerk does.
     private static Task PickAsync(IRenderedComponent<WhoWatched> cut, MemberRow person, string choice)
     {
-        var list = cut.Find($"#{Labels(cut).Single(label => label.TextContent == $"{person.Name}:").GetAttribute("for")}");
+        var list = ListOf(cut, person);
         var value = list.QuerySelectorAll("option").Single(option => option.TextContent == choice).GetAttribute("value");
         return list.ChangeAsync(new ChangeEventArgs { Value = value });
     }
+
+    // Types a key in the list beside the person's name. bUnit has no type-ahead, so only the form's own pick runs.
+    private static Task TypeAsync(IRenderedComponent<WhoWatched> cut, MemberRow person, string key) =>
+        ListOf(cut, person).KeyDownAsync(new KeyboardEventArgs { Key = key });
+
+    // The list beside the person's name, found through the label's for, as a click on the name finds it.
+    private static IElement ListOf(IRenderedComponent<WhoWatched> cut, MemberRow person) =>
+        cut.Find($"#{Labels(cut).Single(label => label.TextContent == $"{person.Name}:").GetAttribute("for")}");
 
     // The choice a list shows: the one whose value Blazor gave the list.
     private static string Chosen(IElement list) =>
