@@ -94,6 +94,12 @@ Checkout (F1) takes a sale from the member's card to the change due. The open sa
 
 To try it in a Debug build, first add a member and a snack in the Store Manager (F5), and shelve a case in Intake (F4). Then open Checkout (F1), type `MEM-001` into the scan simulator and press Enter, then `RV-00042`, then `CON-POPCORN`. Type `10` in the Cash tendered box and press Enter: the screen shows the change and how to count it back.
 
+## Return
+
+Return (F2) puts a returned case back on the shelf and asks who watched it. The scan checks the case in at once, so it's back whatever the clerk does next. Save then puts each person's stars in the watch log, which each rented movie gets once. Skip saves nothing, and neither does leaving the screen, so scanning the case again asks again, for as long as nobody has answered for its last rental ([ADR-0012](docs/adr/0012-a-return-is-saved-at-the-scan-and-its-watch-log-once.md)).
+
+To try it in a Debug build, carry on from Checkout's: open Return (F2), type `RV-00042` into the scan simulator and press Enter. Rewind chimes, says the case is back on the shelf and asks who watched. Type `5` in the member's list and press Enter: the screen says the movie is in the watch log, with 5 stars. Scan `RV-00042` again, and Rewind says it's already on the shelf.
+
 ## Store Manager
 
 The Store Manager screen (F5) holds the grown-up jobs: printing store labels, member cards and the concession menu, keeping the family's members, setting the prices, and keeping the concession bar's snacks. The clerk handbook leaves them out, since it's written for the kids (DOC-6), who use F5 to shut Rewind down at closing.

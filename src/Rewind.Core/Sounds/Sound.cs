@@ -9,8 +9,8 @@ public enum Sound
     Scan,
 
     /// <summary>
-    /// A sale completes, a case goes on the shelf at intake, or a member is added in the Store Manager:
-    /// the register chime.
+    /// A sale completes, a case goes on the shelf at intake, a returned case is checked in, who watched
+    /// it is saved, or a member is added in the Store Manager: the register chime.
     /// </summary>
     Chime,
 

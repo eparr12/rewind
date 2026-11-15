@@ -14,6 +14,7 @@ using Rewind.Core.Labels;
 using Rewind.Core.LateFees;
 using Rewind.Core.Members;
 using Rewind.Core.Metadata;
+using Rewind.Core.Returns;
 using Rewind.Core.Sounds;
 using Rewind.UI.Dialogs;
 using Rewind.UI.Errors;
@@ -31,6 +32,7 @@ public sealed class ShellTests : BunitContext
     private readonly FakeMemberRoster _roster = new();
     private readonly FakeCheckoutCounter _counter = new();
     private readonly FakeConcessionBar _bar = new();
+    private readonly FakeReturnDesk _desk = new();
     private readonly ListLogger<Shell> _shellLog = new();
     private readonly ListLogger<ErrorHub> _errorLog = new();
     private readonly CountingBoundaryLogger _boundaryLog = new();
@@ -58,6 +60,7 @@ public sealed class ShellTests : BunitContext
         Services.AddSingleton<IMemberRoster>(_roster);
         Services.AddSingleton<IConcessionBar>(_bar);
         Services.AddSingleton<ICheckoutCounter>(_counter);
+        Services.AddSingleton<IReturnDesk>(_desk);
         Services.AddSingleton(TimeProvider.System);
         Services.AddSingleton(Options.Create(new RewindPaths()));
 
@@ -77,6 +80,27 @@ public sealed class ShellTests : BunitContext
 
         Assert.True(cut.HasComponent<Return>());
         Assert.Equal("F2 Return", cut.Find("[role=tab][aria-selected=true]").TextContent);
+    }
+
+    // ADR-0012: a case is back at its scan, so leaving Who watched? loses only the answer. F2 then opens a new
+    // Return, and the case's next scan asks again.
+    [Fact]
+    public async Task OnFunctionKey_F1WhileWhoWatchedIsOpen_AsksAgainAtTheCasesNextScan()
+    {
+        var dad = new MemberRow(7, "Dad", "MEM-001", IsActive: true);
+        _desk.Rentals["RV-00042"] = new ReturnedRental(5, "RV-00042", "Halloween", 1978, "Dad", DateTime.UnixEpoch, [dad]);
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F2"));
+        await cut.InvokeAsync(() => _scanner.Receive("RV-00042"));
+        Assert.Single(cut.FindAll(".who-watched"));
+
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F2"));
+        await cut.InvokeAsync(() => _scanner.Receive("RV-00042"));
+
+        Assert.Empty(_desk.Logs);
+        Assert.Equal("RV-00042 was already back on the shelf.", cut.Find(".return-last").TextContent);
+        Assert.Single(cut.FindAll(".who-watched"));
     }
 
     [Fact]

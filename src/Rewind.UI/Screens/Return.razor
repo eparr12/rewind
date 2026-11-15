@@ -1,3 +1,234 @@
-@* Screens/Return.razor *@
-<p>Scan a returned case to put it back on the shelf.</p>
-<p>Returns arrive in Phase 3.</p>
+@inherits ScanningScreen
+@using System.Diagnostics
+@using System.Globalization
+@using Microsoft.Extensions.Logging
+@inject IReturnDesk Desk
+@inject ISoundPlayer Sounds
+@inject TimeProvider Time
+@inject ILogger<Return> Logger
+
+@* F2 Return (Build Plan 3.4, ADR-0012): a returned case's store label checks it in at once, with nobody asked
+   anything first, and the register chimes once that's saved. Rewind then asks who watched its movie with the
+   Who watched? form, and Save puts them in the watch log with their stars, which a rental item gets once.
+   Skip saves nothing, so the next scan of the case asks again, for as long as nobody has answered for its last
+   rental. The return being asked about, and what happened to the last one, live in these fields (ADR-0003),
+   so leaving the screen loses only an answer that wasn't saved: the case is back already. *@
+<p class="return-prompt">@Prompt</p>
+@if (_last is { } last)
+{
+    <p class="return-last">@last</p>
+}
+@if (_asking is { } asking)
+{
+    <p class="return-asking">@Asking(asking)</p>
+    @* Keyed, so each return gets a new form: it sets its picks once, as it opens. *@
+    <WhoWatched @key="asking.RentalItemId" People="asking.People" OnSave="SaveAsync" OnSkip="Skip" />
+}
+
+@code {
+    // A night goes by its weekday and date, such as "Friday, October 23": a case's next scan can ask about its
+    // rental weeks later (ADR-0012), and a weekday alone is right for six days.
+    private const string NightFormat = "dddd, MMMM d";
+
+    private static readonly Dialog UseTheLabel = Warning("Please scan the Rewind Video label.");
+
+    private static readonly Dialog MovieLabelsOnly = Warning("Return takes a movie's store label.");
+
+    // The return whose watch log the form asks for. Null when the form is closed.
+    private ReturnedRental? _asking;
+
+    // What happened to the last case scanned, which stays until the next case's scan. Null before the first,
+    // and when a case was refused, since its dialog said so instead.
+    private string? _last;
+
+    // One line that always says what's happening or what to do next (UI-6).
+    private string Prompt
+    {
+        get
+        {
+            if (Doing is { } busy)
+            {
+                return busy;
+            }
+
+            return _asking is not null
+                ? "Pick who watched and their stars, then press Enter to save, or Esc to skip."
+                : "Scan a returned case to put it back on the shelf.";
+        }
+    }
+
+    protected override async Task OnScanAsync(Scan scan)
+    {
+        // An unknown barcode has had its chord from ScannerHub (HW-5).
+        if (scan.Kind == ScanKind.Unknown)
+        {
+            return;
+        }
+
+        // One thing at a time: a scan while Core answers, or while a dialog waits for an answer, would start
+        // something new in the middle of it.
+        if (Busy || DialogOpen)
+        {
+            LogScanIgnored(Logger, scan.Kind, scan.Code);
+            return;
+        }
+
+        switch (scan.Kind)
+        {
+            case ScanKind.StoreLabel:
+                await OnLabelAsync(scan.Code);
+                break;
+            case ScanKind.MemberCard or ScanKind.Concession:
+                await ShowAsync(MovieLabelsOnly); // Checkout's barcodes
+                break;
+            default:
+                await ShowAsync(UseTheLabel); // a factory UPC, which only Intake takes
+                break;
+        }
+
+        StateHasChanged(); // a scan isn't a UI event, so Blazor doesn't draw by itself
+    }
+
+    // One return at a time: while the form asks about one case, the next case's label checks nothing in.
+    private async Task OnLabelAsync(string label)
+    {
+        if (_asking is { } asking)
+        {
+            await ShowAsync(FinishThisOne(asking, label));
+            return;
+        }
+
+        _last = null;
+        if (await WhileBusyAsync($"Checking in {label}...", token => Desk.CheckInAsync(label, token), Closing) is not { } checkIn)
+        {
+            return; // the clerk left the screen before Core answered
+        }
+
+        await AfterCheckingInAsync(label, checkIn);
+    }
+
+    // The chime says a case is back, so it waits for the save, and one that committed as the clerk left still
+    // chimes (NET-7). The screen has gone by then, so its form never opens: the case's next scan asks instead.
+    private async Task AfterCheckingInAsync(string label, CheckIn checkIn)
+    {
+        // The form opens only with someone to ask, and a rental whose members have all been deactivated has nobody.
+        var toAsk = checkIn.Rental is { People.Count: > 0 } rental ? rental : null;
+        switch (checkIn.Status)
+        {
+            case CheckInStatus.CheckedIn:
+                Sounds.Play(Sound.Chime);
+                _last = $"{label} is back on the shelf.";
+                _asking = toAsk;
+                break;
+            case CheckInStatus.Reshelved:
+                // A hand edit had left it checked out with no rental out, which Core has logged.
+                Sounds.Play(Sound.Chime);
+                _last = $"{label} is back on the shelf. Rewind had no rental for it, so there's nobody to ask.";
+                break;
+            case CheckInStatus.AlreadyOnShelf when toAsk is not null:
+                // Its last rental's watch log is empty, skipped or never asked for (ADR-0012). Nothing was saved
+                // now, so nothing chimes.
+                _last = $"{label} was already back on the shelf.";
+                _asking = toAsk;
+                break;
+            case CheckInStatus.AlreadyOnShelf:
+                await ShowAsync(Warning($"{label} is already on the shelf."));
+                break;
+            case CheckInStatus.Retired:
+                await ShowAsync(Warning($"{label} has been retired, so it can't be checked in.\n\nTell the Store Manager."));
+                break;
+            case CheckInStatus.NoSuchCase:
+                await ShowAsync(Warning($"No case has the label {label}.\n\nTell the Store Manager.")); // Checkout's words
+                break;
+            default:
+                // OBS-5: Core answers with a status above, so any other is a bug, such as one Core gained later.
+                throw new UnreachableException($"Checking in {label} came back {checkIn.Status}.");
+        }
+    }
+
+    // Save in Who watched?, with each person who watched. The form has every Enter in a list submit again, so
+    // one that comes while the first is saving is ignored, and one answer goes to Core.
+    private async Task SaveAsync(IReadOnlyList<Watcher> watchers)
+    {
+        if (Busy || _asking is not { } asking)
+        {
+            return;
+        }
+
+        // Boxed, since WhileBusyAsync answers null for a save the clerk's leaving cancelled, which an enum can't be.
+        var saved = await WhileBusyAsync(
+            "Saving who watched...",
+            async token => (object)await Desk.LogWhoWatchedAsync(asking.RentalItemId, watchers, token),
+            Closing);
+        switch (saved)
+        {
+            case null:
+                return; // the clerk left the screen before it was saved
+            case WatchLogStatus.Logged:
+                Sounds.Play(Sound.Chime); // saved, so not before
+                _asking = null;
+                _last = Logged(asking, watchers);
+                return;
+            case WatchLogStatus.AlreadyLogged:
+                _asking = null; // saved once (ADR-0012), so there's nothing left to ask
+                await ShowAsync(Warning($"Who watched {MovieTitle.WithYear(asking.Title, asking.Year)} was saved already, so nothing was added."));
+                return;
+            case WatchLogStatus.NoWatchers:
+                Skipped(asking); // the form sends nobody as a skip, but if it didn't, nothing was saved either way
+                return;
+            default:
+                // OBS-5: Core answers with a status above, so any other is a bug, such as one Core gained later.
+                throw new UnreachableException($"Saving who watched came back {saved}.");
+        }
+    }
+
+    // Skip, Esc, or Save with nobody chosen. Not while Core saves: the answer it's saving is the one that counts,
+    // so a saved watch log is never called skipped.
+    private void Skip()
+    {
+        if (!Busy && _asking is { } asking)
+        {
+            Skipped(asking);
+        }
+    }
+
+    // Nothing is saved, and the case is back already, so its next scan asks again (ADR-0012).
+    private void Skipped(ReturnedRental asking)
+    {
+        _asking = null;
+        _last = $"{asking.StoreLabel} is back on the shelf. Scanning it again asks who watched.";
+    }
+
+    // Such as "RV-00042 · Halloween (1978) · Rented by Dad on Friday, October 23". A night is its business day,
+    // named by the day it opened in the register's own time (DATA-8), so one that runs past midnight keeps its day.
+    private string Asking(ReturnedRental rental)
+    {
+        var night = TimeZoneInfo.ConvertTimeFromUtc(rental.NightOpenedAt, Time.LocalTimeZone).ToString(NightFormat, CultureInfo.InvariantCulture);
+        return $"{rental.StoreLabel} · {MovieTitle.WithYear(rental.Title, rental.Year)} · Rented by {rental.RentedBy} on {night}";
+    }
+
+    // The same case again, as a second read of its label, is the one being asked about.
+    private static Dialog FinishThisOne(ReturnedRental asking, string label)
+    {
+        var movie = MovieTitle.WithYear(asking.Title, asking.Year);
+        return Warning(label == asking.StoreLabel
+            ? $"{label} is checked in already. Say who watched {movie}, or press Esc to skip it."
+            : $"Say who watched {movie} first, or press Esc to skip it.\n\nThen scan {label} again.");
+    }
+
+    // Such as "Halloween (1978) is in the watch log. Dad: 5 stars. Mom: 4 stars. Sam: watched.", in the order the
+    // form sends them, which is the roster's.
+    private static string Logged(ReturnedRental rental, IReadOnlyList<Watcher> watchers) =>
+        $"{MovieTitle.WithYear(rental.Title, rental.Year)} is in the watch log. "
+        + string.Join(" ", watchers.Select(watcher => $"{rental.People.Single(person => person.Id == watcher.MemberId).Name}: {Said(watcher.Stars)}."));
+
+    // The form's words for stars, written a second time (GEN-8), which ReturnTests keeps the same as the form's.
+    private static string Said(int? stars) => stars switch
+    {
+        null => "watched",
+        1 => "1 star",
+        _ => $"{stars} stars",
+    };
+
+    private static Dialog Warning(string message) => new(Store.Name, message, DialogIcon.Warning);
+}
