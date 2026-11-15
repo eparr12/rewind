@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using AngleSharp.Dom;
 using Bunit;
 using Microsoft.AspNetCore.Components;
@@ -140,6 +141,19 @@ public sealed class ReturnTests : BunitContext
         Assert.Equal(Asking, Prompt(cut));
     }
 
+    // One active member is someone to ask, as a whole family is.
+    [Fact]
+    public async Task Scanned_CaseCheckedInWithOnePersonToAsk_AsksThem()
+    {
+        _desk.Rentals[Label] = Halloween with { People = [Dad] };
+        var cut = Render<Return>();
+
+        await ScanLabelAsync(cut);
+
+        Assert.Equal(["Dad:"], cut.FindAll(".who-watched label").Select(label => label.TextContent));
+        Assert.Equal(Asking, Prompt(cut));
+    }
+
     // The chime says the case is back, so it waits for the save.
     [Fact]
     public async Task Scanned_CheckInStillGoing_DoesNotChimeYet()
@@ -164,10 +178,11 @@ public sealed class ReturnTests : BunitContext
 
         await ScanLabelAsync(cut);
 
-        Assert.Equal("RV-00042 · Halloween (1978) · Rented by Dad on Friday night", AskingLine(cut));
+        Assert.Equal("RV-00042 · Halloween (1978) · Rented by Dad on Friday, October 23", AskingLine(cut));
     }
 
-    // DATA-8: a night that opened at 9:30 PM on Friday had passed midnight in UTC, and it's still Friday's.
+    // DATA-8: a night that opened at 9:30 PM on Friday had passed midnight in UTC, and its weekday and date are
+    // still Friday's.
     [Fact]
     public async Task Scanned_NightOpenedLateOnFriday_NamesItFridayInTheRegistersTime()
     {
@@ -176,7 +191,7 @@ public sealed class ReturnTests : BunitContext
 
         await ScanLabelAsync(cut);
 
-        Assert.Equal("RV-00042 · Halloween (1978) · Rented by Dad on Friday night", AskingLine(cut));
+        Assert.Equal("RV-00042 · Halloween (1978) · Rented by Dad on Friday, October 23", AskingLine(cut));
     }
 
     // DATA-3: a movie whose year isn't known goes by its title alone.
@@ -188,7 +203,7 @@ public sealed class ReturnTests : BunitContext
 
         await ScanLabelAsync(cut);
 
-        Assert.Equal("RV-00042 · Halloween · Rented by Dad on Friday night", AskingLine(cut));
+        Assert.Equal("RV-00042 · Halloween · Rented by Dad on Friday, October 23", AskingLine(cut));
     }
 
     // Everyone deactivated while the case was out leaves nobody to ask, so there's no form.
@@ -217,7 +232,7 @@ public sealed class ReturnTests : BunitContext
 
         Assert.Empty(_sounds.Played);
         Assert.Equal("RV-00042 was already back on the shelf.", Last(cut));
-        Assert.Equal("RV-00042 · Halloween (1978) · Rented by Dad on Friday night", AskingLine(cut));
+        Assert.Equal("RV-00042 · Halloween (1978) · Rented by Dad on Friday, October 23", AskingLine(cut));
         Assert.Equal(Asking, Prompt(cut));
     }
 
@@ -301,6 +316,20 @@ public sealed class ReturnTests : BunitContext
         Assert.Empty(cut.FindAll(".who-watched"));
     }
 
+    // OBS-5: a status the screen doesn't know, such as one Core gained later, is a bug, so it goes to the
+    // screen's ErrorBoundary rather than doing nothing.
+    [Fact]
+    public async Task Scanned_CheckInAnswersAStatusTheScreenDoesNotKnow_Throws()
+    {
+        _desk.CheckingIn = Task.FromResult(new CheckIn((CheckInStatus)99, Halloween));
+        var cut = Render<Return>();
+
+        await ScanLabelAsync(cut);
+
+        Assert.True(Renderer.UnhandledException.IsCompleted);
+        Assert.IsType<UnreachableException>(await Renderer.UnhandledException);
+    }
+
     // One thing at a time, as at Checkout.
     [Fact]
     public async Task Scanned_WhileCoreIsAnswering_IsIgnoredAndLogged()
@@ -377,7 +406,7 @@ public sealed class ReturnTests : BunitContext
         await CloseDialogAsync(cut);
 
         Assert.Equal([Label], _desk.Labels);
-        Assert.Equal("RV-00042 · Halloween (1978) · Rented by Dad on Friday night", AskingLine(cut));
+        Assert.Equal("RV-00042 · Halloween (1978) · Rented by Dad on Friday, October 23", AskingLine(cut));
         Assert.Equal(Back, Last(cut));
     }
 
@@ -550,6 +579,17 @@ public sealed class ReturnTests : BunitContext
         Assert.False(_crashed);
     }
 
+    // OBS-5: as for a check-in, a status the screen doesn't know is a bug, and it goes to the ErrorBoundary.
+    [Fact]
+    public async Task ClickSave_SaveAnswersAStatusTheScreenDoesNotKnow_Throws()
+    {
+        var cut = await RenderAskingAsync();
+        await PickAsync(cut, Dad, "5 stars");
+        _desk.Logging = Task.FromResult((WatchLogStatus)99);
+
+        await Assert.ThrowsAsync<UnreachableException>(() => PressAsync(cut, "Save"));
+    }
+
     // ADR-0012: a skip saves nothing, and the case is back already, so its next scan asks again.
     [Fact]
     public async Task ClickSkip_StarsPicked_SavesNothingAndSaysTheCaseIsBack()
@@ -616,7 +656,7 @@ public sealed class ReturnTests : BunitContext
         await ScanLabelAsync(cut, OtherLabel);
 
         Assert.Equal("RV-00043 is back on the shelf.", Last(cut));
-        Assert.Equal("RV-00043 · Scream (1996) · Rented by Mom on Friday night", AskingLine(cut));
+        Assert.Equal("RV-00043 · Scream (1996) · Rented by Mom on Friday, October 23", AskingLine(cut));
         Assert.Equal(["Didn't watch", "Didn't watch", "Didn't watch"], Lists(cut).Select(Chosen));
     }
 

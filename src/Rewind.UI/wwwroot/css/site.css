@@ -484,10 +484,6 @@ body {
    box hugs the form, as a Windows 98 group box hugs its controls: F2 has nothing beside it, so a box
    the screen's width would frame empty space. */
 .who-watched {
-  width: fit-content;
-}
-
-.who-watched-form {
   width: fit-content; /* as wide as the panel, so the buttons line up with its right edge */
 }
 

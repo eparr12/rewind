@@ -1,4 +1,5 @@
 @inherits ScanningScreen
+@using System.Diagnostics
 @using System.Globalization
 @using Microsoft.Extensions.Logging
 @inject IReturnDesk Desk
@@ -25,8 +26,9 @@
 }
 
 @code {
-    // A night is named by its day, as Intake names a day.
-    private const string DayFormat = "dddd";
+    // A night goes by its weekday and date, such as "Friday, October 23": a case's next scan can ask about its
+    // rental weeks later (ADR-0012), and a weekday alone is right for six days.
+    private const string NightFormat = "dddd, MMMM d";
 
     private static readonly Dialog UseTheLabel = Warning("Please scan the Rewind Video label.");
 
@@ -138,6 +140,9 @@
             case CheckInStatus.NoSuchCase:
                 await ShowAsync(Warning($"No case has the label {label}.\n\nTell the Store Manager.")); // Checkout's words
                 break;
+            default:
+                // OBS-5: Core answers with a status above, so any other is a bug, such as one Core gained later.
+                throw new UnreachableException($"Checking in {label} came back {checkIn.Status}.");
         }
     }
 
@@ -171,6 +176,9 @@
             case WatchLogStatus.NoWatchers:
                 Skipped(asking); // the form sends nobody as a skip, but if it didn't, nothing was saved either way
                 return;
+            default:
+                // OBS-5: Core answers with a status above, so any other is a bug, such as one Core gained later.
+                throw new UnreachableException($"Saving who watched came back {saved}.");
         }
     }
 
@@ -191,12 +199,12 @@
         _last = $"{asking.StoreLabel} is back on the shelf. Scanning it again asks who watched.";
     }
 
-    // Such as "RV-00042 · Halloween (1978) · Rented by Dad on Friday night". A night is its business day, named by
-    // the day it opened in the register's own time (DATA-8), so one that runs past midnight keeps its day.
+    // Such as "RV-00042 · Halloween (1978) · Rented by Dad on Friday, October 23". A night is its business day,
+    // named by the day it opened in the register's own time (DATA-8), so one that runs past midnight keeps its day.
     private string Asking(ReturnedRental rental)
     {
-        var night = TimeZoneInfo.ConvertTimeFromUtc(rental.NightOpenedAt, Time.LocalTimeZone).ToString(DayFormat, CultureInfo.InvariantCulture);
-        return $"{rental.StoreLabel} · {MovieTitle.WithYear(rental.Title, rental.Year)} · Rented by {rental.RentedBy} on {night} night";
+        var night = TimeZoneInfo.ConvertTimeFromUtc(rental.NightOpenedAt, Time.LocalTimeZone).ToString(NightFormat, CultureInfo.InvariantCulture);
+        return $"{rental.StoreLabel} · {MovieTitle.WithYear(rental.Title, rental.Year)} · Rented by {rental.RentedBy} on {night}";
     }
 
     // The same case again, as a second read of its label, is the one being asked about.
