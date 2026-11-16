@@ -13,8 +13,8 @@ namespace Rewind.Core.CloseOut;
 /// <param name="Backup">The backup's file name, such as rewind-2026-10-23-2215.db, or null when it wasn't saved.</param>
 /// <param name="CatalogMovies">How many movies the phone catalog lists, or null when it wasn't written.</param>
 /// <param name="Copy">
-/// What the copy to the backup drive answered, or null when the copy couldn't be tried, such as when the register
-/// couldn't read one of its own backups.
+/// What the copy to the backup drive answered, or null when it stopped on a failure that wasn't a drive's, such as a
+/// backup the register couldn't read. The newest goes first, so the backups copied before that are on the drive.
 /// </param>
 public sealed record CloseOutReport(BusinessDayClosingStatus Night, string? Backup, int? CatalogMovies, DriveCopy? Copy)
 {

@@ -14,7 +14,7 @@ That leaves three questions.
 - **Where a backup and a copy are written down.** The Overview's data model gives BusinessDays "backup and copy times", but a Close Out with no night open has no row to put them on. The status bar shows the last backup (OBS-6), so something has to say when that was.
 - **What's on disk when something goes wrong.** A backup, a copy on the drive, the catalog and a thumbnail can each be cut short, by a crash, a power cut, a full drive or a drive pulled out. A file cut short looks whole to anything that only checks it's there.
 
-The backup has been `Backups.CreateAsync` since #3, which made one before every migration. PRs 1 and 2 of 3.5 built the other steps: `PhoneCatalog.WriteAsync`, `BackupDrive.CopyAsync`, and `Backups.List` and `KeepNewest`, with `WholeFile` for the writes. PR 2 also had `CreateAsync` make each backup under another name first, as `WholeFile` does, and settled the rules for the copy to the drive, which this ADR records with the rest.
+The backup has been `Backups.CreateAsync` since #3, which made one before every migration. #89 and #90 built the other steps: `PhoneCatalog.WriteAsync`, `BackupDrive.CopyAsync`, and `Backups.List` and `KeepNewest`, with `WholeFile` for the writes. #90 also had `CreateAsync` make each backup under another name first, as `WholeFile` does, and settled the rules for the copy to the drive, which this ADR records with the rest.
 
 ## Decision
 
@@ -25,7 +25,7 @@ Close Out needs no open night, and its files are its record.
 - **Once the night is closed, nothing cancels the rest** (NET-7). A cancel before then, such as the clerk leaving the screen, stops Close Out with nothing done. From then on the steps don't hear it, and the checklist's report comes back.
 - **The files are the record.** The database gets no backup or copy times. The newest file in the backups folder says when the last backup was, and the drive's folder says what the drive holds.
 - **Every file is whole or not there.** A backup, a copy on the drive, the catalog and a thumbnail are each written under a name ending in `.partial`, and renamed once they're whole. A write or a backup that fails deletes its own unfinished file. One that a crash or a power cut leaves stays. In the register's backups folder it's never listed, counted, copied or written over. In the outbox the next write of that file replaces it, and on the drive the next copy of that backup does.
-- **The USB step copies whatever the drive is missing,** into a folder named for the root folder's name, and never to the register's own disk. A drive left at home gets the nights it missed the next time it's plugged in, and a copy on the register's own disk isn't a second copy. PR 2 settled the rest:
+- **The USB step copies whatever the drive is missing,** into a folder named for the root folder's name, and never to the register's own disk. A drive left at home gets the nights it missed the next time it's plugged in, and a copy on the register's own disk isn't a second copy. #90 settled the rest:
   - **The newest backup goes first,** so a drive that fills up or is pulled out partway has tonight's.
   - **The first write a drive fails ends that drive's copy for the night,** since a drive that's full, read-only or gone fails every write the same way. Any other backup drive still gets its backups.
   - **A drive has a backup when it has a file of that name and length.** A file of that name and another length is replaced, so the register's copy is the one that counts.
@@ -46,12 +46,12 @@ Close Out needs no open night, and its files are its record.
 
 ## Consequences
 
-- **The Overview's BusinessDays row loses "with backup and copy times"** in PR 7.
+- **The Overview's BusinessDays row loses "with backup and copy times"** when the three documents catch up with step 3.5.
 - **Build Plan 7.2 decides where the last NAS copy's time is kept,** when it needs one. The checklist shows the date of the last NAS copy (the Overview's "Close Out and backups").
 - **The 30 are backups, not nights.** A second Close Out the same night, or the backup Rewind makes before a migration, takes one of the 30 too. The drive still has every one.
 - **A drive that's away for more than 30 backups misses the oldest.** The register has deleted them by the time it's back.
 - **The drive is never pruned, so one day it fills up.** From then on the USB step answers that the drive couldn't be written to, until the Store Manager makes room or marks a new drive.
-- **Two root folders with the same name share one folder on the drive.** A test folder named `Rewind` anywhere but `C:\Rewind` would put its backups among the store's, and one made in the same minute as a store backup, with another length, would replace the store's copy there until the store's next Close Out. The README's test folder is `C:\RewindDev`, and PR 6's README will say never to name one `Rewind`.
+- **Two root folders with the same name share one folder on the drive.** A test folder named `Rewind` anywhere but `C:\Rewind` would put its backups among the store's, and one made in the same minute as a store backup, with another length, would replace the store's copy there until the store's next Close Out. The README's test folder is `C:\RewindDev`, and the README will say never to name one `Rewind`, when the Close Out Register button arrives.
 - **A backup changed on the register after it was copied,** such as one opened in a tool that writes to it, replaces the drive's copy at the next Close Out when its length has changed. One that kept its length isn't copied again, so the drive keeps the copy from before the change.
 - **An unfinished copy stays on the drive when the register no longer has that backup.**
 - **#59, the night nobody closed, is still open:** a stale night is closed by the next Close Out, whenever that is.

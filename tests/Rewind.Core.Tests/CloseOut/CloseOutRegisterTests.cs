@@ -194,9 +194,10 @@ public sealed class CloseOutRegisterTests
     }
 
     // GEN-7: another program has last week's backup open on the register, and lets nobody else read it, so the copy
-    // throws, since the register's own disk failing is no fault of the drive's (ADR-0013). Tonight's backup and the
-    // catalog are still done, and the oldest backup is still deleted. The one warning is Close Out's, with what was
-    // thrown, since the copy doesn't log what it throws (OBS-4).
+    // stops there and throws, since the register's own disk failing is no fault of the drive's (ADR-0013). The newest
+    // goes first, so tonight's is on the drive already, and last week's isn't. Tonight's backup and the catalog are
+    // still done, and the oldest backup is still deleted. The one warning is Close Out's, with what was thrown, since
+    // the copy doesn't log what it throws (OBS-4).
     [Fact]
     public async Task RunAsync_CopyThrows_ReportsItAndDoesTheRest()
     {
@@ -204,7 +205,7 @@ public sealed class CloseOutRegisterTests
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
         await Days(rewind).OpenOrCurrentAsync(ct);
-        rewind.Drives.PlugInBackupDrive("E");
+        var drive = rewind.Drives.PlugInBackupDrive("E");
         var oldest = await PutThirtyEarlierBackupsAsync(rewind, ct);
         await using var held = new FileStream(Path.Combine(rewind.Paths.Backups, LastWeek), FileMode.Open, FileAccess.Read, FileShare.None);
         var logs = new Logs();
@@ -213,6 +214,7 @@ public sealed class CloseOutRegisterTests
         var report = await closeOut.RunAsync(ct);
 
         Assert.Null(report.Copy);
+        Assert.Equal((true, false), (DriveFiles(rewind, drive).Contains(Tonight), DriveFiles(rewind, drive).Contains(LastWeek)));
         Assert.Equal((BusinessDayClosingStatus.Closed, Tonight, 0), (report.Night, report.Backup, report.CatalogMovies));
         Assert.False(report.EverythingWorked);
         Assert.Equal((Backups.Kept, true, false), KeptOnTheRegister(rewind, oldest));

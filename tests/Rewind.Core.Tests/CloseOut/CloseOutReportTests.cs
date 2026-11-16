@@ -38,8 +38,9 @@ public sealed class CloseOutReportTests
         Assert.False(report.EverythingWorked);
     }
 
+    // The copy stopped on a failure that wasn't a drive's, so a drive may still be missing backups.
     [Fact]
-    public void EverythingWorked_CopyCouldntBeTried_IsFalse()
+    public void EverythingWorked_CopyStoppedPartway_IsFalse()
     {
         var report = Done with { Copy = null };
 
