@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -69,6 +70,23 @@ public sealed class BackupsTests
         Assert.Equal(["rewind-2026-10-23-2215.db"], rewind.BackupFiles().Select(file => Path.GetFileName(file)));
         await using var copy = rewind.OpenDb(backup);
         Assert.Equal("Dad", (await copy.Members.SingleAsync(ct)).Name);
+    }
+
+    // SQLite makes the copy's file as it opens it, before it reads the database. This rewind.db isn't a database, so the
+    // backup fails at the first page it reads, after that file is made. The backup deletes it and throws, so the folder
+    // holds nothing: a backup made in place would leave a file with a backup's name, which would be listed, counted and
+    // copied to the drive as one.
+    [Fact]
+    public async Task CreateAsync_BackupFails_LeavesNoFileBehind()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        Directory.CreateDirectory(rewind.Paths.Data);
+        await File.WriteAllTextAsync(rewind.Paths.Database, "This isn't a database.", ct);
+
+        await Assert.ThrowsAsync<SqliteException>(() => rewind.Backups.CreateAsync(ct));
+
+        Assert.Empty(Directory.EnumerateFileSystemEntries(rewind.Paths.Backups));
     }
 
     // A crash or a power cut partway through a backup leaves it under the name it was being made under. A backup in that

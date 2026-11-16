@@ -31,7 +31,10 @@ public sealed partial class BackupDrive(
     /// replaced. Each copy is written whole under another name and then renamed, so a drive pulled out partway
     /// through holds nothing that looks like a backup. With more than one backup drive, each gets what it's missing.
     /// A missing drive, or one that can't be written to, is an answer, not an exception (NET-12, GEN-7), and the log
-    /// has a warning. A cancel throws.
+    /// has a warning. A cancel throws. So does a backup that the register's own disk can't read, such as one another
+    /// program has open, since that's no fault of a drive's: the call throws what the read threw, such as an
+    /// <see cref="IOException"/> or an <see cref="UnauthorizedAccessException"/>, and doesn't log it, so the caller
+    /// logs it once (OBS-4).
     /// </summary>
     public Task<DriveCopy> CopyAsync(CancellationToken cancellationToken) =>
         // On the thread pool: a USB hard drive that's asked whether it's ready can take seconds to spin up, and the
@@ -156,7 +159,7 @@ public sealed partial class BackupDrive(
     private static partial void LogHadEvery(ILogger logger, string drive);
 
     // Warnings (OBS-3): handled, and Close Out goes on, but the backups have no second copy until a drive takes them.
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Found no backup drive: no drive but the register's own has {Marker} in its top folder")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Found no backup drive: no drive has {Marker} in its top folder. The register's own disk never counts")]
     private static partial void LogNoDrive(ILogger logger, string marker);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Couldn't write to the backup drive {Drive}, which may be full, read-only or pulled out, so it may still be missing backups")]

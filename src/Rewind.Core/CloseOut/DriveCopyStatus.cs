@@ -10,8 +10,8 @@ public enum DriveCopyStatus
     NothingToCopy,
 
     /// <summary>
-    /// No backup drive is plugged in: no ready drive but the register's own has REWIND-BACKUP.txt in its top folder.
-    /// Nothing was written.
+    /// No backup drive is plugged in: no ready drive has REWIND-BACKUP.txt in its top folder. The register's own disk
+    /// never counts. Nothing was written.
     /// </summary>
     NoDrive,
 
