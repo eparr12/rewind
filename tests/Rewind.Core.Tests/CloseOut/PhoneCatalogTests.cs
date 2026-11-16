@@ -34,8 +34,9 @@ public sealed class PhoneCatalogTests
     // An outbox file's time from long before any test runs, to tell whether a write touched it.
     private static readonly DateTime LongAgo = new(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    // Build Plan 3.5: R6's format, parsed back. The clock is 7.5 seconds past 10:15 PM on the register, four hours
-    // behind UTC, so generatedAt is 02:15:07 the next morning, to the second.
+    // Build Plan 3.5: R6's format, parsed back. Close Out runs 17 hours and 7.5 seconds after TempRewind's movie
+    // night, at 3:15 PM on the register, four hours behind UTC, so generatedAt is 19:15:07Z: in UTC, on a 24-hour
+    // clock, and to the second.
     [Fact]
     public async Task WriteAsync_SmallCollection_WritesTheVersionTheTimeAndEachMovie()
     {
@@ -55,13 +56,13 @@ public sealed class PhoneCatalogTests
             new Case { StoreLabel = "RV-00001", FactoryUpc = JawsUpc, Movies = { jaws } },
             new Case { StoreLabel = "RV-00002", FactoryUpc = HalloweenUpc, Movies = { halloween } });
         await SaveThumbAsync(rewind, JawsId, JawsThumb, ct);
-        rewind.Time.Advance(TimeSpan.FromSeconds(7.5));
+        rewind.Time.Advance(new TimeSpan(17, 0, 7) + TimeSpan.FromMilliseconds(500));
 
         var written = await CatalogFor(rewind).WriteAsync(ct);
 
         var catalog = await ReadCatalogAsync(rewind, ct);
         Assert.Equal(2, written);
-        Assert.Equal((1, "2026-10-24T02:15:07Z"), (catalog.GetProperty("version").GetInt32(), catalog.GetProperty("generatedAt").GetString()));
+        Assert.Equal((1, "2026-10-24T19:15:07Z"), (catalog.GetProperty("version").GetInt32(), catalog.GetProperty("generatedAt").GetString()));
         Assert.Equal(
             [
                 """{"title":"Halloween","year":1978,"rating":"R","minutes":91,"genres":["Horror"],"thumb":null,"upcs":["043396012356"]}""",
@@ -520,6 +521,40 @@ public sealed class PhoneCatalogTests
 
         Assert.Equal(earlier, await File.ReadAllBytesAsync(InOutbox(rewind, "catalog.json"), ct));
         Assert.Equal(["catalog.json"], OutboxFiles(rewind));
+    }
+
+    // NET-7: a cancel once the read is done stops the thumbnails too, before the first one is copied.
+    [Fact]
+    public async Task WriteAsync_CancelledAfterTheRead_CopiesNoThumbnail()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddInOrderAsync(rewind, ct, new Case { StoreLabel = "RV-00001", Movies = { Jaws() } });
+        await SaveThumbAsync(rewind, JawsId, JawsThumb, ct);
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => CatalogFor(rewind, new CancelAfterTheRead(rewind, cancel)).WriteAsync(cancel.Token));
+
+        Assert.Empty(OutboxFiles(rewind));
+    }
+
+    // The log line says the catalog went out, so a write that stops short doesn't log it.
+    [Fact]
+    public async Task WriteAsync_CancelledAfterTheRead_LogsNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddInOrderAsync(rewind, ct, new Case { StoreLabel = "RV-00001", Movies = { Jaws() } });
+        var log = new ListLogger<PhoneCatalog>();
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => CatalogFor(rewind, new CancelAfterTheRead(rewind, cancel), log).WriteAsync(cancel.Token));
+
+        Assert.Empty(log.Entries);
     }
 
     // Information (OBS-3): a Close Out step, with how many movies the phones will know.
