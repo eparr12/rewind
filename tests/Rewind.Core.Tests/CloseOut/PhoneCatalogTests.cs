@@ -313,6 +313,39 @@ public sealed class PhoneCatalogTests
         Assert.Equal([[JawsUpc, JawsSecondEditionUpc, EuropeanUpc]], UpcsIn(await ReadCatalogAsync(rewind, ct)));
     }
 
+    // TEST-2: the single query gives this movie nine rows, each of its three genres with each of its three UPCs,
+    // and EF Core gathers them back into one movie. A repeat could only show in the genres, since the SortedSet would
+    // hide one among the UPCs. Both are saved out of order, as in the tests above, so the order counts too.
+    [Fact]
+    public async Task WriteAsync_ThreeGenresInThreeEditions_ListsEachGenreAndUpcOnceInOrder()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var thriller = new Genre { TmdbId = 53, Name = "Thriller" };
+        var horror = new Genre { TmdbId = 27, Name = "Horror" };
+        var adventure = new Genre { TmdbId = 12, Name = "Adventure" };
+        var jaws = Jaws();
+        jaws.Genres.Add(horror);
+        jaws.Genres.Add(thriller);
+        jaws.Genres.Add(adventure);
+        await AddInOrderAsync(
+            rewind,
+            ct,
+            thriller,
+            horror,
+            adventure,
+            new Case { StoreLabel = "RV-00001", FactoryUpc = EuropeanUpc, Movies = { jaws } },
+            new Case { StoreLabel = "RV-00002", FactoryUpc = JawsSecondEditionUpc, Movies = { jaws } },
+            new Case { StoreLabel = "RV-00003", FactoryUpc = JawsUpc, Movies = { jaws } });
+
+        await CatalogFor(rewind).WriteAsync(ct);
+
+        Assert.Equal(
+            ["""{"title":"Jaws","year":1975,"rating":"PG","minutes":124,"genres":["Adventure","Horror","Thriller"],"thumb":null,"upcs":["012345678905","085391163121","4006381333931"]}"""],
+            MoviesIn(await ReadCatalogAsync(rewind, ct)));
+    }
+
     // Named with a forward slash, since it's a web path from catalog.json.
     [Fact]
     public async Task WriteAsync_ThumbnailTheOutboxLacks_CopiesItAndNamesIt()

@@ -9,6 +9,8 @@ The phone catalog's file, and the only thing the phone app shares with Rewind (A
   "version": 1,
   "generatedAt": "2026-10-23T22:15:00Z",
   "movies": [
+    { "title": "Home Movies", "year": null, "rating": null,
+      "minutes": null, "genres": [], "thumb": null, "upcs": [] },
     { "title": "Jaws", "year": 1975, "rating": "PG",
       "minutes": 124, "genres": ["Adventure", "Horror"],
       "thumb": "thumbs/578.jpg", "upcs": ["012345678905"] }
