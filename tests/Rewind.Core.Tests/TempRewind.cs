@@ -3,15 +3,17 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Rewind.Core.Data;
+using Rewind.Core.Devices;
 
 namespace Rewind.Core.Tests;
 
 /// <summary>
 /// A throwaway Rewind folder for one test. Rewind.Core starts the way Program.cs starts it,
-/// over real SQLite files (TEST-3), and the clock is fake (TEST-4). Every test makes its own,
-/// so tests never share a database (TEST-7).
+/// over real SQLite files (TEST-3), and the clock is fake (TEST-4), and so are the PC's drives
+/// (TEST-5). Every test makes its own, so tests never share a database (TEST-7).
 /// </summary>
 internal sealed class TempRewind : IAsyncDisposable
 {
@@ -22,7 +24,11 @@ internal sealed class TempRewind : IAsyncDisposable
 
     private readonly List<IHost> _hosts = [];
 
-    public TempRewind() => Time.SetLocalTimeZone(RegisterZone);
+    public TempRewind()
+    {
+        Time.SetLocalTimeZone(RegisterZone);
+        Drives = new(Path.Combine(Paths.Root, "drives"));
+    }
 
     public RewindPaths Paths { get; } = new() { Root = Path.Combine(Path.GetTempPath(), $"rewind-test-{Guid.NewGuid():N}") };
 
@@ -30,7 +36,13 @@ internal sealed class TempRewind : IAsyncDisposable
 
     public Random Random { get; } = new(42); // TEST-4: seeded, so chance goes the same way on every run
 
-    public Backups Backups => new(Options.Create(Paths), Time);
+    /// <summary>
+    /// The PC's drives, each a folder under this root, which the host is given in place of the real
+    /// ones: a backup drive left plugged in during dotnet test is never even looked at.
+    /// </summary>
+    public FakeDrives Drives { get; }
+
+    public Backups Backups => new(Options.Create(Paths), Time, NullLogger<Backups>.Instance);
 
     /// <summary>Starts Rewind.Core the way Program.cs does, so DatabaseStartup runs.</summary>
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -43,6 +55,7 @@ internal sealed class TempRewind : IAsyncDisposable
         builder.Services.AddRewindCore(builder.Configuration);
         builder.Services.AddSingleton<TimeProvider>(Time);
         builder.Services.AddSingleton(Random);
+        builder.Services.AddSingleton<IDrives>(Drives);
 
         var host = builder.Build();
         _hosts.Add(host);
@@ -51,6 +64,9 @@ internal sealed class TempRewind : IAsyncDisposable
 
     /// <summary>The database factory that the Rewind.Core StartAsync started hands to services (DATA-6).</summary>
     public IDbContextFactory<RewindDb> DbFactory => _hosts[^1].Services.GetRequiredService<IDbContextFactory<RewindDb>>();
+
+    /// <summary>The drives that the Rewind.Core StartAsync started hands to services, which are <see cref="Drives"/>.</summary>
+    public IDrives HostDrives => _hosts[^1].Services.GetRequiredService<IDrives>();
 
     /// <summary>Opens the live database, or another file such as a backup, as the register does.</summary>
     public RewindDb OpenDb(string? databaseFile = null) =>

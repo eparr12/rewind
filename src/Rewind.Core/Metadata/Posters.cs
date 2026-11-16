@@ -12,19 +12,6 @@ namespace Rewind.Core.Metadata;
 /// </summary>
 public sealed partial class Posters(IOptions<RewindPaths> options, ILogger<Posters> logger)
 {
-    private const string PartialExtension = ".partial";
-
-    // Each write goes straight through to the disk, so a power cut can't lose what a crash
-    // wouldn't. Unbuffered, since a whole poster is written at once.
-    private static readonly FileStreamOptions WriteThrough = new()
-    {
-        Mode = FileMode.Create,
-        Access = FileAccess.Write,
-        Share = FileShare.None,
-        Options = FileOptions.WriteThrough | FileOptions.Asynchronous,
-        BufferSize = 0,
-    };
-
     private readonly RewindPaths _paths = options.Value;
 
     /// <summary>The file name a movie's poster is saved under, at every size, such as 948.jpg.</summary>
@@ -45,21 +32,7 @@ public sealed partial class Posters(IOptions<RewindPaths> options, ILogger<Poste
     {
         var folder = FolderFor(size);
         Directory.CreateDirectory(folder);
-        var path = Path.Combine(folder, FileNameFor(tmdbId));
-        var partial = path + PartialExtension;
-        try
-        {
-            await using (var file = new FileStream(partial, WriteThrough))
-            {
-                await file.WriteAsync(jpeg, cancellationToken);
-            }
-
-            File.Move(partial, path, overwrite: true);
-        }
-        finally
-        {
-            File.Delete(partial); // gone already after the move; does nothing then
-        }
+        await WholeFile.WriteAsync(Path.Combine(folder, FileNameFor(tmdbId)), jpeg, cancellationToken);
     }
 
     /// <summary>

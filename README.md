@@ -251,7 +251,7 @@ The zip includes `appsettings.json`, so a setting changed by hand on the registe
 
 ## Restore a backup
 
-Before Rewind applies a migration, it backs up the database to `C:\Rewind\backups`, in a file named for the local time, such as `rewind-2026-10-23-2215.db`. To go back to one:
+Before Rewind applies a migration, it backs up the database to `C:\Rewind\backups`, in a file named for the local time, such as `rewind-2026-10-23-2215.db`. A file there whose name ends in `.partial`, such as `rewind-2026-10-23-2215.db.partial`, is what's left of a backup that failed, or that a crash or a power cut stopped partway. It isn't a whole copy, so never restore it. Rewind leaves it alone, and you can delete it. To go back to a backup:
 
 1. Shut Rewind down (F5, then Shut Down, then OK). Never copy the database while Rewind runs (DATA-14).
 2. In `C:\Rewind\data`, move `rewind.db` into a new folder, such as `C:\Rewind\data\before-restore`, along with `rewind.db-wal` and `rewind.db-shm` if they're there. Keep the three together: the `-wal` file can hold changes that aren't in `rewind.db` yet, and SQLite would apply a `-wal` left behind to the restored database and corrupt it.
