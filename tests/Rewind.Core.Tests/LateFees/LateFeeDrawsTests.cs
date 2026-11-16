@@ -110,7 +110,7 @@ public sealed class LateFeeDrawsTests
         Assert.Equal("O", await SavedBagAsync(rewind, member, ct));
     }
 
-    // The card scan is the night's first scan.
+    // The first member card scanned at Checkout opens the night.
     [Fact]
     public async Task DrawAsync_NoOpenNight_OpensOne()
     {
@@ -527,7 +527,7 @@ public sealed class LateFeeDrawsTests
 
     private static DateTime Now(TempRewind rewind) => rewind.Time.GetUtcNow().UtcDateTime;
 
-    // Close Out tonight, so next week's first scan opens another night.
+    // Close Out tonight, so next week's first member card opens another night.
     private static async Task NextNightAsync(TempRewind rewind, CancellationToken cancellationToken)
     {
         await Days(rewind).CloseAsync(cancellationToken);

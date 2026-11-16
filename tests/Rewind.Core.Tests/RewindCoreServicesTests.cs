@@ -104,7 +104,7 @@ public sealed class RewindCoreServicesTests
         Assert.IsType<ConcessionBar>(provider.GetRequiredService<IConcessionBar>());
     }
 
-    // The night's first scan and Close Out will need it, and a host without it would only fail then.
+    // The night's first member card at Checkout and Close Out need it, and a host without it would only fail then.
     [Fact]
     public async Task AddRewindCore_AnyHost_ProvidesTheBusinessDays()
     {
@@ -194,6 +194,25 @@ public sealed class RewindCoreServicesTests
         await using var provider = services.BuildServiceProvider();
 
         Assert.Same(provider.GetRequiredService<BackupDrive>(), provider.GetRequiredService<BackupDrive>());
+    }
+
+    // The Close Out Register button will inject it, and a host without it would only fail at closing time. It's one for
+    // the whole register, so a second Close Out waits for the first, from whichever screen. Making it looks at no drive.
+    [Fact]
+    public async Task AddRewindCore_AnyHost_ProvidesOneCloseOutRegister()
+    {
+        // A full path on Linux too, as for the label sheets above.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddRewindCore(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { [$"{RewindPaths.SectionName}:Root"] = Path.GetTempPath() })
+            .Build());
+        await using var provider = services.BuildServiceProvider();
+
+        var closeOut = provider.GetRequiredService<ICloseOutRegister>();
+
+        Assert.IsType<CloseOutRegister>(closeOut);
+        Assert.Same(closeOut, provider.GetRequiredService<ICloseOutRegister>());
     }
 
     // The services that use it are singletons, so two scans can reach it at once. A Random of its own wouldn't
