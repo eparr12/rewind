@@ -24,6 +24,12 @@ public sealed class RewindPaths
     /// <summary>The folder that holds the backups.</summary>
     public string Backups => Path.Combine(Root, "backups");
 
+    /// <summary>
+    /// The folder Close Out writes the phone catalog to: catalog.json and its thumbs folder, as the
+    /// NAS's catalog folder will hold them once Build Plan 7.2 uploads it there.
+    /// </summary>
+    public string Outbox => Path.Combine(Root, "outbox");
+
     /// <summary>The folder that holds the log files (OBS-2).</summary>
     public string Logs => Path.Combine(Root, "logs");
 

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Rewind.Core.Checkout;
+using Rewind.Core.CloseOut;
 using Rewind.Core.Concessions;
 using Rewind.Core.Data;
 using Rewind.Core.Devices;
@@ -25,9 +26,9 @@ public static class RewindCoreServices
     /// <summary>
     /// Adds Rewind's folders, the database and the startup that prepares it, the sheets of store labels
     /// and member cards, whose numbers the database keeps, the members, the prices, the concession bar's
-    /// snacks, the business days, the late-fee draws, the checkout counter and the return desk. Call this
-    /// before adding any other hosted service: hosted services start in the order they're added, and
-    /// everything else needs the database.
+    /// snacks, the business days, the late-fee draws, the checkout counter, the return desk and the phone
+    /// catalog's writer. Call this before adding any other hosted service: hosted services start in the
+    /// order they're added, and everything else needs the database.
     /// </summary>
     public static IServiceCollection AddRewindCore(this IServiceCollection services, IConfiguration configuration)
     {
@@ -58,6 +59,9 @@ public static class RewindCoreServices
         services.AddSingleton<ILateFeeDraws, LateFeeDraws>();
         services.AddSingleton<ICheckoutCounter, CheckoutCounter>();
         services.AddSingleton<IReturnDesk, ReturnDesk>();
+
+        // Close Out's, which holds no state either and asks the factory for its context too.
+        services.AddSingleton<PhoneCatalog>();
         return services;
     }
 

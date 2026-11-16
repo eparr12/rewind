@@ -86,7 +86,7 @@ Every build reads `keys\secrets.json` under its own root. So a Debug build on `C
 
 Rewind reads the token once, as it starts, so restart it after setting or changing the token. It won't start with a `secrets.json` that isn't valid JSON, or with a token that has a space in it, such as `Bearer` pasted in front: a message box says why. When TMDB refuses the token, Intake says the token isn't set up, and the log says TMDB refused it.
 
-Rewind saves each movie's poster in `C:\Rewind\data`, named for the movie's TMDB ID: `posters\948.jpg` at 342 pixels wide for the register's screens, and `thumbs\948.jpg` at 154 for the phone catalog. Posters aren't in Git (GIT-6) or in the backups, which hold only the database.
+Rewind saves each movie's poster in `C:\Rewind\data`, named for the movie's TMDB ID: `posters\948.jpg` at 342 pixels wide for the register's screens, and `thumbs\948.jpg` at 154 for the phone catalog, whose format [catalog-json.md](src/Rewind.Core/CloseOut/catalog-json.md) sets out. Posters aren't in Git (GIT-6) or in the backups, which hold only the database.
 
 ## Checkout
 
