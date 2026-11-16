@@ -10,6 +10,7 @@ using Rewind.Core.Catalog;
 using Rewind.Core.Checkout;
 using Rewind.Core.CloseOut;
 using Rewind.Core.Data;
+using Rewind.Core.Devices;
 using Rewind.Core.Members;
 using Rewind.Core.MovieNights;
 using Rewind.Core.Returns;
@@ -83,7 +84,7 @@ public sealed class CloseOutRegisterTests
     }
 
     // Build Plan 3.5's Done when: a missing USB drive shows a warning instead of an error. Nothing is thrown, the rest
-    // is done, and the copy's own warning is the only one.
+    // is done, down to keeping the newest 30, and the copy's own warning is the only one.
     [Fact]
     public async Task RunAsync_NoBackupDrive_SaysSoWithOneWarningAndDoesTheRest()
     {
@@ -91,6 +92,7 @@ public sealed class CloseOutRegisterTests
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
         await Days(rewind).OpenOrCurrentAsync(ct);
+        var oldest = await PutThirtyEarlierBackupsAsync(rewind, ct);
         var logs = new Logs();
         using var closeOut = CloseOutFor(rewind, logs: logs);
 
@@ -99,7 +101,7 @@ public sealed class CloseOutRegisterTests
         Assert.Equal(DriveCopyStatus.NoDrive, report.Copy?.Status);
         Assert.False(report.EverythingWorked);
         Assert.Equal((BusinessDayClosingStatus.Closed, Tonight, 0), (report.Night, report.Backup, report.CatalogMovies));
-        Assert.Equal([Tonight], RegisterBackups(rewind));
+        Assert.Equal((Backups.Kept, true, false), KeptOnTheRegister(rewind, oldest));
         Assert.Equal([(nameof(BackupDrive), LogLevel.Warning, NoDriveWarning)], logs.WarningsAndUp());
     }
 
@@ -166,7 +168,8 @@ public sealed class CloseOutRegisterTests
     }
 
     // GEN-7: a file stands where the outbox goes, so the catalog can't be written. Tonight's backup is still made and
-    // copied, and the one warning is the catalog's, with what was thrown (OBS-4).
+    // copied, with the 30 before it, the oldest of them is still deleted, and the one warning is the catalog's, with
+    // what was thrown (OBS-4).
     [Fact]
     public async Task RunAsync_CatalogFails_ReportsItAndDoesTheRest()
     {
@@ -175,6 +178,7 @@ public sealed class CloseOutRegisterTests
         await rewind.StartAsync(ct);
         await Days(rewind).OpenOrCurrentAsync(ct);
         rewind.Drives.PlugInBackupDrive("E");
+        var oldest = await PutThirtyEarlierBackupsAsync(rewind, ct);
         await File.WriteAllTextAsync(rewind.Paths.Outbox, "", ct);
         var logs = new Logs();
         using var closeOut = CloseOutFor(rewind, logs: logs);
@@ -184,14 +188,15 @@ public sealed class CloseOutRegisterTests
         Assert.Null(report.CatalogMovies);
         Assert.Equal((BusinessDayClosingStatus.Closed, Tonight, DriveCopyStatus.Copied), (report.Night, report.Backup, report.Copy?.Status));
         Assert.False(report.EverythingWorked);
+        Assert.Equal((Backups.Kept, true, false), KeptOnTheRegister(rewind, oldest));
         Assert.Equal([(nameof(CloseOutRegister), LogLevel.Warning, CatalogWarning)], logs.WarningsAndUp());
         Assert.IsAssignableFrom<IOException>(logs.WarningFromCloseOut().Exception);
     }
 
     // GEN-7: another program has last week's backup open on the register, and lets nobody else read it, so the copy
     // throws, since the register's own disk failing is no fault of the drive's (ADR-0013). Tonight's backup and the
-    // catalog are still done. The one warning is Close Out's, with what was thrown, since the copy doesn't log what it
-    // throws (OBS-4).
+    // catalog are still done, and the oldest backup is still deleted. The one warning is Close Out's, with what was
+    // thrown, since the copy doesn't log what it throws (OBS-4).
     [Fact]
     public async Task RunAsync_CopyThrows_ReportsItAndDoesTheRest()
     {
@@ -200,7 +205,7 @@ public sealed class CloseOutRegisterTests
         await rewind.StartAsync(ct);
         await Days(rewind).OpenOrCurrentAsync(ct);
         rewind.Drives.PlugInBackupDrive("E");
-        await PutBackupAsync(rewind, LastWeek, ct);
+        var oldest = await PutThirtyEarlierBackupsAsync(rewind, ct);
         await using var held = new FileStream(Path.Combine(rewind.Paths.Backups, LastWeek), FileMode.Open, FileAccess.Read, FileShare.None);
         var logs = new Logs();
         using var closeOut = CloseOutFor(rewind, logs: logs);
@@ -210,13 +215,14 @@ public sealed class CloseOutRegisterTests
         Assert.Null(report.Copy);
         Assert.Equal((BusinessDayClosingStatus.Closed, Tonight, 0), (report.Night, report.Backup, report.CatalogMovies));
         Assert.False(report.EverythingWorked);
+        Assert.Equal((Backups.Kept, true, false), KeptOnTheRegister(rewind, oldest));
         Assert.Equal([(nameof(CloseOutRegister), LogLevel.Warning, CopyWarning)], logs.WarningsAndUp());
         Assert.IsAssignableFrom<IOException>(logs.WarningFromCloseOut().Exception);
     }
 
     // GEN-7: a file stands where E's folder for this root goes, as on a drive that's read-only, so the copy answers that
-    // it couldn't write there. The rest is done, and the copy's own warning is the only one: Close Out doesn't log it
-    // again (OBS-4).
+    // it couldn't write there. The rest is done, down to deleting the oldest backup, and the copy's own warning is the
+    // only one: Close Out doesn't log it again (OBS-4).
     [Fact]
     public async Task RunAsync_DriveCantBeWrittenTo_ReportsItWithTheCopysOwnWarning()
     {
@@ -226,6 +232,7 @@ public sealed class CloseOutRegisterTests
         await Days(rewind).OpenOrCurrentAsync(ct);
         var drive = rewind.Drives.PlugInBackupDrive("E");
         await File.WriteAllTextAsync(Path.Combine(drive, Path.GetFileName(rewind.Paths.Root)), "", ct);
+        var oldest = await PutThirtyEarlierBackupsAsync(rewind, ct);
         var logs = new Logs();
         using var closeOut = CloseOutFor(rewind, logs: logs);
 
@@ -235,6 +242,7 @@ public sealed class CloseOutRegisterTests
         Assert.Equal([drive], report.Copy?.Unwritable);
         Assert.Equal((BusinessDayClosingStatus.Closed, Tonight, 0), (report.Night, report.Backup, report.CatalogMovies));
         Assert.False(report.EverythingWorked);
+        Assert.Equal((Backups.Kept, true, false), KeptOnTheRegister(rewind, oldest));
         Assert.Equal(
             [(nameof(BackupDrive), LogLevel.Warning, $"Couldn't write to the backup drive {drive}, which may be full, read-only or pulled out, so it may still be missing backups")],
             logs.WarningsAndUp());
@@ -290,7 +298,7 @@ public sealed class CloseOutRegisterTests
     }
 
     // The register keeps its newest 30, counted after the copy (ADR-0013), so the oldest still reaches the drive before
-    // it goes. Thirty earlier nights' backups are on the register, one a night, and the drive has none of them yet.
+    // it goes. Thirty earlier nights' backups are on the register, and the drive has none of them yet.
     [Fact]
     public async Task RunAsync_ThirtyFirstBackup_DeletesTheOldestOnceTheDriveHasIt()
     {
@@ -299,19 +307,13 @@ public sealed class CloseOutRegisterTests
         await rewind.StartAsync(ct);
         await Days(rewind).OpenOrCurrentAsync(ct);
         var drive = rewind.Drives.PlugInBackupDrive("E");
-        for (var nightsAgo = 1; nightsAgo <= Backups.Kept; nightsAgo++)
-        {
-            var night = new DateOnly(2026, 10, 23).AddDays(-nightsAgo).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-            await PutBackupAsync(rewind, $"rewind-{night}-2215.db", ct);
-        }
-
+        var oldest = await PutThirtyEarlierBackupsAsync(rewind, ct);
         using var closeOut = CloseOutFor(rewind);
 
         var report = await closeOut.RunAsync(ct);
 
-        const string Oldest = "rewind-2026-09-23-2215.db";
-        Assert.Equal((Backups.Kept, false), (RegisterBackups(rewind).Count, RegisterBackups(rewind).Contains(Oldest)));
-        Assert.Equal((Backups.Kept + 1, true), (DriveFiles(rewind, drive).Count, DriveFiles(rewind, drive).Contains(Oldest)));
+        Assert.Equal((Backups.Kept, true, false), KeptOnTheRegister(rewind, oldest));
+        Assert.Equal((Backups.Kept + 1, true), (DriveFiles(rewind, drive).Count, DriveFiles(rewind, drive).Contains(oldest)));
         Assert.Equal(Backups.Kept + 1, report.Copy?.Files);
     }
 
@@ -377,28 +379,32 @@ public sealed class CloseOutRegisterTests
         Assert.Equal([Tonight], RegisterBackups(rewind));
     }
 
-    // Two never overlap: a second Close Out waits for the first, then runs, so the first closes the night and the second
-    // finds none open, and each makes a backup of its own. The first is held at the night's save until the second has
-    // been asked for.
+    // Two never overlap: a second Close Out waits until the first is done, steps and all, then runs, so it finds no night
+    // open and makes a backup of its own. The first is held in its copy, with its night closed, while the second is
+    // asked for. A second that didn't wait would ask for a context at once, to close the night.
     [Fact]
-    public async Task RunAsync_TwoAtOnce_BothFinishWithABackupEach()
+    public async Task RunAsync_TwoAtOnce_SecondWaitsUntilTheFirstIsDone()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
         await Days(rewind).OpenOrCurrentAsync(ct);
-        var held = new TaskCompletionSource();
-        var saves = 0;
-        using var closeOut = CloseOutFor(rewind, new BeforeEachSave(rewind, _ => Interlocked.Increment(ref saves) == 1 ? held.Task : Task.CompletedTask));
+        rewind.Drives.PlugInBackupDrive("E");
+        var contexts = new CountedContexts(rewind.DbFactory);
+        using var drives = new HeldDrives(rewind.Drives);
+        using var closeOut = CloseOutFor(rewind, contexts, drives: drives);
         var first = closeOut.RunAsync(ct);
-        var second = closeOut.RunAsync(ct);
+        await drives.Listing.WaitAsync(NoHang, ct);
+        var madeBeforeTheSecond = contexts.Made;
 
-        held.SetResult();
+        var second = closeOut.RunAsync(ct);
+        var madeByTheSecondMeanwhile = contexts.Made - madeBeforeTheSecond;
+        drives.LetGo();
         var reports = await Task.WhenAll(first, second).WaitAsync(NoHang, ct);
 
+        Assert.Equal(0, madeByTheSecondMeanwhile);
         Assert.Equal([BusinessDayClosingStatus.Closed, BusinessDayClosingStatus.NothingOpen], reports.Select(report => report.Night));
         Assert.Equal([Tonight, "rewind-2026-10-23-2215-2.db"], reports.Select(report => report.Backup));
-        Assert.Equal(["rewind-2026-10-23-2215-2.db", Tonight], RegisterBackups(rewind)); // by character code, so -2 first
     }
 
     // NET-7: a Close Out waiting for another hasn't closed anything yet, so a cancel still stops it, at once, and it
@@ -469,13 +475,14 @@ public sealed class CloseOutRegisterTests
     }
 
     // The Close Out for the test's root folder, over the real business days, backups, phone catalog and copy, given the
-    // test's clock and drives (TEST-4, TEST-5), the test's contexts for the database when it gives some, and its own
-    // logger for Close Out's lines when it gives one.
+    // test's clock and drives (TEST-4, TEST-5), or a stand-in wrapping those drives. The test's contexts stand in for
+    // the database's when it gives some, and its own logger for Close Out's lines.
     private static CloseOutRegister CloseOutFor(
         TempRewind rewind,
         IDbContextFactory<RewindDb>? dbFactory = null,
         Logs? logs = null,
-        ILogger<CloseOutRegister>? logger = null)
+        ILogger<CloseOutRegister>? logger = null,
+        IDrives? drives = null)
     {
         var db = dbFactory ?? rewind.DbFactory;
         var log = logs ?? new Logs();
@@ -485,7 +492,7 @@ public sealed class CloseOutRegisterTests
             new BusinessDays(db, rewind.Time, log.Night),
             backups,
             new PhoneCatalog(db, options, rewind.Time, log.Catalog),
-            new BackupDrive(backups, rewind.Drives, options, log.Copy),
+            new BackupDrive(backups, drives ?? rewind.Drives, options, log.Copy),
             logger ?? log.CloseOut);
     }
 
@@ -546,6 +553,29 @@ public sealed class CloseOutRegisterTests
         await File.WriteAllBytesAsync(Path.Combine(rewind.Paths.Backups, name), OlderBackup, cancellationToken);
     }
 
+    // The 30 nights before tonight, a backup each, last week's among them, so tonight's is the 31st and keeping the
+    // newest 30 deletes the oldest. Returns the oldest's name.
+    private static async Task<string> PutThirtyEarlierBackupsAsync(TempRewind rewind, CancellationToken cancellationToken)
+    {
+        var names = Enumerable.Range(1, Backups.Kept)
+            .Select(nightsAgo => new DateOnly(2026, 10, 23).AddDays(-nightsAgo).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
+            .Select(night => $"rewind-{night}-2215.db")
+            .ToList();
+        foreach (var name in names)
+        {
+            await PutBackupAsync(rewind, name, cancellationToken);
+        }
+
+        return names[^1];
+    }
+
+    // How many backups the register has, whether tonight's is among them, and whether the oldest is still there.
+    private static (int Count, bool HasTonights, bool HasTheOldest) KeptOnTheRegister(TempRewind rewind, string oldest)
+    {
+        var backups = RegisterBackups(rewind);
+        return (backups.Count, backups.Contains(Tonight), backups.Contains(oldest));
+    }
+
     // The name of each file in the register's backups folder, in order by character code.
     private static List<string> RegisterBackups(TempRewind rewind) =>
         [.. rewind.BackupFiles().Select(file => Path.GetFileName(file)).Order(StringComparer.Ordinal)];
@@ -596,6 +626,42 @@ public sealed class CloseOutRegisterTests
             string from,
             IReadOnlyList<(LogLevel Level, string Message, Exception? Exception)> entries) =>
             entries.Where(entry => entry.Level >= LogLevel.Warning).Select(entry => (from, entry.Level, entry.Message));
+    }
+
+    // The test's contexts, counted as they're made, so a test can tell whether a Close Out has started: closing the night
+    // asks for one first.
+    private sealed class CountedContexts(IDbContextFactory<RewindDb> contexts) : IDbContextFactory<RewindDb>
+    {
+        private int _made;
+
+        public int Made => Volatile.Read(ref _made);
+
+        public RewindDb CreateDbContext()
+        {
+            Interlocked.Increment(ref _made);
+            return contexts.CreateDbContext();
+        }
+    }
+
+    // The test's drives, which hold the copy that lists them until the test lets it go, and say when one is waiting. The
+    // copy lists them on the thread pool, so holding it there keeps the test's own thread free.
+    private sealed class HeldDrives(IDrives drives) : IDrives, IDisposable
+    {
+        private readonly ManualResetEventSlim _letGo = new();
+        private readonly TaskCompletionSource _listing = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Listing => _listing.Task;
+
+        public IReadOnlyList<string> TopFolders()
+        {
+            _listing.TrySetResult();
+            _letGo.Wait(NoHang); // real time, not fake: a copy the test never lets go fails it instead of hanging the run
+            return drives.TopFolders();
+        }
+
+        public void LetGo() => _letGo.Set();
+
+        public void Dispose() => _letGo.Dispose();
     }
 
     // A folder that can't be listed, though files can still be made in it, until it's disposed, which puts it back so
