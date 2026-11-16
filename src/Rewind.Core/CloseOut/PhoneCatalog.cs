@@ -26,7 +26,6 @@ public sealed partial class PhoneCatalog(
 
     private const string CatalogFileName = "catalog.json";
     private const string ThumbsFolder = "thumbs";
-    private const string PartialExtension = ".partial";
 
     // UTC to the second, ending in Z, such as 2026-10-24T02:15:00Z.
     private const string GeneratedAtFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'";
@@ -34,17 +33,6 @@ public sealed partial class PhoneCatalog(
     // camelCase, as catalog-json.md names the fields. Nulls are written, not left out, since a field that's
     // null says the value is unknown (DATA-3).
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-
-    // As Posters writes: straight through to the disk, so a power cut can't lose what a crash wouldn't.
-    // Unbuffered, since a whole file is written at once.
-    private static readonly FileStreamOptions WriteThrough = new()
-    {
-        Mode = FileMode.Create,
-        Access = FileAccess.Write,
-        Share = FileShare.None,
-        Options = FileOptions.WriteThrough | FileOptions.Asynchronous,
-        BufferSize = 0,
-    };
 
     private readonly RewindPaths _paths = options.Value;
 
@@ -75,7 +63,7 @@ public sealed partial class PhoneCatalog(
             FormatVersion,
             generatedAt.ToString(GeneratedAtFormat, CultureInfo.InvariantCulture),
             [.. movies.Select(movie => ToListed(movie, thumbs))]);
-        await WriteWholeAsync(Path.Combine(_paths.Outbox, CatalogFileName), JsonSerializer.SerializeToUtf8Bytes(catalog, Json), cancellationToken);
+        await WholeFile.WriteAsync(Path.Combine(_paths.Outbox, CatalogFileName), JsonSerializer.SerializeToUtf8Bytes(catalog, Json), cancellationToken);
         LogWritten(logger, catalog.Movies.Count);
         return catalog.Movies.Count;
     }
@@ -129,7 +117,7 @@ public sealed partial class PhoneCatalog(
             return; // the same one, so it isn't written again
         }
 
-        await WriteWholeAsync(copy, jpeg, cancellationToken);
+        await WholeFile.WriteAsync(copy, jpeg, cancellationToken);
     }
 
     // A movie names its thumbnail when the outbox holds it, even when the data folder no longer does, such as
@@ -143,27 +131,6 @@ public sealed partial class PhoneCatalog(
             : null;
         var upcs = new SortedSet<string>(movie.CaseUpcs, StringComparer.Ordinal);
         return new ListedMovie(movie.Title, movie.Year, movie.Rating, movie.Minutes, movie.Genres, thumb, [.. upcs]);
-    }
-
-    // As Posters.SaveAsync writes: in full under another name, which then takes the old file's place, so
-    // neither a crash nor a power cut leaves half a file, and a write that fails or is cancelled deletes its
-    // new file. It's the second copy, so it isn't shared yet (GEN-8).
-    private static async Task WriteWholeAsync(string path, byte[] bytes, CancellationToken cancellationToken)
-    {
-        var partial = path + PartialExtension;
-        try
-        {
-            await using (var file = new FileStream(partial, WriteThrough))
-            {
-                await file.WriteAsync(bytes, cancellationToken);
-            }
-
-            File.Move(partial, path, overwrite: true);
-        }
-        finally
-        {
-            File.Delete(partial); // gone already after the move; does nothing then
-        }
     }
 
     // Information (OBS-3): a Close Out step, and how many movies the phones will know.

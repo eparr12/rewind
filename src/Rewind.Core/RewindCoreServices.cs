@@ -24,11 +24,12 @@ namespace Rewind.Core;
 public static class RewindCoreServices
 {
     /// <summary>
-    /// Adds Rewind's folders, the database and the startup that prepares it, the sheets of store labels
-    /// and member cards, whose numbers the database keeps, the members, the prices, the concession bar's
-    /// snacks, the business days, the late-fee draws, the checkout counter, the return desk and the phone
-    /// catalog's writer. Call this before adding any other hosted service: hosted services start in the
-    /// order they're added, and everything else needs the database.
+    /// Adds Rewind's folders, the database, its backups and the startup that prepares it, the sheets of store
+    /// labels and member cards, whose numbers the database keeps, the members, the prices, the concession bar's
+    /// snacks, the business days, the late-fee draws, the checkout counter, the return desk, the phone catalog's
+    /// writer, and the copy to the backup drive with the PC's drives it looks among. Call this before adding any
+    /// other hosted service: hosted services start in the order they're added, and everything else needs the
+    /// database.
     /// </summary>
     public static IServiceCollection AddRewindCore(this IServiceCollection services, IConfiguration configuration)
     {
@@ -60,8 +61,11 @@ public static class RewindCoreServices
         services.AddSingleton<ICheckoutCounter, CheckoutCounter>();
         services.AddSingleton<IReturnDesk, ReturnDesk>();
 
-        // Close Out's, which holds no state either and asks the factory for its context too.
+        // Close Out's, which hold no state either: the phone catalog asks the factory for its context too, and the
+        // copy looks for the backup drive each time it's called.
         services.AddSingleton<PhoneCatalog>();
+        services.AddSingleton<IDrives, SystemDrives>();
+        services.AddSingleton<BackupDrive>();
         return services;
     }
 
