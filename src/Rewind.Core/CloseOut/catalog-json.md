@@ -35,7 +35,7 @@ Each movie has these seven fields, and nothing else:
 | `rating` | string or null | Its US rating isn't known. Otherwise it's G, PG, PG-13, R or NC-17, written just so. |
 | `minutes` | number or null | How long it runs isn't known. |
 | `genres` | array of strings | Never null. TMDB's genre names, such as Horror. Empty for a movie with none, such as one entered by hand. |
-| `thumb` | string or null | It has no thumbnail: it was entered by hand, or its poster never downloaded. Otherwise it's the thumbnail's path from catalog.json, with a forward slash, such as `thumbs/578.jpg`. |
+| `thumb` | string or null | The outbox has no thumbnail for it: it was entered by hand, TMDB has no poster for it, or its poster never downloaded. Otherwise it's the thumbnail's path from catalog.json, with a forward slash, such as `thumbs/578.jpg`. |
 | `upcs` | array of strings | Never null. The factory barcodes of its cases that aren't retired, each once. Empty when none of those cases came with one. |
 
 ## Which movies are in
@@ -52,7 +52,7 @@ Each is 12 or 13 digits, in the form the register saves: a 13-digit EAN that sta
 
 ## Order
 
-Movies come in order of title, then year, with an unknown year first, then the order they were added to Rewind. Titles compare character by character, by each character's code, so capitals come before lower case, and "home movies" comes after "Jaws". Each movie's genres and UPCs are in the same order. So the same collection always writes the same file, apart from `generatedAt`. An app that wants another order sorts the movies itself.
+Movies come in order of title, then year, with an unknown year first, then the order they were added to Rewind. Titles compare character by character, by each character's code, so capitals come before lower case, and "home movies" comes after "Jaws". Each movie's genres and UPCs are sorted the same way. So the same collection always writes the same file, apart from `generatedAt`. An app that wants another order sorts the movies itself.
 
 ## Thumbnails
 

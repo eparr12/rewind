@@ -573,19 +573,18 @@ public sealed class PhoneCatalogTests
     }
 
     // The register's log keeps Microsoft's warnings, and EF Core warns about a read of two lists per movie unless
-    // it's told how to split it: a warning at every start's first Close Out, for nothing that's wrong.
+    // it's told how to split it: a warning at every start's first Close Out, for nothing that's wrong. Here the
+    // warning throws, in contexts that compile the read afresh (see SplitWarningThrows).
     [Fact]
-    public async Task WriteAsync_ReadingTheCollection_LogsNoWarningFromEfCore()
+    public async Task WriteAsync_ReadingTheCollection_TripsNoSplitWarning()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
-        var log = new ListLoggerProvider();
-        using var contexts = new LoggedContexts(rewind, log);
 
-        await CatalogFor(rewind, contexts).WriteAsync(ct);
+        var failure = await Record.ExceptionAsync(() => CatalogFor(rewind, new SplitWarningThrows(rewind)).WriteAsync(ct));
 
-        Assert.DoesNotContain(log.Entries, entry => entry.Level >= LogLevel.Warning);
+        Assert.Null(failure);
     }
 
     // The outbox has the NAS's catalog folder's shape from the first Close Out, so 7.2 can upload thumbs whatever
@@ -710,5 +709,19 @@ public sealed class PhoneCatalogTests
                 return result;
             }
         }
+    }
+
+    // Contexts in which EF Core's warning about a query with two lists it wasn't told how to split throws, rather
+    // than going to a log. EF Core compiles a query once for every context that shares its internal services, and
+    // warns only then, so a read that another test compiled first would never warn in a test's own log. A warning set
+    // to throw is part of what EF Core builds those services for, so these contexts get services of their own, and the
+    // read compiles here, whichever test ran first.
+    private sealed class SplitWarningThrows(TempRewind rewind) : IDbContextFactory<RewindDb>
+    {
+        public RewindDb CreateDbContext() =>
+            new(new DbContextOptionsBuilder<RewindDb>()
+                .UseSqlite(RewindDb.ConnectionStringFor(rewind.Paths.Database))
+                .ConfigureWarnings(warnings => warnings.Throw(RelationalEventId.MultipleCollectionIncludeWarning))
+                .Options);
     }
 }
