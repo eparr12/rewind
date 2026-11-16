@@ -89,6 +89,23 @@ public sealed class BackupsTests
         Assert.Empty(Directory.EnumerateFileSystemEntries(rewind.Paths.Backups));
     }
 
+    // A folder stands where tonight's backup goes, and a name is only skipped when a file has it. So the copy is made
+    // whole under the other name, then can't be renamed into place. The backup throws, and the copy is deleted too, so
+    // the backups folder holds only what was there.
+    [Fact]
+    public async Task CreateAsync_BackupCantTakeItsName_LeavesNoFileBehind()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var inTheWay = Path.Combine(rewind.Paths.Backups, "rewind-2026-10-23-2215.db");
+        Directory.CreateDirectory(inTheWay);
+
+        await Assert.ThrowsAnyAsync<Exception>(() => rewind.Backups.CreateAsync(ct));
+
+        Assert.Equal([inTheWay], Directory.EnumerateFileSystemEntries(rewind.Paths.Backups));
+    }
+
     // A crash or a power cut partway through a backup leaves it under the name it was being made under. A backup in that
     // minute takes the next name, and what was left stays as it was, since nothing but a backup is ever written over.
     [Fact]
