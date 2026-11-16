@@ -400,6 +400,7 @@ public sealed class ReturnDeskTests
 
         var checkIn = await desk.CheckInAsync(Label, leaving.Token);
 
+        Assert.True(leaving.IsCancellationRequested); // the cancel came, once the return was committed
         Assert.Equal(CheckInStatus.CheckedIn, checkIn.Status);
         Assert.NotNull(checkIn.Rental);
     }

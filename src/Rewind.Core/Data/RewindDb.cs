@@ -48,7 +48,7 @@ public sealed class RewindDb(DbContextOptions<RewindDb> options) : DbContext(opt
     /// <summary>UPCitemdb's answers, so each barcode is looked up once.</summary>
     public DbSet<UpcLookup> UpcLookups => Set<UpcLookup>();
 
-    /// <summary>Each movie night, from its first scan to Close Out.</summary>
+    /// <summary>Each movie night, from the first member card scanned at Checkout to Close Out.</summary>
     public DbSet<BusinessDay> BusinessDays => Set<BusinessDay>();
 
     /// <summary>Each member's one draw a night from their late-fee bag.</summary>

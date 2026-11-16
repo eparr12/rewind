@@ -5,8 +5,9 @@ using Rewind.Core.Data;
 namespace Rewind.Core.MovieNights;
 
 /// <summary>
-/// Opens the movie night at its first scan and closes it at Close Out (Build Plan 3.2). Nothing else
-/// decides which night it is, so a "once a night" rule only has to ask for the open one.
+/// Opens the movie night at the first member card scanned at Checkout, and closes it at Close Out (Build
+/// Plan 3.2). A return opens none. Nothing else decides which night it is, so a "once a night" rule only has
+/// to ask for the open one.
 /// </summary>
 public sealed partial class BusinessDays(
     IDbContextFactory<RewindDb> dbFactory,
