@@ -1,8 +1,10 @@
+using System.Globalization;
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Rewind.Core;
 using Rewind.Core.Concessions;
+using Rewind.Core.Data;
 using Rewind.Core.Devices;
 using Rewind.Core.Members;
 using Rewind.Core.Scans;
@@ -17,9 +19,13 @@ public sealed class StatusBarTests : BunitContext
     private static readonly ConcessionRow Popcorn = new(1, "Popcorn", "CON-POPCORN", 100, IsActive: true);
     private static readonly ConcessionRow Candy = new(2, "Candy", "CON-CANDY", 50, IsActive: false);
 
+    // 10:15 PM on Friday, October 23, 2026, as a backup made then is named: rewind-2026-10-23-2215.db.
+    private static readonly DateTime FridayNight = new(2026, 10, 23, 22, 15, 0);
+
     private readonly FakeScanner _scanner = new();
     private readonly FakeMemberRoster _roster = new();
     private readonly FakeConcessionBar _bar = new();
+    private readonly FakeLastBackup _lastBackup = new();
     private readonly ListLogger<ErrorHub> _errorLog = new();
     private readonly RewindPaths _paths = new();
     private bool _crashed;
@@ -31,6 +37,7 @@ public sealed class StatusBarTests : BunitContext
         Services.AddSingleton<IScanner>(_scanner);
         Services.AddSingleton<IMemberRoster>(_roster);
         Services.AddSingleton<IConcessionBar>(_bar);
+        Services.AddSingleton<ILastBackup>(_lastBackup);
         Services.AddSingleton(errors);
         Services.AddSingleton(Options.Create(_paths));
     }
@@ -383,6 +390,156 @@ public sealed class StatusBarTests : BunitContext
         Assert.False(_crashed);
     }
 
+    // OBS-6: the last backup's field comes after the scanner's, and before the first backup it says there's none.
+    [Fact]
+    public void Render_NoBackupYet_SaysSoAfterTheScanner()
+    {
+        var cut = Render<StatusBar>();
+
+        Assert.Equal(["No scan yet", "Scanner missing", "No backup yet", "F1 to F5 switch screens", "Be kind, rewind."], Fields(cut));
+    }
+
+    // Written the way Return writes a night: the weekday and the date, as the backup's name gives them.
+    [Fact]
+    public void Render_BackupMadeFridayNight_ShowsItsDay()
+    {
+        _lastBackup.MadeAt = FridayNight;
+
+        var cut = Render<StatusBar>();
+
+        Assert.Equal("Last backup: Friday, October 23", LastBackupField(cut));
+    }
+
+    // A Close Out at 12:05 AM makes rewind-2026-10-24-0005.db, so the bar names Saturday, the day in the name,
+    // though Return would name the night Friday.
+    [Fact]
+    public void Render_BackupMadePastMidnight_ShowsTheDayInItsName()
+    {
+        _lastBackup.MadeAt = new DateTime(2026, 10, 24, 0, 5, 0);
+
+        var cut = Render<StatusBar>();
+
+        Assert.Equal("Last backup: Saturday, October 24", LastBackupField(cut));
+    }
+
+    // As in Return, the day is in English, as the rest of the bar is, whatever language the PC is set to.
+    [Fact]
+    public void Render_PcSetToFrench_StillNamesTheDayInEnglish()
+    {
+        _lastBackup.MadeAt = FridayNight;
+        var before = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+        try
+        {
+            var cut = Render<StatusBar>();
+
+            Assert.Equal("Last backup: Friday, October 23", LastBackupField(cut));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = before;
+        }
+    }
+
+    // UI-11: a backup is made on a background thread, and the bar moves onto its own before it reads again.
+    [Fact]
+    public async Task BackedUp_FromAnotherThread_ShowsTheNewBackup()
+    {
+        var cut = Render<StatusBar>();
+        _lastBackup.MadeAt = FridayNight;
+
+        await BackUpAsync(cut);
+
+        Assert.Equal("Last backup: Friday, October 23", LastBackupField(cut));
+    }
+
+    // UI-11: what the read throws goes to ErrorHub even while the bar is open, as a lookup's does, so the shell
+    // shows the error dialog and carries on. The bar's ErrorBoundary would close it, and leave it closed, over one
+    // read.
+    [Fact]
+    public async Task BackedUp_ReadFails_ReportsItToErrorHub()
+    {
+        var cut = Render<StatusBar>();
+        _lastBackup.Failure = new InvalidOperationException("The read failed.");
+
+        await BackUpAsync(cut);
+
+        Assert.False(Renderer.UnhandledException.IsCompleted);
+        Assert.True(_crashed);
+    }
+
+    // The field keeps the backup it showed, rather than saying there's none.
+    [Fact]
+    public async Task BackedUp_ReadFails_KeepsTheBackupItShowed()
+    {
+        _lastBackup.MadeAt = FridayNight;
+        var cut = Render<StatusBar>();
+        _lastBackup.Failure = new InvalidOperationException("The read failed.");
+
+        await BackUpAsync(cut);
+
+        Assert.Equal("Last backup: Friday, October 23", LastBackupField(cut));
+    }
+
+    // The read as the bar opens goes to ErrorHub too, and the bar still opens, saying no backup yet, as it does
+    // when Core can't read the backups folder.
+    [Fact]
+    public void Render_ReadFails_ReportsItAndStillOpens()
+    {
+        _lastBackup.Failure = new InvalidOperationException("The read failed.");
+
+        var cut = Render<StatusBar>();
+
+        Assert.True(_crashed);
+        Assert.Equal("No backup yet", LastBackupField(cut));
+    }
+
+    // The bar listens before it reads, so a backup made while it reads, as Close Out's can be while a new shell
+    // opens, shows once the bar hears of it. The news comes from Close Out's thread while the bar is still opening.
+    [Fact]
+    public void Render_BackupMadeWhileTheBarReads_ShowsIt()
+    {
+        _lastBackup.WhileReading = () =>
+        {
+            _lastBackup.MadeAt = FridayNight;
+            var closeOut = new Thread(_lastBackup.BackUp);
+            closeOut.Start();
+            closeOut.Join();
+        };
+
+        var cut = Render<StatusBar>();
+
+        cut.WaitForAssertion(() => Assert.Equal("Last backup: Friday, October 23", LastBackupField(cut)));
+    }
+
+    // Leaving stops the listening, as it does for scans.
+    [Fact]
+    public async Task Dispose_BarOpen_StopsListeningForBackups()
+    {
+        _ = Render<StatusBar>();
+
+        await DisposeComponentsAsync();
+
+        Assert.False(_lastBackup.IsListenedTo);
+    }
+
+    // A backup made just before the status bar closed is heard of afterwards. There's no bar left to show it, so
+    // the folder isn't read again, and nothing is raised, though this read would throw.
+    [Fact]
+    public async Task Dispose_BackupMadeJustBefore_DoesNothing()
+    {
+        _ = Render<StatusBar>();
+        var heardJustBefore = _lastBackup.RaisedBeforeStopping();
+        await DisposeComponentsAsync();
+        _lastBackup.Failure = new InvalidOperationException("The read failed.");
+
+        await Task.Run(heardJustBefore, Xunit.TestContext.Current.CancellationToken);
+        await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind anything the news started
+
+        Assert.Equal(1, _lastBackup.Reads); // the one as the bar opened
+        Assert.False(_crashed);
+    }
+
     // A scan, as the scanner's thread raises it, then a turn of the bar's own thread, so the bar has
     // handled it before the test looks.
     private async Task ScanAsync(IRenderedComponent<StatusBar> cut, string code, ScanKind kind = ScanKind.MemberCard)
@@ -391,5 +548,19 @@ public sealed class StatusBarTests : BunitContext
         await cut.InvokeAsync(() => { });
     }
 
+    // News of a backup, as the thread that made it raises it, then a turn of the bar's own thread, so the bar
+    // has read again before the test looks.
+    private async Task BackUpAsync(IRenderedComponent<StatusBar> cut)
+    {
+        await Task.Run(_lastBackup.BackUp, Xunit.TestContext.Current.CancellationToken);
+        await cut.InvokeAsync(() => { });
+    }
+
     private static string LastScan(IRenderedComponent<StatusBar> cut) => cut.Find(".status-bar-field").TextContent;
+
+    // The third field, after the last scan's and the scanner's.
+    private static string LastBackupField(IRenderedComponent<StatusBar> cut) => cut.FindAll(".status-bar-field")[2].TextContent;
+
+    private static List<string> Fields(IRenderedComponent<StatusBar> cut) =>
+        [.. cut.FindAll(".status-bar-field").Select(field => field.TextContent)];
 }

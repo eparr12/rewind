@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Rewind.Core;
 using Rewind.Core.Checkout;
 using Rewind.Core.Concessions;
+using Rewind.Core.Data;
 using Rewind.Core.Devices;
 using Rewind.Core.Members;
 using Rewind.Core.Sounds;
@@ -43,6 +44,7 @@ public sealed class AppTests : BunitContext
         Services.AddSingleton<IHostApplicationLifetime>(_lifetime);
         Services.AddSingleton<IMemberRoster>(_roster);
         Services.AddSingleton<IConcessionBar>(new FakeConcessionBar());
+        Services.AddSingleton<ILastBackup>(new FakeLastBackup());
         Services.AddSingleton<ICheckoutCounter>(new FakeCheckoutCounter());
         Services.AddSingleton(Options.Create(new RewindPaths()));
 

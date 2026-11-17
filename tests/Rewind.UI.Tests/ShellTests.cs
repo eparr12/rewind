@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using Rewind.Core;
 using Rewind.Core.Checkout;
 using Rewind.Core.Concessions;
+using Rewind.Core.Data;
 using Rewind.Core.Devices;
 using Rewind.Core.Intake;
 using Rewind.Core.Labels;
@@ -59,6 +60,7 @@ public sealed class ShellTests : BunitContext
         Services.AddSingleton<ILabelSheets>(new FakeLabelSheets());
         Services.AddSingleton<IMemberRoster>(_roster);
         Services.AddSingleton<IConcessionBar>(_bar);
+        Services.AddSingleton<ILastBackup>(new FakeLastBackup());
         Services.AddSingleton<ICheckoutCounter>(_counter);
         Services.AddSingleton<IReturnDesk>(_desk);
         Services.AddSingleton(TimeProvider.System);

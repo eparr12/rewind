@@ -13,7 +13,7 @@ namespace Rewind.Core.Data;
 /// or counted, such as the scanner driver's installer, which the README says to keep there. Nor is anything else
 /// deleted, apart from the unfinished file of a backup that fails, which is that backup's own.
 /// </summary>
-public sealed partial class Backups(IOptions<RewindPaths> options, TimeProvider time, ILogger<Backups> logger)
+public sealed partial class Backups(IOptions<RewindPaths> options, TimeProvider time, ILogger<Backups> logger) : ILastBackup
 {
     /// <summary>How many backups the register keeps (GEN-4). The backup drive keeps every one.</summary>
     public const int Kept = 30;
@@ -24,12 +24,17 @@ public sealed partial class Backups(IOptions<RewindPaths> options, TimeProvider 
 
     private bool DatabaseExists => File.Exists(_paths.Database);
 
+    /// <inheritdoc />
+    public event Action? BackedUp;
+
     /// <summary>
     /// Copies the database to a new file named for the local time, such as rewind-2026-10-23-2215.db, and returns its
     /// path, or null when there's no database yet, as on a first start. The copy is made under a name that isn't a
-    /// backup's, and renamed once it's whole and its file is closed. A backup that fails deletes that file and throws,
-    /// so it leaves nothing behind. One that a crash or a power cut stops partway leaves the file, which is never taken
-    /// for a backup: it stays as it is, and the next backup takes another name.
+    /// backup's, and renamed once it's whole and its file is closed, and then <see cref="BackedUp"/> is raised. A
+    /// listener that throws is logged as an error, and neither fails the backup nor keeps the news from the others. A
+    /// backup that fails deletes that file and throws, so it leaves nothing behind, and raises nothing. One that a
+    /// crash or a power cut stops partway leaves the file, which is never taken for a backup: it stays as it is, and the
+    /// next backup takes another name.
     /// </summary>
     public Task<string?> CreateAsync(CancellationToken cancellationToken) =>
         Task.Run(
@@ -56,6 +61,7 @@ public sealed partial class Backups(IOptions<RewindPaths> options, TimeProvider 
                     File.Delete(partial);
                 }
 
+                RaiseBackedUp(path);
                 return path;
             },
             cancellationToken);
@@ -66,23 +72,20 @@ public sealed partial class Backups(IOptions<RewindPaths> options, TimeProvider 
     /// Only a file with a name <see cref="CreateAsync"/> gives is listed, so a backup a crash left unfinished isn't,
     /// and neither is the -wal file SQLite keeps beside a backup it has open. Empty before the first backup.
     /// </summary>
-    public IReadOnlyList<string> List()
+    public IReadOnlyList<string> List() => [.. InOrder().Select(backup => backup.File)];
+
+    /// <inheritdoc />
+    public DateTime? NewestMadeAt()
     {
-        if (!Directory.Exists(_paths.Backups))
+        try
         {
-            return [];
+            return InOrder() is [.., var newest] ? newest.Name.Time : null;
         }
-
-        var backups = new List<(string File, BackupName Name)>();
-        foreach (var file in Directory.EnumerateFiles(_paths.Backups))
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            if (TryParseName(Path.GetFileName(file), out var name))
-            {
-                backups.Add((file, name));
-            }
+            LogNotRead(logger, e, _paths.Backups);
+            return null;
         }
-
-        return [.. backups.OrderBy(backup => backup.Name.Time).ThenBy(backup => backup.Name.Number).Select(backup => backup.File)];
     }
 
     /// <summary>
@@ -134,6 +137,44 @@ public sealed partial class Backups(IOptions<RewindPaths> options, TimeProvider 
         live.BackupDatabase(copy); // blocks until the copy is complete
     }
 
+    // Each listener on its own, as ScannerHub does. The backup is made by now, and a done outcome stays done (NET-7's
+    // reasoning), so a listener that throws can't fail it: at Close Out the checklist would say it wasn't saved, and
+    // before a migration Rewind wouldn't start.
+    private void RaiseBackedUp(string backup)
+    {
+        foreach (var listener in Delegate.EnumerateInvocationList(BackedUp))
+        {
+            try
+            {
+                listener();
+            }
+            catch (Exception e) // GEN-7: the backup is made, whatever a listener does with the news
+            {
+                LogListenerFailed(logger, e, backup);
+            }
+        }
+    }
+
+    // The backups, oldest first, each with the time and number in its name, as List gives them.
+    private List<(string File, BackupName Name)> InOrder()
+    {
+        if (!Directory.Exists(_paths.Backups))
+        {
+            return [];
+        }
+
+        var backups = new List<(string File, BackupName Name)>();
+        foreach (var file in Directory.EnumerateFiles(_paths.Backups))
+        {
+            if (TryParseName(Path.GetFileName(file), out var name))
+            {
+                backups.Add((file, name));
+            }
+        }
+
+        return [.. backups.OrderBy(backup => backup.Name.Time).ThenBy(backup => backup.Name.Number)];
+    }
+
     private bool TryDelete(string backup)
     {
         try
@@ -178,6 +219,14 @@ public sealed partial class Backups(IOptions<RewindPaths> options, TimeProvider 
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Couldn't delete the old backup {Backup}, such as when another program has it open; it's tried again next time")]
     private static partial void LogNotDeleted(ILogger logger, Exception exception, string backup);
+
+    // Warning (OBS-3): handled, since the read answers no backup, but the folder may still hold some.
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Couldn't read the backups folder {Folder}, such as after its permissions were changed by hand, so the status bar says there's no backup yet, though there may be some in it")]
+    private static partial void LogNotRead(ILogger logger, Exception exception, string folder);
+
+    // Error (OBS-3): a listener with a bug needs looking at, though the backup is made.
+    [LoggerMessage(Level = LogLevel.Error, Message = "A listener threw on hearing of the new backup {Backup}; the backup is made all the same")]
+    private static partial void LogListenerFailed(ILogger logger, Exception exception, string backup);
 
     // The local time in a backup's name, and its number within that minute.
     private readonly record struct BackupName(DateTime Time, int Number);
