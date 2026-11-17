@@ -389,7 +389,8 @@ public sealed class StoreManagerTests : BunitContext
         Assert.False(_lifetime.StopRequested);
     }
 
-    // UI-3: once the checklist closes, the focus is back on Close Out Register.
+    // UI-3: once the checklist closes, the focus is back on Close Out Register. Not before: while the checklist is
+    // open, the screen behind it is inert and can't take the focus.
     [Fact]
     public async Task CloseOutRegister_ChecklistClosed_FocusesTheButton()
     {
@@ -398,10 +399,12 @@ public sealed class StoreManagerTests : BunitContext
         var press = PressCloseOutAsync(cut);
         await AnswerAsync(cut, ok: true);
 
+        var calledWhileOpen = JSInterop.Invocations.Identifiers.ToList();
         await AnswerAsync(cut, ok: true);
         await press;
 
         AssertFocusedLast(closeOut, focuses: 1);
+        Assert.DoesNotContain(JSInterop.VerifyFocusAsyncInvoke(1)[0].Identifier, calledWhileOpen);
     }
 
     // ARCH-5, NET-7: Close Out takes the screen's own token, which leaving cancels.
