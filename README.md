@@ -100,9 +100,51 @@ Return (F2) puts a returned case back on the shelf and asks who watched it. The 
 
 To try it in a Debug build, carry on from Checkout's: open Return (F2), type `RV-00042` into the scan simulator and press Enter. Rewind chimes, says the case is back on the shelf and asks who watched. Type `5` in the member's list and press Enter: the screen says the movie is in the watch log, with 5 stars. Scan `RV-00042` again, and Rewind says it's already on the shelf.
 
+## Close Out
+
+At closing, the clerk presses **Close Out Register** on the Store Manager screen (F5), then Enter for OK. Rewind closes the movie night, backs up the database, writes the phone catalog to the outbox and copies the backups to the backup drive, then shows a checklist of what that came to ([ADR-0013](docs/adr/0013-close-out-needs-no-open-night-and-its-files-are-its-record.md)). It asks first, since a Close Out by mistake ends the night early, and the next member card opens another, where each member draws a late-fee card again. While it runs, the screen says **Closing out the register...** and its buttons are off, Shut Down included, so nobody shuts Rewind down before the backup is made. Close Out doesn't shut Rewind down: Shut Down is the next button.
+
+The checklist has a line for each step, in order:
+
+- **The night:** "The movie night is closed", or "No movie night was open". A night opens with the first member card scanned at Checkout, so a night of returns only, or a second Close Out the same night, has none to close. That's no problem: the line is ticked either way, and the rest still runs.
+- **The backup,** by its file name, such as `rewind-2026-10-23-2215.db`.
+- **The phone catalog,** with how many movies it lists.
+- **The backup drive:**
+  - "Copied 3 backups to the backup drive E:\", which now has every backup. Each Close Out makes its backup before the copy, so a second Close Out the same night copies its own: "Copied 1 backup". With two drives the number is the total, so one backup copied to both counts twice.
+  - "The backup drive E:\ already had every backup": there was nothing new to copy, as when the night's backup wasn't saved.
+  - "No backup drive is plugged in": plug it in and press Close Out Register again.
+  - "Rewind couldn't copy to the backup drive E:\": the drive is full or read-only, or it was pulled out partway. See [The backup drive](#the-backup-drive).
+  - "Copying to the backup drive stopped partway": something on the register stopped the copy, such as another program holding a backup open. The newest backup goes first, so tonight's may be on the drive already, and the next Close Out copies whatever the drive is missing.
+
+When everything worked, every line is ticked, and the checklist plays nothing. When something didn't, it's a warning, with the error chord, and each line without a tick says what to do: plug the drive in, or tell the Store Manager. The log then has a warning that says why (see [Logs](#logs)). Only closing the night can fail a Close Out. Nothing else has happened then, and the error dialog shows instead of the checklist.
+
+### Backups and the outbox
+
+Each Close Out makes a backup in `C:\Rewind\backups` (see [Restore a backup](#restore-a-backup)). The register keeps its newest 30, and each Close Out deletes the older ones after its copy to the drive, so a backup on its way out reaches a drive that's plugged in. That's 30 backups, not 30 nights: a second Close Out the same night, or the backup Rewind makes before a migration, takes one of the 30 too. The drive keeps every backup it's given.
+
+The status bar shows the day of the newest backup, such as **Last backup: Friday, October 23**, or **No backup yet**. That's the last movie night, or the day after when its Close Out ran past midnight. An older day means a Close Out was skipped, or its backup failed.
+
+Close Out also writes the phone catalog to `C:\Rewind\outbox`: `catalog.json`, which lists every movie with a case that isn't retired, and a small poster for each in `outbox\thumbs`. It holds movies only, never anything about the family (SEC-2). Nothing reads it yet: once the NAS is running, Close Out uploads it there for the family's phones (Build Plan 7.2). [catalog-json.md](src/Rewind.Core/CloseOut/catalog-json.md) sets out its format.
+
+### The backup drive
+
+The backup drive is any drive with an empty file named `REWIND-BACKUP.txt` in its top folder, such as `E:\REWIND-BACKUP.txt`, so Rewind never writes to a stray flash drive. A USB stick or a USB hard drive will do. The register's own disk never counts, file or not. To mark one, plug it in, then in PowerShell, with the drive's letter in place of `E:`:
+
+```
+New-Item E:\REWIND-BACKUP.txt
+```
+
+In File Explorer, turn on **File name extensions** under **View** first. Otherwise Windows hides the `.txt` a new text file already has, so typing `REWIND-BACKUP.txt` names it `REWIND-BACKUP.txt.txt`, and Rewind doesn't find it.
+
+Close Out copies each backup the drive doesn't have yet into a folder named for the register's root folder: `E:\Rewind\backups` for `C:\Rewind`. So a night without the drive is made up the next time it's plugged in at Close Out, as long as the register still has those backups: a drive that's away for more than 30 misses the oldest. With two backup drives, each gets every backup.
+
+Rewind never deletes a backup from the drive, so one day it fills up. From then on, the checklist says Rewind couldn't copy to the backup drive. Move the oldest backups somewhere safe, or mark a new drive. On the drive, a file whose name ends in `.partial` is a copy cut short, such as by pulling the drive out. It isn't a whole backup, so never restore it: the next Close Out with the drive writes that backup again while the register still has it, and you can delete the `.partial`.
+
+To try it in a Debug build on `C:\RewindDev`, press F5, then **Close Out Register** and Enter. With no backup drive, the checklist says to plug it in, and `C:\RewindDev\backups` and `C:\RewindDev\outbox` have the night's files. A marked drive gets them in `E:\RewindDev\backups`, named for the test folder, so a test's backups never sit among the store's. Never name a test folder `Rewind`, wherever it is: its backups would go to `E:\Rewind\backups` with the store's, and one made in the same minute as a store backup, with another length, would replace the store's copy there until the store's next Close Out.
+
 ## Store Manager
 
-The Store Manager screen (F5) holds the grown-up jobs: printing store labels, member cards and the concession menu, keeping the family's members, setting the prices, and keeping the concession bar's snacks. The clerk handbook leaves them out, since it's written for the kids (DOC-6), who use F5 to shut Rewind down at closing.
+The Store Manager screen (F5) holds the grown-up jobs: printing store labels, member cards and the concession menu, keeping the family's members, setting the prices, and keeping the concession bar's snacks. The clerk handbook leaves them out, since it's written for the kids (DOC-6), who use F5 at closing to close out the register and shut Rewind down (see [Close Out](#close-out)).
 
 ### Printing
 
@@ -142,7 +184,7 @@ Rewind is laid out for 1024 × 768 (UI-8). On a bigger monitor, set the zoom in 
 
 ## Logs
 
-Rewind writes one log file a day to `C:\Rewind\logs`, such as `rewind-20261023.log`, and deletes each one 30 days later (OBS-2). It logs at Information: starts, Shut Downs, each screen the clerk opens, devices coming and going, and every error with its details.
+Rewind writes one log file a day to `C:\Rewind\logs`, such as `rewind-20261023.log`, and deletes each one 30 days later (OBS-2). It logs at Information: starts, Shut Downs, each screen the clerk opens, devices coming and going, each Close Out with what each step came to, and every error with its details. A Close Out step that didn't work has a warning that says why.
 
 To troubleshoot, set the level to Debug in `appsettings.json`, which on the register sits next to `Rewind.Register.exe`. Debug adds detail such as every scan, how long each sound took to start, and every sound that fails to play. Set it back to Information afterwards: the next release's `appsettings.json` replaces the register's anyway.
 
@@ -251,11 +293,15 @@ The zip includes `appsettings.json`, so a setting changed by hand on the registe
 
 ## Restore a backup
 
-Before Rewind applies a migration, it backs up the database to `C:\Rewind\backups`, in a file named for the local time, such as `rewind-2026-10-23-2215.db`. A file there whose name ends in `.partial`, such as `rewind-2026-10-23-2215.db.partial`, is what's left of a backup that a crash or a power cut stopped partway, and SQLite's `rewind-2026-10-23-2215.db.partial-journal` can sit beside it. Neither is a whole copy, so never restore one. Rewind leaves them alone, and you can delete them. To go back to a backup:
+Rewind backs up the database at every Close Out, and before it applies a migration, to `C:\Rewind\backups`, in a file named for the local time, such as `rewind-2026-10-23-2215.db`, or `rewind-2026-10-23-2215-2.db` for a second backup in the same minute. The backup drive has a copy of each in its `Rewind\backups` folder, the ones older than the register's newest 30 included (see [Close Out](#close-out)). In `C:\Rewind\backups`, a file whose name ends in `.partial`, such as `rewind-2026-10-23-2215.db.partial`, is what's left of a backup that a crash or a power cut stopped partway, and SQLite's `rewind-2026-10-23-2215.db.partial-journal` can sit beside it. Neither is a whole copy, so never restore one. Rewind leaves them alone, and you can delete them.
+
+Never open or change a backup where it sits, on the register or on the drive: copy it somewhere else first, and open the copy. A program that opens a database can write to it, and a backup whose length changes on the register replaces the drive's copy at the next Close Out.
+
+To go back to a backup:
 
 1. Shut Rewind down (F5, then Shut Down, then OK). Never copy the database while Rewind runs (DATA-14).
 2. In `C:\Rewind\data`, move `rewind.db` into a new folder, such as `C:\Rewind\data\before-restore`, along with `rewind.db-wal` and `rewind.db-shm` if they're there. Keep the three together: the `-wal` file can hold changes that aren't in `rewind.db` yet, and SQLite would apply a `-wal` left behind to the restored database and corrupt it.
-3. Copy the backup to `C:\Rewind\data\rewind.db`.
+3. Copy the backup to `C:\Rewind\data\rewind.db`, from `C:\Rewind\backups`, or from the backup drive's `Rewind\backups` folder for a backup the register no longer has, or on a new register.
 4. Start Rewind. If the backup is from an older release, Rewind backs it up again and migrates it.
 
 Anything entered after the backup was made isn't in it, but the moved files still have it. An older release may not work with a database that a newer one has migrated, so going back a release also means restoring the backup made just before that migration.

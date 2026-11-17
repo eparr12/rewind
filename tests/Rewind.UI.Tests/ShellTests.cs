@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Rewind.Core;
 using Rewind.Core.Checkout;
+using Rewind.Core.CloseOut;
 using Rewind.Core.Concessions;
 using Rewind.Core.Data;
 using Rewind.Core.Devices;
@@ -28,22 +29,23 @@ public sealed class ShellTests : BunitContext
     private readonly DialogService _dialogs;
     private readonly ScannerHub _scanner;
     private readonly ErrorHub _errors;
+    private readonly FakeSoundPlayer _sounds = new();
     private readonly FakeBarcodeTitles _titles = new();
     private readonly FakeMovieIntake _intake = new();
     private readonly FakeMemberRoster _roster = new();
     private readonly FakeCheckoutCounter _counter = new();
     private readonly FakeConcessionBar _bar = new();
     private readonly FakeReturnDesk _desk = new();
+    private readonly FakeCloseOutRegister _closeOut = new();
     private readonly ListLogger<Shell> _shellLog = new();
     private readonly ListLogger<ErrorHub> _errorLog = new();
     private readonly CountingBoundaryLogger _boundaryLog = new();
 
     public ShellTests()
     {
-        var sounds = new FakeSoundPlayer();
-        var scanner = new ScannerHub(sounds, NullLogger<ScannerHub>.Instance);
+        var scanner = new ScannerHub(_sounds, NullLogger<ScannerHub>.Instance);
         _scanner = scanner;
-        _dialogs = new DialogService(sounds);
+        _dialogs = new DialogService(_sounds);
         _errors = new ErrorHub(_errorLog);
 
         // The services the shell and its children use, wired as Program.cs wires them.
@@ -53,7 +55,7 @@ public sealed class ShellTests : BunitContext
         Services.AddSingleton(_errors);
         Services.AddSingleton<ILogger<Shell>>(_shellLog);
         Services.AddSingleton<IErrorBoundaryLogger>(_boundaryLog);
-        Services.AddSingleton<ISoundPlayer>(sounds);
+        Services.AddSingleton<ISoundPlayer>(_sounds);
         Services.AddSingleton<IHostApplicationLifetime>(new FakeApplicationLifetime());
         Services.AddSingleton<IMovieIntake>(_intake);
         Services.AddSingleton<IBarcodeTitles>(_titles);
@@ -63,6 +65,7 @@ public sealed class ShellTests : BunitContext
         Services.AddSingleton<ILastBackup>(new FakeLastBackup());
         Services.AddSingleton<ICheckoutCounter>(_counter);
         Services.AddSingleton<IReturnDesk>(_desk);
+        Services.AddSingleton<ICloseOutRegister>(_closeOut);
         Services.AddSingleton(TimeProvider.System);
         Services.AddSingleton(Options.Create(new RewindPaths()));
 
@@ -598,7 +601,94 @@ public sealed class ShellTests : BunitContext
         Assert.Equal(["Opened Checkout"], LoggedLines);
     }
 
+    // Done when (Build Plan 3.5), its second half: with no backup drive, the checklist is a Warning whose line says
+    // what to do, with the error chord once, for the Warning, and no crash notice, since Close Out finished.
+    [Fact]
+    public async Task CloseOutRegister_NoBackupDrive_ShowsAWarningThatSaysToPlugTheDriveIn()
+    {
+        _closeOut.Running = Task.FromResult(FakeCloseOutRegister.NoDrive);
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F5"));
+        var press = PressCloseOutAsync(cut);
+
+        await CloseDialogAsync(cut); // OK on the question
+
+        Assert.Equal(DialogIcon.Warning, _dialogs.Current?.Icon);
+        Assert.Equal(
+            new ChecklistLine("No backup drive is plugged in. Plug the backup drive in, then press Close Out Register again.", Ticked: false),
+            ChecklistLines(cut)[^1]);
+        Assert.Equal(1, _sounds.Played.Count(sound => sound == Sound.Error));
+        await CloseDialogAsync(cut);
+        await press;
+        Assert.Null(_dialogs.Current);
+        Assert.True(cut.HasComponent<StoreManager>());
+        Assert.Empty(_errorLog.Entries);
+        Assert.Equal(0, _boundaryLog.Count);
+    }
+
+    // UI-6: what Close Out throws while F5 is open goes to the screen's ErrorBoundary, as any screen's does. That's
+    // only closing the night, before anything else has happened (ADR-0013).
+    [Fact]
+    public async Task CloseOutRegister_CoreThrows_ShowsErrorDialogThenCheckout()
+    {
+        _closeOut.Running = Task.FromException<CloseOutReport>(new InvalidOperationException("The night couldn't close."));
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F5"));
+        var press = PressCloseOutAsync(cut);
+
+        await CloseDialogAsync(cut); // OK on the question, and Core throws
+
+        Assert.Equal(
+            "This program has performed an illegal operation and will go back to Checkout.\n\nIf the problem persists, tell the Store Manager.",
+            _dialogs.Current?.Message);
+        Assert.Equal(1, _boundaryLog.Count);
+        Assert.Empty(_errorLog.Entries);
+        await CloseDialogAsync(cut);
+        await press;
+        Assert.True(cut.HasComponent<Checkout>());
+    }
+
+    // UI-11, OBS-5: once the clerk has left F5, what Close Out throws goes to ErrorHub, which logs it once and shows
+    // the error dialog. Checkout, where the clerk went, didn't crash, so it stays open, with the sale they started.
+    // Through the shell's ErrorBoundary, it would close (#83).
+    [Fact]
+    public async Task OnFunctionKey_F1WhileClosingOut_ReportsALateFailureToErrorHub()
+    {
+        var running = new TaskCompletionSource<CloseOutReport>();
+        _closeOut.Running = running.Task;
+        _counter.Sales["MEM-001"] = new OpenedSale("Dad", new LateFeeDrawRow(7, 3, 5, Card.Clear, null, DateTime.UnixEpoch), 200, null);
+        _counter.Cases["RV-00042"] = new CaseToRent(1, "RV-00042", [new MovieInCase(10, "Halloween", 1978)]);
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F5"));
+        var press = PressCloseOutAsync(cut);
+        await CloseDialogAsync(cut); // OK on the question: Close Out runs
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
+        await cut.InvokeAsync(() => _scanner.Receive("MEM-001"));
+        await cut.InvokeAsync(() => _scanner.Receive("RV-00042"));
+
+        await cut.InvokeAsync(() => running.SetException(new InvalidOperationException("The night couldn't close.")));
+        await press;
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(["Unhandled exception from StoreManager; reported to the shell"], _errorLog.Entries.Select(entry => entry.Message));
+        Assert.Equal(0, _boundaryLog.Count);
+        await CloseDialogAsync(cut);
+        Assert.Equal(["RV-00042 · Halloween (1978) · $2.00"], cut.FindAll(".checkout-ticket li").Select(line => line.TextContent));
+    }
+
     private IEnumerable<string> LoggedLines => _shellLog.Entries.Select(entry => entry.Message);
+
+    // Completes once the clerk answers F5's question, and the checklist if OK opened one.
+    private static Task PressCloseOutAsync(IRenderedComponent<Shell> cut) =>
+        cut.FindAll("button").Single(button => button.TextContent == "Close Out Register").ClickAsync(new MouseEventArgs());
+
+    // The checklist as the clerk reads it, as DialogHostTests reads it: each label's words, and whether the box the
+    // label is tied to is ticked.
+    private static ChecklistLine[] ChecklistLines(IRenderedComponent<Shell> cut) =>
+    [
+        .. cut.FindAll(".dialog-checklist label").Select(label =>
+            new ChecklistLine(label.TextContent, cut.Find($"#{label.GetAttribute("for")}").HasAttribute("checked"))),
+    ];
 
     // The shell with one case on an open sale, scanned as the scanner would scan it.
     private async Task<IRenderedComponent<Shell>> RenderWithASaleAsync()

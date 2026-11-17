@@ -96,7 +96,7 @@ body {
   width: 160px; /* so both rows' buttons line up */
 }
 
-/* F5's own tabs sit inside the shell's panel, above Shut Down. */
+/* F5's own tabs sit inside the shell's panel, above Close Out Register and Shut Down. */
 .store-manager-panel {
   margin-bottom: 12px;
 }

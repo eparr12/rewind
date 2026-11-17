@@ -4,11 +4,13 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
+using Rewind.Core.CloseOut;
 using Rewind.Core.Concessions;
 using Rewind.Core.Devices;
 using Rewind.Core.Labels;
 using Rewind.Core.Members;
+using Rewind.Core.MovieNights;
 using Rewind.Core.Sounds;
 using Rewind.Core.StoreManager;
 using Rewind.UI.Dialogs;
@@ -22,6 +24,8 @@ public sealed class StoreManagerTests : BunitContext
     private readonly FakeApplicationLifetime _lifetime = new();
     private readonly FakeSoundPlayer _sounds = new();
     private readonly FakeLabelSheets _sheets = new();
+    private readonly FakeCloseOutRegister _closeOut = new();
+    private readonly ListLogger<ErrorHub> _errorLog = new();
     private readonly DialogService _dialogs;
     private readonly BunitJSModuleInterop _keyboard;
 
@@ -33,11 +37,12 @@ public sealed class StoreManagerTests : BunitContext
         Services.AddSingleton(_dialogs);
         Services.AddSingleton<ISoundPlayer>(_sounds); // Debug builds add Diagnostics, which plays sounds
         Services.AddSingleton<ILabelSheets>(_sheets);
+        Services.AddSingleton<ICloseOutRegister>(_closeOut);
         Services.AddSingleton<IMemberRoster>(new FakeMemberRoster()); // for the Members tab
         Services.AddSingleton<IStorePrices>(new FakeStorePrices()); // for the Prices tab
         Services.AddSingleton<IConcessionBar>(new FakeConcessionBar()); // for the Snacks tab
         Services.AddSingleton<IScanner>(new FakeScanner());
-        Services.AddSingleton(new ErrorHub(NullLogger<ErrorHub>.Instance));
+        Services.AddSingleton(new ErrorHub(_errorLog));
 
         // A sheet opens the print window through keyboard.js (UI-9). Each test that prints sets up how
         // the window answers, so a print nobody expected fails the test.
@@ -192,6 +197,335 @@ public sealed class StoreManagerTests : BunitContext
         await shutDown;
 
         Assert.DoesNotContain(Sound.Error, _sounds.Played);
+    }
+
+    // Build Plan 3.5: under the tabs, before Shut Down, since the clerk closes out and then shuts down.
+    [Fact]
+    public void Render_CloseOutRegister_SitsBeforeShutDown()
+    {
+        var cut = Render<StoreManager>();
+
+        var row = Button(cut, "Shut Down").ParentElement;
+
+        Assert.Equal(["Close Out Register", "Shut Down"], row?.QuerySelectorAll("button").Select(button => button.TextContent));
+        Assert.Null(row?.Closest(".store-manager-panel"));
+    }
+
+    // In sight on every tab, as Shut Down is.
+    [Theory]
+    [InlineData("Printing")]
+    [InlineData("Members")]
+    [InlineData("Prices")]
+    [InlineData("Snacks")]
+    public async Task CloseOutRegister_AnyTab_IsThere(string tab)
+    {
+        var cut = Render<StoreManager>();
+
+        await Tab(cut, tab).ClickAsync(new MouseEventArgs());
+
+        Assert.Single(cut.FindAll("button"), button => button.TextContent == "Close Out Register");
+    }
+
+    // A sheet or the menu takes the screen's place while it prints, buttons and all.
+    [Theory]
+    [InlineData("Print 30 labels")]
+    [InlineData("Print the menu")]
+    public async Task Print_SheetOrMenuShown_HidesCloseOutAndShutDown(string print)
+    {
+        PrintWindowCloses();
+        _sheets.Menu = Drawn(FakeLabelSheets.SnackMenu);
+        var cut = Render<StoreManager>();
+
+        await Button(cut, print).ClickAsync(new MouseEventArgs());
+
+        Assert.Single(cut.FindAll(".sheet-view"));
+        Assert.DoesNotContain(cut.FindAll("button"), button => button.TextContent is "Close Out Register" or "Shut Down");
+    }
+
+    // A Close Out by mistake ends the night early, so it asks first, as Shut Down does, and Info plays no error
+    // chord: asking is routine. Nothing is closed out while it asks.
+    [Fact]
+    public async Task CloseOutRegister_Pressed_AsksFirst()
+    {
+        var cut = Render<StoreManager>();
+
+        var press = PressCloseOutAsync(cut);
+        var asked = _dialogs.Current;
+        var runsWhileAsking = _closeOut.Runs;
+        await AnswerAsync(cut, ok: false);
+
+        Assert.Equal(
+            new Dialog(
+                Store.Name,
+                "Are you sure you want to close out the register?\n\nThat ends tonight's movie night and backs everything up. Do it once the last customer has gone.",
+                DialogIcon.Info,
+                CanCancel: true),
+            asked);
+        Assert.Equal(0, runsWhileAsking);
+        Assert.DoesNotContain(Sound.Error, _sounds.Played);
+        Assert.Null(_dialogs.Current); // before the press is awaited, which a checklist would hold open
+        await press;
+    }
+
+    // Looked at before the press is awaited, so a Cancel that closed out anyway fails the test, rather than holding
+    // it open on the checklist.
+    [Fact]
+    public async Task CloseOutRegister_ClerkCancels_ClosesNothingOut()
+    {
+        var cut = Render<StoreManager>();
+        var press = PressCloseOutAsync(cut);
+
+        await AnswerAsync(cut, ok: false);
+
+        Assert.Equal(0, _closeOut.Runs);
+        Assert.Null(_dialogs.Current);
+        await press;
+    }
+
+    // ARCH-5: OK is one call to Core, and the checklist shows what it came to.
+    [Fact]
+    public async Task CloseOutRegister_ClerkPressesOk_ClosesOutOnceAndShowsTheChecklist()
+    {
+        var report = new CloseOutReport(
+            BusinessDayClosingStatus.NothingOpen,
+            "rewind-2026-10-23-2340.db",
+            120,
+            new DriveCopy(DriveCopyStatus.NothingToCopy, 0, [@"E:\"], []));
+        _closeOut.Running = Task.FromResult(report);
+        var cut = Render<StoreManager>();
+        var press = PressCloseOutAsync(cut);
+
+        await AnswerAsync(cut, ok: true);
+
+        var shown = _dialogs.Current;
+        await AnswerAsync(cut, ok: true);
+        await press;
+        var checklist = CloseOutChecklist.For(report);
+        Assert.Equal((checklist.Message, checklist.Icon, false), (shown?.Message, shown?.Icon, shown?.CanCancel));
+        Assert.Equal(checklist.Checklist, shown?.Checklist);
+        Assert.Equal(1, _closeOut.Runs);
+    }
+
+    // While Core answers, the line says so, and every button is off, Shut Down included, so nobody shuts Rewind down
+    // before the backup is made.
+    [Fact]
+    public async Task CloseOutRegister_WhileClosingOut_ShowsTheLineAndTurnsEveryButtonOff()
+    {
+        var running = new TaskCompletionSource<CloseOutReport>();
+        _closeOut.Running = running.Task;
+        var cut = Render<StoreManager>();
+        var press = PressCloseOutAsync(cut);
+        await AnswerAsync(cut, ok: true);
+
+        var line = cut.Find(".close-out-doing").TextContent;
+        var buttons = cut.FindAll("button").Select(button => (button.TextContent, button.HasAttribute("disabled"))).ToList();
+        await FinishAsync(cut, running, FakeCloseOutRegister.EverythingWorked);
+        await press;
+
+        Assert.Equal("Closing out the register...", line);
+        Assert.Equal(
+            [
+                ("Print 30 labels", true),
+                ("Print 10 member cards", true),
+                ("Print the menu", true),
+                ("Close Out Register", true),
+                ("Shut Down", true),
+            ],
+            buttons);
+    }
+
+    // The screen is drawn before the checklist opens, so the buttons behind it aren't left off.
+    [Fact]
+    public async Task CloseOutRegister_ChecklistShown_TurnsTheButtonsBackOn()
+    {
+        var cut = Render<StoreManager>();
+        var press = PressCloseOutAsync(cut);
+        await AnswerAsync(cut, ok: true);
+
+        var checklistOpen = _dialogs.Current is { Checklist.Count: > 0 };
+        var off = cut.FindAll("button").Where(button => button.HasAttribute("disabled")).Select(button => button.TextContent).ToList();
+        var lines = cut.FindAll(".close-out-doing").Count;
+        await AnswerAsync(cut, ok: true);
+        await press;
+
+        Assert.True(checklistOpen);
+        Assert.Empty(off);
+        Assert.Equal(0, lines);
+    }
+
+    // A button that's off can't be pressed, but a press can be on its way as the screen turns it off, so the
+    // screen checks for itself: a second press asks nothing and closes nothing out.
+    [Fact]
+    public async Task CloseOutRegister_PressedAgainWhileClosingOut_DoesNothing()
+    {
+        var running = new TaskCompletionSource<CloseOutReport>();
+        _closeOut.Running = running.Task;
+        var cut = Render<StoreManager>();
+        var first = PressCloseOutAsync(cut);
+        await AnswerAsync(cut, ok: true);
+
+        var second = PressCloseOutAsync(cut);
+        var askedAgain = _dialogs.Current;
+        await FinishAsync(cut, running, FakeCloseOutRegister.EverythingWorked);
+        await Task.WhenAll(first, second);
+
+        Assert.Null(askedAgain);
+        Assert.Equal(1, _closeOut.Runs);
+    }
+
+    // And Shut Down checks too: Rewind stays open until the backup is made.
+    [Fact]
+    public async Task ShutDown_WhileClosingOut_AsksNothing()
+    {
+        var running = new TaskCompletionSource<CloseOutReport>();
+        _closeOut.Running = running.Task;
+        var cut = Render<StoreManager>();
+        var press = PressCloseOutAsync(cut);
+        await AnswerAsync(cut, ok: true);
+
+        var shutDown = PressShutDownAsync(cut);
+        var asked = _dialogs.Current;
+        await FinishAsync(cut, running, FakeCloseOutRegister.EverythingWorked);
+        await Task.WhenAll(press, shutDown);
+
+        Assert.Null(asked);
+        Assert.False(_lifetime.StopRequested);
+    }
+
+    // UI-3: once the checklist closes, the focus is back on Close Out Register. Not before: while the checklist is
+    // open, the screen behind it is inert and can't take the focus.
+    [Fact]
+    public async Task CloseOutRegister_ChecklistClosed_FocusesTheButton()
+    {
+        var cut = Render<StoreManager>();
+        var closeOut = Button(cut, "Close Out Register").GetAttribute("blazor:elementreference"); // first render only
+        var press = PressCloseOutAsync(cut);
+        await AnswerAsync(cut, ok: true);
+
+        var calledWhileOpen = JSInterop.Invocations.Identifiers.ToList();
+        await AnswerAsync(cut, ok: true);
+        await press;
+
+        AssertFocusedLast(closeOut, focuses: 1);
+        Assert.DoesNotContain(JSInterop.VerifyFocusAsyncInvoke(1)[0].Identifier, calledWhileOpen);
+    }
+
+    // It goes back once: a later render, such as a click on a tab, leaves the focus wherever the clerk took it.
+    [Fact]
+    public async Task CloseOutRegister_RenderAfterTheChecklist_LeavesTheFocusAlone()
+    {
+        var cut = Render<StoreManager>();
+        var closeOut = Button(cut, "Close Out Register").GetAttribute("blazor:elementreference"); // first render only
+        var press = PressCloseOutAsync(cut);
+        await AnswerAsync(cut, ok: true);
+        await AnswerAsync(cut, ok: true);
+        await press;
+
+        await Tab(cut, "Printing").ClickAsync(new MouseEventArgs());
+
+        AssertFocusedLast(closeOut, focuses: 1);
+    }
+
+    // ARCH-5, NET-7: Close Out takes the screen's own token, which leaving cancels.
+    [Fact]
+    public async Task Dispose_WhileClosingOut_CancelsTheCall()
+    {
+        var running = new TaskCompletionSource<CloseOutReport>();
+        _closeOut.Running = running.Task;
+        var cut = Render<StoreManager>();
+        var press = PressCloseOutAsync(cut);
+        await AnswerAsync(cut, ok: true);
+
+        await DisposeComponentsAsync();
+
+        Assert.True(_closeOut.LastToken.IsCancellationRequested);
+        running.SetCanceled(_closeOut.LastToken);
+        await press;
+    }
+
+    // NET-7, ADR-0011: Core finishes a Close Out whose night is closed even once the clerk has left, but the
+    // checklist has no screen to show on then. Looked at before the press is awaited, so a checklist that did open
+    // fails the test rather than holding it open.
+    [Fact]
+    public async Task Dispose_CloseOutAnswersAfterTheClerkLeft_ShowsNoDialog()
+    {
+        var running = new TaskCompletionSource<CloseOutReport>();
+        _closeOut.Running = running.Task;
+        var cut = Render<StoreManager>();
+        var press = PressCloseOutAsync(cut);
+        await AnswerAsync(cut, ok: true);
+        await DisposeComponentsAsync();
+
+        running.SetResult(FakeCloseOutRegister.EverythingWorked);
+        await Renderer.Dispatcher.InvokeAsync(() => { }); // queued behind the screen's own continuation
+
+        Assert.Null(_dialogs.Current);
+        await press;
+        Assert.False(Renderer.UnhandledException.IsCompleted);
+        Assert.Empty(_errorLog.Entries);
+    }
+
+    // A cancel before the night closed means nothing happened, and the clerk has gone: nothing to show or report.
+    [Fact]
+    public async Task Dispose_CloseOutCancelledBeforeTheNightClosed_ShowsAndReportsNothing()
+    {
+        var running = new TaskCompletionSource<CloseOutReport>();
+        _closeOut.Running = running.Task;
+        var cut = Render<StoreManager>();
+        var press = PressCloseOutAsync(cut);
+        await AnswerAsync(cut, ok: true);
+        await DisposeComponentsAsync();
+
+        running.SetCanceled(_closeOut.LastToken); // as Core's wait or the night's closing ends, once cancelled
+        await Renderer.Dispatcher.InvokeAsync(() => { });
+
+        Assert.Null(_dialogs.Current);
+        await press;
+        Assert.False(Renderer.UnhandledException.IsCompleted);
+        Assert.Empty(_errorLog.Entries);
+    }
+
+    // UI-11: once the clerk has left, what Core throws goes to ErrorHub, named for the screen (OBS-3), since the
+    // screen's ErrorBoundary went with it. ShellTests shows the screen the clerk went to staying open.
+    [Fact]
+    public async Task Dispose_CloseOutFailsAfterTheClerkLeft_ReportsItToErrorHub()
+    {
+        var running = new TaskCompletionSource<CloseOutReport>();
+        _closeOut.Running = running.Task;
+        var cut = Render<StoreManager>();
+        var press = PressCloseOutAsync(cut);
+        await AnswerAsync(cut, ok: true);
+        await DisposeComponentsAsync();
+        var failure = new InvalidOperationException("The night couldn't close.");
+
+        running.SetException(failure);
+        await Renderer.Dispatcher.InvokeAsync(() => { });
+
+        Assert.Null(_dialogs.Current);
+        await press;
+        Assert.Equal([(LogLevel.Error, "Unhandled exception from StoreManager; reported to the shell", (Exception?)failure)], _errorLog.Entries);
+    }
+
+    // The clerk can press an F-key in the moment between OK on the question and the screen taking the answer. The
+    // token was read before asking, so that Close Out is cancelled at once, and the source the screen disposed
+    // doesn't throw. Looked at before the press is awaited, as above.
+    [Fact]
+    public async Task Dispose_BeforeTheAnswerIsTaken_RaisesNothing()
+    {
+        var cut = Render<StoreManager>();
+        var press = PressCloseOutAsync(cut);
+
+        await cut.InvokeAsync(() =>
+        {
+            _dialogs.Close(ok: true);
+            return DisposeComponentsAsync(); // in the same turn, so before the screen's continuation
+        });
+        await cut.InvokeAsync(() => { }); // queued behind the screen's continuation
+
+        Assert.True(_closeOut.LastToken.IsCancellationRequested);
+        Assert.Null(_dialogs.Current);
+        await press;
+        Assert.False(Renderer.UnhandledException.IsCompleted);
     }
 
     [Fact]
@@ -749,6 +1083,25 @@ public sealed class StoreManagerTests : BunitContext
     // Completes once the clerk answers the dialog that Shut Down opens.
     private static Task PressShutDownAsync(IRenderedComponent<StoreManager> cut) =>
         cut.FindAll("button").Single(button => button.TextContent == "Shut Down").ClickAsync(new MouseEventArgs());
+
+    // Completes once the clerk answers the question, and the checklist if OK opened one.
+    private static Task PressCloseOutAsync(IRenderedComponent<StoreManager> cut) =>
+        Button(cut, "Close Out Register").ClickAsync(new MouseEventArgs());
+
+    // The clerk's answer to the dialog on screen, then a turn of the renderer's thread, so the screen has taken it
+    // before the test looks.
+    private async Task AnswerAsync(IRenderedComponent<StoreManager> cut, bool ok)
+    {
+        await cut.InvokeAsync(() => _dialogs.Close(ok));
+        await cut.InvokeAsync(() => { });
+    }
+
+    // Core answers a Close Out that was waiting, and the clerk presses OK on its checklist.
+    private async Task FinishAsync(IRenderedComponent<StoreManager> cut, TaskCompletionSource<CloseOutReport> running, CloseOutReport report)
+    {
+        await cut.InvokeAsync(() => running.SetResult(report));
+        await AnswerAsync(cut, ok: true);
+    }
 
     // The print window closes as soon as it opens, as when the clerk prints.
     private JSRuntimeInvocationHandler PrintWindowCloses()
