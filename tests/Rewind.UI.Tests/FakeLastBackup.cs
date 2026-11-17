@@ -17,10 +17,16 @@ internal sealed class FakeLastBackup : ILastBackup
     public Exception? Failure { get; set; }
 
     /// <summary>
-    /// What happens while a read is under way, once it has its answer and before it returns it, such as a backup made
-    /// meanwhile. It happens once.
+    /// When a backup made while the next read is under way was made. That read answers what was there before, and
+    /// the news comes on a thread of its own, as Close Out's does, before the read returns.
     /// </summary>
-    public Action? WhileReading { get; set; }
+    public DateTime? MadeWhileReading { get; set; }
+
+    /// <summary>
+    /// What a listener threw when the news came on that thread, kept for the test to look at, since a thread that
+    /// threw would end the whole test run.
+    /// </summary>
+    public Exception? ListenerFailure { get; private set; }
 
     /// <summary>How many times it's been read.</summary>
     public int Reads { get; private set; }
@@ -32,9 +38,15 @@ internal sealed class FakeLastBackup : ILastBackup
     {
         Reads++;
         var answer = Failure is null ? MadeAt : throw Failure;
-        var whileReading = WhileReading;
-        WhileReading = null;
-        whileReading?.Invoke();
+        if (MadeWhileReading is { } made)
+        {
+            MadeWhileReading = null;
+            MadeAt = made;
+            var closeOut = new Thread(BackUpOnItsOwnThread);
+            closeOut.Start();
+            closeOut.Join();
+        }
+
         return answer;
     }
 
@@ -49,5 +61,17 @@ internal sealed class FakeLastBackup : ILastBackup
     {
         var listeners = BackedUp;
         return () => listeners?.Invoke();
+    }
+
+    private void BackUpOnItsOwnThread()
+    {
+        try
+        {
+            BackUp();
+        }
+        catch (Exception e) // kept for the test, rather than ending the run
+        {
+            ListenerFailure = e;
+        }
     }
 }

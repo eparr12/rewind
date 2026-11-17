@@ -504,16 +504,11 @@ public sealed class StatusBarTests : BunitContext
     [Fact]
     public void Render_BackupMadeWhileTheBarReads_ShowsIt()
     {
-        _lastBackup.WhileReading = () =>
-        {
-            _lastBackup.MadeAt = FridayNight;
-            var closeOut = new Thread(_lastBackup.BackUp);
-            closeOut.Start();
-            closeOut.Join();
-        };
+        _lastBackup.MadeWhileReading = FridayNight;
 
         var cut = Render<StatusBar>();
 
+        Assert.Null(_lastBackup.ListenerFailure);
         cut.WaitForAssertion(() => Assert.Equal("Last backup: Friday, October 23", LastBackupField(cut)));
     }
 
