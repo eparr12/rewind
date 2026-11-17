@@ -4,10 +4,13 @@
 
 @if (Dialogs.Current is { } dialog)
 {
-    <div class="dialog-layer">
-        @* tabindex="-1": a click on the message keeps the keyboard in the dialog, so Esc still works. *@
+    @* UI-3: a press of the mouse button, on the dialog or on the screen behind it, leaves the focus where it is,
+       so Enter still presses OK, or Cancel once the clerk has tabbed to it. The click that follows still reaches
+       OK, Cancel and the X. Blazor cancels the press with no handler of Rewind's: the flag alone has it listen
+       for presses. *@
+    <div class="dialog-layer" @onmousedown:preventDefault>
         <div class="window dialog" role="alertdialog" aria-modal="true" aria-labelledby="dialog-title"
-             aria-describedby="dialog-message" tabindex="-1" @onkeydown="OnKeyDown">
+             aria-describedby="dialog-message" @onkeydown="OnKeyDown">
             <div class="title-bar">
                 <div class="title-bar-text" id="dialog-title">@dialog.Title</div>
                 <div class="title-bar-controls">
@@ -19,6 +22,24 @@
                     <DialogIconImage Icon="dialog.Icon" />
                     <p id="dialog-message">@dialog.Message</p>
                 </div>
+                @if (dialog.Checklist.Count > 0)
+                {
+                    @* UI-3: the boxes only show what happened. A click on a box or its words would tick or untick
+                       it, and so would Space, which clicks the box with the focus, so the checklist cancels every
+                       click in it. No box is a Tab stop, so OK keeps the focus. They aren't disabled, since 98.css
+                       greys a disabled box's words, and these are lines a kid has to read. *@
+                    <div class="dialog-checklist" @onclick:preventDefault>
+                        @for (var i = 0; i < dialog.Checklist.Count; i++)
+                        {
+                            var line = dialog.Checklist[i];
+                            var box = $"dialog-check-{_shown}-{i}";
+                            <div class="field-row">
+                                <input type="checkbox" id="@box" checked="@line.Ticked" tabindex="-1" />
+                                <label for="@box">@line.Words</label>
+                            </div>
+                        }
+                    </div>
+                }
                 <div class="dialog-buttons">
                     <button class="default" @ref="_ok" @onclick="() => Dialogs.Close(true)">OK</button>
                     @if (dialog.CanCancel)
@@ -34,6 +55,10 @@
 @code {
     private ElementReference _ok;
     private Dialog? _focused;
+
+    // How many dialogs have opened, which numbers each checklist's boxes. Each box's label finds it by its id,
+    // and no two checklists share one, even when a new dialog replaces one that's still open.
+    private int _shown;
 
     protected override void OnInitialized() => Dialogs.Changed += OnChanged;
 
@@ -61,7 +86,15 @@
 
     public void Dispose() => Dialogs.Changed -= OnChanged;
 
-    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OnChanged() => _ = InvokeAsync(() =>
+    {
+        if (Dialogs.Current is not null)
+        {
+            _shown++;
+        }
+
+        StateHasChanged();
+    });
 
     // Enter presses whichever button has focus, and keyboard.js keeps Tab inside the dialog;
     // the dialog itself only handles Esc.

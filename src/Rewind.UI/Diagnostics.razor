@@ -2,12 +2,13 @@
 @inject ISoundPlayer Sounds
 @inject DialogService Dialogs
 
-@* Debug builds only: a way to try sounds, dialogs and each crash path (OBS-5) on purpose. *@
+@* Debug builds only: a way to try sounds, dialogs, a checklist and each crash path (OBS-5) on purpose. *@
 <fieldset class="diagnostics">
     <legend>Diagnostics (Debug builds only)</legend>
     <div class="field-row">
         <button @onclick="PlayTwoSounds">Play two sounds</button>
         <button @onclick="ShowDialogsAsync">Show a dialog</button>
+        <button @onclick="ShowChecklist">Show a checklist</button>
     </div>
     <div class="field-row">
         <button @onclick="CrashThisScreen">Crash this screen</button>
@@ -18,6 +19,20 @@
 </fieldset>
 
 @code {
+    // A checklist like the one Close Out will show (Build Plan 3.5), to look at before its button arrives.
+    private static readonly Dialog SampleChecklist = new(
+        Store.Name, "A checklist like Close Out's: one line unticked, and one long enough to wrap.")
+    {
+        Checklist =
+        [
+            new("The night is closed.", Ticked: true),
+            new("Tonight's backup is saved.", Ticked: true),
+            new("The phone catalog is written, with every movie on the shelf and a small picture of each one's poster.",
+                Ticked: true),
+            new("The backup is copied to the USB drive.", Ticked: false),
+        ],
+    };
+
     public void Dispose() => Dialogs.Changed -= ThrowAsTheDialogCloses;
 
     // The chime and the beep overlap only if each sound gets its own output (UI-7).
@@ -33,6 +48,8 @@
             Store.Name, "Be kind: rewind the tape before you return it?", DialogIcon.Warning, CanCancel: true));
         await Dialogs.ShowAsync(new Dialog(Store.Name, ok ? "You pressed OK." : "You cancelled."));
     }
+
+    private void ShowChecklist() => _ = Dialogs.ShowAsync(SampleChecklist);
 
     // The screen's ErrorBoundary catches this one.
     private static void CrashThisScreen() =>

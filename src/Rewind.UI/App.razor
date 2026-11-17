@@ -24,8 +24,9 @@
                tries ErrorBoundary allows before it gives up and BlazorWebView stops the page, so
                this is plain markup that can't throw, with one way out, and nothing from
                DialogService, which may be what broke. Enter presses Shut Down (UI-3) through
-               autofocus rather than FocusAsync, since JavaScript interop may be broken too. *@
-            <div class="dialog-layer">
+               autofocus rather than FocusAsync, since JavaScript interop may be broken too. As over
+               DialogHost's dialogs, a press of the mouse button leaves the focus where it is. *@
+            <div class="dialog-layer" @onmousedown:preventDefault>
                 <div class="window dialog" role="alertdialog" aria-labelledby="last-resort-title">
                     <div class="title-bar">
                         <div class="title-bar-text" id="last-resort-title">@Store.Name</div>
