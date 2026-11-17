@@ -69,6 +69,13 @@ body {
   flex: none;
 }
 
+/* A dialog's checklist, such as what Close Out did, sits between the message and the buttons, in
+   line with the message's words: past its 8px padding, the 32px icon and the 16px gap. The 16px
+   under the last line match the message's own above the buttons. */
+.dialog-checklist {
+  padding: 0 8px 16px 56px;
+}
+
 .dialog-buttons {
   display: flex;
   justify-content: center;
