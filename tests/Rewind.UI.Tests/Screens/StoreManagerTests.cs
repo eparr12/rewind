@@ -253,7 +253,6 @@ public sealed class StoreManagerTests : BunitContext
         var asked = _dialogs.Current;
         var runsWhileAsking = _closeOut.Runs;
         await AnswerAsync(cut, ok: false);
-        await press;
 
         Assert.Equal(
             new Dialog(
@@ -264,8 +263,12 @@ public sealed class StoreManagerTests : BunitContext
             asked);
         Assert.Equal(0, runsWhileAsking);
         Assert.DoesNotContain(Sound.Error, _sounds.Played);
+        Assert.Null(_dialogs.Current); // before the press is awaited, which a checklist would hold open
+        await press;
     }
 
+    // Looked at before the press is awaited, so a Cancel that closed out anyway fails the test, rather than holding
+    // it open on the checklist.
     [Fact]
     public async Task CloseOutRegister_ClerkCancels_ClosesNothingOut()
     {
@@ -273,10 +276,10 @@ public sealed class StoreManagerTests : BunitContext
         var press = PressCloseOutAsync(cut);
 
         await AnswerAsync(cut, ok: false);
-        await press;
 
         Assert.Equal(0, _closeOut.Runs);
         Assert.Null(_dialogs.Current);
+        await press;
     }
 
     // ARCH-5: OK is one call to Core, and the checklist shows what it came to.
@@ -407,6 +410,22 @@ public sealed class StoreManagerTests : BunitContext
         Assert.DoesNotContain(JSInterop.VerifyFocusAsyncInvoke(1)[0].Identifier, calledWhileOpen);
     }
 
+    // It goes back once: a later render, such as a click on a tab, leaves the focus wherever the clerk took it.
+    [Fact]
+    public async Task CloseOutRegister_RenderAfterTheChecklist_LeavesTheFocusAlone()
+    {
+        var cut = Render<StoreManager>();
+        var closeOut = Button(cut, "Close Out Register").GetAttribute("blazor:elementreference"); // first render only
+        var press = PressCloseOutAsync(cut);
+        await AnswerAsync(cut, ok: true);
+        await AnswerAsync(cut, ok: true);
+        await press;
+
+        await Tab(cut, "Printing").ClickAsync(new MouseEventArgs());
+
+        AssertFocusedLast(closeOut, focuses: 1);
+    }
+
     // ARCH-5, NET-7: Close Out takes the screen's own token, which leaving cancels.
     [Fact]
     public async Task Dispose_WhileClosingOut_CancelsTheCall()
@@ -489,7 +508,7 @@ public sealed class StoreManagerTests : BunitContext
 
     // The clerk can press an F-key in the moment between OK on the question and the screen taking the answer. The
     // token was read before asking, so that Close Out is cancelled at once, and the source the screen disposed
-    // doesn't throw.
+    // doesn't throw. Looked at before the press is awaited, as above.
     [Fact]
     public async Task Dispose_BeforeTheAnswerIsTaken_RaisesNothing()
     {
@@ -501,10 +520,11 @@ public sealed class StoreManagerTests : BunitContext
             _dialogs.Close(ok: true);
             return DisposeComponentsAsync(); // in the same turn, so before the screen's continuation
         });
-        await press;
+        await cut.InvokeAsync(() => { }); // queued behind the screen's continuation
 
         Assert.True(_closeOut.LastToken.IsCancellationRequested);
         Assert.Null(_dialogs.Current);
+        await press;
         Assert.False(Renderer.UnhandledException.IsCompleted);
     }
 
