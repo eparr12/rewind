@@ -4,11 +4,13 @@
 
 @if (Dialogs.Current is { } dialog)
 {
-    <div class="dialog-layer">
-        @* tabindex="-1": a click on the message, or on a checklist's line, keeps the keyboard in the dialog, so Esc
-           still works. *@
+    @* UI-3: a press of the mouse button, on the dialog or on the screen behind it, leaves the focus where it is,
+       so Enter still presses OK, or Cancel once the clerk has tabbed to it. The click that follows still reaches
+       OK, Cancel and the X. Blazor cancels the press with no handler of Rewind's: the flag alone has it listen
+       for presses. *@
+    <div class="dialog-layer" @onmousedown:preventDefault>
         <div class="window dialog" role="alertdialog" aria-modal="true" aria-labelledby="dialog-title"
-             aria-describedby="dialog-message" tabindex="-1" @onkeydown="OnKeyDown">
+             aria-describedby="dialog-message" @onkeydown="OnKeyDown">
             <div class="title-bar">
                 <div class="title-bar-text" id="dialog-title">@dialog.Title</div>
                 <div class="title-bar-controls">

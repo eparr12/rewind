@@ -157,6 +157,28 @@ public sealed class AppTests : BunitContext
         Assert.True(cut.Find("button.default").HasAttribute("autofocus"));
     }
 
+    // UI-3: as over DialogHost's dialogs, a press of the mouse button on the dialog, or on the screen behind it, leaves
+    // the focus where it is. Nothing in Rewind hears the press, and the dialog's layer cancels it.
+    [Theory]
+    [InlineData("message")]
+    [InlineData("title")]
+    [InlineData("behind")]
+    public async Task MouseDown_ErrorDialogThrewToo_LeavesTheFocusWhereItIs(string place)
+    {
+        ComponentFactories.Add<DialogHost, ThrowingComponent>();
+        var cut = Render<App>();
+        var pressed = cut.Find(place switch
+        {
+            "message" => ".dialog p",
+            "title" => ".dialog .title-bar-text",
+            _ => ".dialog-layer",
+        });
+
+        await Assert.ThrowsAsync<MissingEventHandlerException>(() => pressed.MouseDownAsync(new MouseEventArgs()));
+
+        Assert.NotNull(pressed.Closest("[blazor\\:onmousedown\\:preventdefault]"));
+    }
+
     // Only an exception raised while the error dialog is up means the dialog itself broke. Once
     // the clerk closes it and a new shell starts, a later crash gets the full dialog again.
     [Fact]

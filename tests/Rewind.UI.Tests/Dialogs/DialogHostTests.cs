@@ -253,6 +253,26 @@ public sealed class DialogHostTests : BunitContext
         Assert.False(answer.IsCompleted);
     }
 
+    // UI-3: in the browser, a press of the mouse button moves the focus, which would take it off OK, or off Cancel
+    // once the clerk has tabbed to it. Nothing in Rewind hears the press, and the dialog cancels it, on the dialog
+    // and on the screen behind it.
+    [Theory]
+    [InlineData("message")]
+    [InlineData("words")]
+    [InlineData("box")]
+    [InlineData("title")]
+    [InlineData("behind")]
+    public async Task MouseDown_OnOrBehindTheDialog_LeavesTheFocusWhereItIs(string place)
+    {
+        var (host, answer) = Show(Report);
+        var pressed = host.Find(Place(place));
+
+        await Assert.ThrowsAsync<MissingEventHandlerException>(() => pressed.MouseDownAsync(new MouseEventArgs()));
+
+        Assert.True(CancelsPress(pressed));
+        Assert.False(answer.IsCompleted);
+    }
+
     // UI-3: keyboard.js's keepTabInDialog sends Tab round the dialog's Tab stops, so no box is one, and OK keeps
     // the focus it opens with.
     [Fact]
@@ -314,6 +334,22 @@ public sealed class DialogHostTests : BunitContext
     // bUnit writes as this attribute.
     private static bool CancelsClick(IElement element) =>
         element.Closest("[blazor\\:onclick\\:preventdefault]") is not null;
+
+    // Blazor cancels a press as it does a click: when the element, or one around it, has @onmousedown:preventDefault.
+    private static bool CancelsPress(IElement element) =>
+        element.Closest("[blazor\\:onmousedown\\:preventdefault]") is not null;
+
+    // Where the clerk might press: the message, a line's words, its box, the title bar's words, or the screen behind
+    // the dialog, which the dialog's layer covers.
+    private static string Place(string place) => place switch
+    {
+        "message" => "#dialog-message",
+        "words" => ".dialog-checklist label",
+        "box" => ".dialog-checklist input",
+        "title" => "#dialog-title",
+        "behind" => ".dialog-layer",
+        _ => throw new ArgumentOutOfRangeException(nameof(place), place, "No such place in the dialog."),
+    };
 
     // As keyboard.js's keepTabInDialog picks them: a control that isn't disabled, with a tabindex of 0 or more,
     // which a control without one has.
