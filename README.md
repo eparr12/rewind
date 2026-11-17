@@ -110,8 +110,8 @@ The checklist has a line for each step, in order:
 - **The backup,** by its file name, such as `rewind-2026-10-23-2215.db`.
 - **The phone catalog,** with how many movies it lists.
 - **The backup drive:**
-  - "Copied 3 backups to the backup drive E:\", which now has every backup. With two drives the number is the total, so one backup copied to both counts twice.
-  - "The backup drive E:\ already had every backup", as at a second Close Out the same night.
+  - "Copied 3 backups to the backup drive E:\", which now has every backup. Each Close Out makes its backup before the copy, so a second Close Out the same night copies its own: "Copied 1 backup". With two drives the number is the total, so one backup copied to both counts twice.
+  - "The backup drive E:\ already had every backup": there was nothing new to copy, as when the night's backup wasn't saved.
   - "No backup drive is plugged in": plug it in and press Close Out Register again.
   - "Rewind couldn't copy to the backup drive E:\": the drive is full or read-only, or it was pulled out partway. See [The backup drive](#the-backup-drive).
   - "Copying to the backup drive stopped partway": something on the register stopped the copy, such as another program holding a backup open. The newest backup goes first, so tonight's may be on the drive already, and the next Close Out copies whatever the drive is missing.

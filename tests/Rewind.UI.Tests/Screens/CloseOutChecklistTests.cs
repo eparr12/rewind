@@ -69,7 +69,8 @@ public sealed class CloseOutChecklistTests
         Assert.Equal(new ChecklistLine(line, Ticked: true), checklist.Checklist[3]);
     }
 
-    // A second Close Out the same night finds the drive up to date, and that worked too.
+    // Each drive had every backup already, so nothing was written, and that worked too: each has them all. Close Out
+    // makes its backup before the copy, so this is rare, such as when the night's backup wasn't saved.
     [Theory]
     [InlineData(@"The backup drive E:\ already had every backup.", @"E:\")]
     [InlineData(@"The backup drives E:\ and F:\ already had every backup.", @"E:\", @"F:\")]
