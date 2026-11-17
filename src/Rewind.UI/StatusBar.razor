@@ -1,18 +1,22 @@
 @implements IDisposable
+@using System.Globalization
 @using Microsoft.Extensions.Options
 @using Rewind.Core
+@using Rewind.Core.Data
 @inject IScanner Scanner
 @inject IMemberRoster Roster
 @inject IConcessionBar Bar
+@inject ILastBackup LastBackup
 @inject ErrorHub Errors
 @inject IOptions<RewindPaths> Paths
 
-@* The last scan, then the health of each optional device as it arrives (OBS-6). Then the root, when it
-   isn't the register's: a Release build started from a window with Paths__Root still set runs movie
-   night on that folder, and nothing else on screen would say so. *@
+@* The last scan, then the health of each optional device as it arrives, and the day of the last backup
+   (OBS-6). Then the root, when it isn't the register's: a Release build started from a window with
+   Paths__Root still set runs movie night on that folder, and nothing else on screen would say so. *@
 <div class="status-bar">
     <p class="status-bar-field">@LastScanText</p>
     <p class="status-bar-field">@ScannerText</p>
+    <p class="status-bar-field">@LastBackupText</p>
     @if (!RewindPaths.IsRegisterRoot(Paths.Value.Root))
     {
         <p class="status-bar-field">Data: @Paths.Value.Root</p>
@@ -22,9 +26,15 @@
 </div>
 
 @code {
+    // A day goes by its weekday and date, such as "Friday, October 23", the way Return writes a night,
+    // which holds this format too (GEN-8). A backup can be weeks old when nobody has closed out, and a
+    // weekday alone is right for six days.
+    private const string DayFormat = "dddd, MMMM d";
+
     // Cancelled when the status bar closes, after an error of its own, when the shell crashes or when
-    // Rewind closes, so a lookup still waiting on the database stops. The lookup is a fire-and-forget
-    // task, so OnScanned catches that (see StoreManager's _closing).
+    // Rewind closes, so a lookup still waiting on the database stops, and news of a backup that comes
+    // afterwards isn't read. The lookup is a fire-and-forget task, so OnScanned catches that (see
+    // StoreManager's _closing).
     private readonly CancellationTokenSource _closing = new();
 
     private Scan? _lastScan;
@@ -32,6 +42,10 @@
     // The name the last scan goes by, once Core has answered: the member's for their card, or the snack's
     // for its code. Null until then, for a card or a code that's nobody's, and for any other kind of scan.
     private string? _name;
+
+    // When the newest backup was made, as its name says, in the register's own time. Null when there's none,
+    // and while no read has worked, as when the first one failed.
+    private DateTime? _lastBackup;
 
     private string LastScanText => _lastScan is null ? "No scan yet" : Describe(_lastScan, _name);
 
@@ -42,16 +56,26 @@
         _ => "Scanner missing",
     };
 
+    // The day in the backup's name, as it is: a Close Out past midnight makes a backup named for the next day.
+    private string LastBackupText => _lastBackup is { } madeAt
+        ? $"Last backup: {madeAt.ToString(DayFormat, CultureInfo.InvariantCulture)}"
+        : "No backup yet";
+
+    // The bar listens for backups before it reads, so one made while it reads, as Close Out's can be while
+    // a new shell opens, is read again once it's heard of.
     protected override void OnInitialized()
     {
         Scanner.Scanned += OnScanned;
         Scanner.StatusChanged += OnStatusChanged;
+        LastBackup.BackedUp += OnBackedUp;
+        ReadLastBackup();
     }
 
     public void Dispose()
     {
         Scanner.Scanned -= OnScanned;
         Scanner.StatusChanged -= OnStatusChanged;
+        LastBackup.BackedUp -= OnBackedUp;
         _closing.Cancel();
         _closing.Dispose();
     }
@@ -82,6 +106,35 @@
     // probe showed, so a catch here would never run. Anything added here that can fail takes OnScanned's
     // shape.
     private void OnStatusChanged() => _ = InvokeAsync(StateHasChanged);
+
+    // UI-11: a backup is made on a background thread, so the news moves onto the renderer's first, and the
+    // bar reads the backups folder again there. News of a backup made just before the bar closed reaches
+    // it afterwards, and isn't read: there's no bar left to show it.
+    private void OnBackedUp() => _ = InvokeAsync(() =>
+    {
+        if (_closing.IsCancellationRequested)
+        {
+            return;
+        }
+
+        ReadLastBackup();
+        StateHasChanged();
+    });
+
+    // What the read throws goes to ErrorHub, open or not, as a lookup's does (UI-11), and the field keeps
+    // what it showed: the bar's ErrorBoundary would close the bar over one read. Core answers a backups
+    // folder it can't read as no backup (GEN-7), so only the unexpected comes here.
+    private void ReadLastBackup()
+    {
+        try
+        {
+            _lastBackup = LastBackup.NewestMadeAt();
+        }
+        catch (Exception e)
+        {
+            Errors.ReportFromComponent(nameof(StatusBar), e);
+        }
+    }
 
     // A scan is drawn with its member's or its snack's name (Build Plan 3.1), in one go. On the register,
     // SQLite has answered by the time the lookup returns, since Microsoft.Data.Sqlite runs async calls

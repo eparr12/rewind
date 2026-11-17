@@ -24,12 +24,12 @@ namespace Rewind.Core;
 public static class RewindCoreServices
 {
     /// <summary>
-    /// Adds Rewind's folders, the database, its backups and the startup that prepares it, the sheets of store
-    /// labels and member cards, whose numbers the database keeps, the members, the prices, the concession bar's
-    /// snacks, the business days, the late-fee draws, the checkout counter, the return desk, the phone catalog's
-    /// writer, the copy to the backup drive with the PC's drives it looks among, and Close Out, which runs them.
-    /// Call this before adding any other hosted service: hosted services start in the order they're added, and
-    /// everything else needs the database.
+    /// Adds Rewind's folders, the database, its backups, with the last one for the status bar, and the startup that
+    /// prepares it, the sheets of store labels and member cards, whose numbers the database keeps, the members, the
+    /// prices, the concession bar's snacks, the business days, the late-fee draws, the checkout counter, the return
+    /// desk, the phone catalog's writer, the copy to the backup drive with the PC's drives it looks among, and Close
+    /// Out, which runs them. Call this before adding any other hosted service: hosted services start in the order
+    /// they're added, and everything else needs the database.
     /// </summary>
     public static IServiceCollection AddRewindCore(this IServiceCollection services, IConfiguration configuration)
     {
@@ -48,7 +48,10 @@ public static class RewindCoreServices
             options.UseSqlite(RewindDb.ConnectionStringFor(paths.Database));
         });
 
+        // One for the whole register: the status bar listens to it as its last backup, so it has to be the one that
+        // makes them.
         services.AddSingleton<Backups>();
+        services.AddSingleton<ILastBackup>(provider => provider.GetRequiredService<Backups>());
         services.AddHostedService<DatabaseStartup>();
 
         // One of each for every screen: they hold no state, and ask the factory for each context (DATA-6).

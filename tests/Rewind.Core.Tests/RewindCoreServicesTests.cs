@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Rewind.Core.Checkout;
 using Rewind.Core.CloseOut;
 using Rewind.Core.Concessions;
+using Rewind.Core.Data;
 using Rewind.Core.Labels;
 using Rewind.Core.LateFees;
 using Rewind.Core.Members;
@@ -178,6 +179,22 @@ public sealed class RewindCoreServicesTests
         await using var provider = services.BuildServiceProvider();
 
         Assert.Same(provider.GetRequiredService<PhoneCatalog>(), provider.GetRequiredService<PhoneCatalog>());
+    }
+
+    // The status bar injects it, and hears of each backup from it, so it has to be the backups the startup and Close Out
+    // make theirs with: a second one would never raise a thing. Making it reads no folder.
+    [Fact]
+    public async Task AddRewindCore_AnyHost_ProvidesTheBackupsAsTheLastBackup()
+    {
+        // A full path on Linux too, as for the label sheets above.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddRewindCore(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { [$"{RewindPaths.SectionName}:Root"] = Path.GetTempPath() })
+            .Build());
+        await using var provider = services.BuildServiceProvider();
+
+        Assert.Same(provider.GetRequiredService<Backups>(), provider.GetRequiredService<ILastBackup>());
     }
 
     // Close Out will inject it, and a host without it would only fail at closing time. It holds no state, so one serves

@@ -13,6 +13,9 @@ public sealed class BackupsTests
     private static readonly byte[] Backup = [0x53, 0x51, 0x4C, 0x69, 0x74, 0x65];
     private static readonly byte[] HalfABackup = [0x53, 0x51, 0x4C];
 
+    // TempRewind's clock: 10:15 PM on October 23, 2026, in the register's own time, which a backup made then is named for.
+    private static readonly DateTime Tonight = new(2026, 10, 23, 22, 15, 0);
+
     [Fact]
     public async Task CreateAsync_OnMovieNight_NamesFileForLocalTime()
     {
@@ -122,6 +125,95 @@ public sealed class BackupsTests
         Assert.Equal(HalfABackup, await File.ReadAllBytesAsync(unfinished, ct));
     }
 
+    // The status bar reads the folder again when it hears of a backup, so by then the backup has its name. Each backup
+    // is heard of once: tonight's at 10:15 PM, then one ten minutes later, each read back as it's heard of.
+    [Fact]
+    public async Task CreateAsync_EachBackup_IsHeardOfOnceItHasItsName()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var backups = rewind.Backups;
+        var heard = new List<DateTime?>();
+        backups.BackedUp += () => heard.Add(backups.NewestMadeAt());
+
+        await backups.CreateAsync(ct);
+        rewind.Time.Advance(TimeSpan.FromMinutes(10));
+        await backups.CreateAsync(ct);
+
+        Assert.Equal([Tonight, Tonight.AddMinutes(10)], heard);
+    }
+
+    // A first start has no database to back up, so no backup is made, and there's none to hear of.
+    [Fact]
+    public async Task CreateAsync_NoDatabaseYet_RaisesNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        var backups = rewind.Backups;
+        var heard = 0;
+        backups.BackedUp += () => heard++;
+
+        await backups.CreateAsync(ct);
+
+        Assert.Equal(0, heard);
+    }
+
+    // A backup that fails isn't made, so there's none to hear of. This rewind.db isn't a database, so the copy fails at
+    // the first page it reads.
+    [Fact]
+    public async Task CreateAsync_BackupFails_RaisesNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        Directory.CreateDirectory(rewind.Paths.Data);
+        await File.WriteAllTextAsync(rewind.Paths.Database, "This isn't a database.", ct);
+        var backups = rewind.Backups;
+        var heard = 0;
+        backups.BackedUp += () => heard++;
+
+        await Assert.ThrowsAsync<SqliteException>(() => backups.CreateAsync(ct));
+
+        Assert.Equal(0, heard);
+    }
+
+    // The backup is made, so a listener that throws can't fail it: at Close Out the checklist would say it wasn't saved,
+    // and before a migration Rewind wouldn't start. It still answers its path, and the listener after it still hears.
+    [Fact]
+    public async Task CreateAsync_ListenerThrows_StillAnswersTheBackupAndTellsTheRest()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var backups = rewind.Backups;
+        var heardAfter = 0;
+        backups.BackedUp += () => throw new InvalidOperationException("A listener's bug.");
+        backups.BackedUp += () => heardAfter++;
+
+        var backup = await backups.CreateAsync(ct);
+
+        Assert.Equal(("rewind-2026-10-23-2215.db", 1), (Path.GetFileName(backup), heardAfter));
+    }
+
+    // OBS-3: a listener with a bug needs looking at, so it's an error, with what it threw (OBS-4).
+    [Fact]
+    public async Task CreateAsync_ListenerThrows_LogsAnError()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var log = new ListLogger<Backups>();
+        var backups = BackupsFor(rewind, log);
+        var bug = new InvalidOperationException("A listener's bug.");
+        backups.BackedUp += () => throw bug;
+
+        var backup = await backups.CreateAsync(ct);
+
+        Assert.Equal(
+            [(LogLevel.Error, $"A listener threw on hearing of the new backup {backup}; the backup is made all the same", (Exception?)bug)],
+            log.Entries);
+    }
+
     // By the time in the name, then the number: an ordinal sort would put -10 before -2, and -2 before the minute's
     // first. The night that ran past midnight comes after the evening before it.
     [Fact]
@@ -200,6 +292,82 @@ public sealed class BackupsTests
         await using var rewind = new TempRewind();
 
         Assert.Empty(rewind.Backups.List());
+    }
+
+    // Before the first backup, there's no backups folder, so there's no last backup either.
+    [Fact]
+    public async Task NewestMadeAt_NoBackupsYet_AnswersNone()
+    {
+        await using var rewind = new TempRewind();
+
+        Assert.Null(rewind.Backups.NewestMadeAt());
+    }
+
+    // ADR-0013: the newest backup's name says when it was made, so the time is read from there, and not from the file's
+    // own times, which are today's here. A folder it can read is nothing to warn about.
+    [Fact]
+    public async Task NewestMadeAt_OneBackup_AnswersTheTimeInItsName()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await PutAllAsync(rewind, ct, "rewind-2026-10-16-2215.db");
+        var log = new ListLogger<Backups>();
+
+        var madeAt = BackupsFor(rewind, log).NewestMadeAt();
+
+        Assert.Equal(new DateTime(2026, 10, 16, 22, 15, 0), madeAt);
+        Assert.Empty(log.Entries);
+    }
+
+    // Two Close Outs in one minute last week, then tonight's: going by the number before the time, last week's second
+    // would be the newest.
+    [Fact]
+    public async Task NewestMadeAt_SeveralWithTwoFromOneMinute_AnswersTheNewest()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await PutAllAsync(rewind, ct, "rewind-2026-10-16-2215-2.db", "rewind-2026-10-23-2215.db", "rewind-2026-10-09-2215.db", "rewind-2026-10-16-2215.db");
+
+        var madeAt = rewind.Backups.NewestMadeAt();
+
+        Assert.Equal(Tonight, madeAt);
+    }
+
+    // What a crash left of tonight's backup would be the newest if it counted, and the scanner driver's installer sits
+    // with the backups too. Last week's is the last backup.
+    [Fact]
+    public async Task NewestMadeAt_FilesThatArentBackups_LeavesThemOut()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await PutAllAsync(rewind, ct, "rewind-2026-10-16-2215.db", "rewind-2026-10-23-2215.db.partial", "rewind-2026-10-23-2215.db.partial-journal", "TEEMI-VCOM-Driver-Setup.exe");
+
+        var madeAt = rewind.Backups.NewestMadeAt();
+
+        Assert.Equal(new DateTime(2026, 10, 16, 22, 15, 0), madeAt);
+    }
+
+    // GEN-7: the folder can't be listed, as after its permissions were changed by hand, though a backup is in it. The read
+    // answers none rather than throw, so the status bar never fails over it, and its one warning names the folder, with
+    // what was thrown (OBS-4).
+    [Fact]
+    public async Task NewestMadeAt_FolderCantBeRead_AnswersNoneWithOneWarning()
+    {
+        Assert.SkipWhen(!OperatingSystem.IsWindows() && Environment.IsPrivilegedProcess, "Root lists any folder on Linux.");
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await PutAllAsync(rewind, ct, "rewind-2026-10-16-2215.db");
+        using var unlistable = Unlistable.Make(rewind.Paths.Backups);
+        var log = new ListLogger<Backups>();
+
+        var madeAt = BackupsFor(rewind, log).NewestMadeAt();
+
+        Assert.Null(madeAt);
+        var warning = Assert.Single(log.Entries);
+        Assert.Equal(
+            (LogLevel.Warning, $"Couldn't read the backups folder {rewind.Paths.Backups}, such as after its permissions were changed by hand, so the status bar says there's no backup yet, though there may be some in it"),
+            (warning.Level, warning.Message));
+        Assert.IsAssignableFrom<UnauthorizedAccessException>(warning.Exception);
     }
 
     [Fact]
