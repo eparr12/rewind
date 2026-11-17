@@ -1,9 +1,12 @@
 @implements IDisposable
 @using System.Diagnostics
 @using Microsoft.Extensions.Hosting
+@using Rewind.Core.CloseOut
 @inject IHostApplicationLifetime Lifetime
 @inject DialogService Dialogs
 @inject ILabelSheets Sheets
+@inject ICloseOutRegister CloseOut
+@inject ErrorHub Errors
 @inject IJSRuntime JS
 
 @* F5 Store Manager, in Windows 98 tabs. Printing prints sheets of numbered store labels and member cards
@@ -12,7 +15,10 @@
    WebView2's print window prints it, and stays there, to print again if it jammed, until Done. Leaving the
    screen drops the sheet. The menu prints the same way, but spends nothing, so it has only Done: printing
    it again is pressing Print the menu again. Members keeps the family's members, Prices the rental price
-   and the late fee, and Snacks the concession bar's snacks and drinks (Build Plan 3.1). *@
+   and the late fee, and Snacks the concession bar's snacks and drinks (Build Plan 3.1). Under the tabs,
+   Close Out Register closes the night, backs up, writes the phone catalog and copies the backups to the
+   backup drive, then shows a checklist of what that came to (Build Plan 3.5, ADR-0013), and Shut Down
+   closes Rewind. *@
 @if (_sheet is { } sheet)
 {
     @* tabindex="-1": a click on the sheet keeps the keyboard here, so Esc still works. *@
@@ -93,7 +99,16 @@ else
             }
         </div>
     </div>
-    <button @onclick="ShutDownAsync">Shut Down</button>
+    @* Close Out Register first: the clerk closes out, then shuts down, and Tab follows the order on screen
+       (UI-3). *@
+    <div class="field-row">
+        <button disabled="@Busy" @ref="_closeOutButton" @onclick="CloseOutAsync">Close Out Register</button>
+        <button disabled="@Busy" @onclick="ShutDownAsync">Shut Down</button>
+        @if (_closingOut)
+        {
+            <span class="close-out-doing">Closing out the register...</span>
+        }
+    </div>
 
     @if (BuildInfo.IsDebug)
     {
@@ -108,6 +123,14 @@ else
     private static readonly Dialog ConfirmShutDown = new(
         Store.Name,
         "Are you sure you want to shut down Rewind?\n\nNobody can rent or return a movie until Rewind starts again.",
+        DialogIcon.Info,
+        CanCancel: true);
+
+    // Asked first, as Shut Down is: a Close Out by mistake ends the night early, and the next member card opens
+    // another, where each member draws a late-fee card again. Info, for the same reason as Shut Down's.
+    private static readonly Dialog ConfirmCloseOut = new(
+        Store.Name,
+        "Are you sure you want to close out the register?\n\nThat ends tonight's movie night and backs everything up. Do it once the last customer has gone.",
         DialogIcon.Info,
         CanCancel: true);
 
@@ -142,6 +165,7 @@ else
     private ElementReference _printCards;
     private ElementReference _printMenu;
     private ElementReference _done;
+    private ElementReference _closeOutButton;
 
     private Tab _tab = Tab.Printing;
 
@@ -161,6 +185,7 @@ else
     private bool _reserving;
     private bool _drawing;
     private bool _printing;
+    private bool _closingOut;
     private bool _focusDone;
 
     // The kind of sheet whose print button gets the focus once the screen's controls are back (UI-3).
@@ -169,9 +194,14 @@ else
     // And the menu's, once it has printed.
     private bool _focusPrintMenu;
 
+    // And Close Out Register's, once its checklist closes.
+    private bool _focusCloseOut;
+
     // While a sheet or the menu is being made or printed, nothing else starts: a second click would make a
     // second sheet. ADR-0006's guard against repeated numbers is Core's transaction; this is only manners.
-    private bool Busy => _reserving || _drawing || _printing;
+    // While Close Out runs, nothing else starts either, Shut Down included, so nobody shuts Rewind down before
+    // the backup is made. Core runs one Close Out at a time whatever the screen does.
+    private bool Busy => _reserving || _drawing || _printing || _closingOut;
 
     protected override async Task OnInitializedAsync() => _next = await Sheets.PeekAsync(_closing.Token);
 
@@ -197,7 +227,9 @@ else
         }
 
         // UI-3: Done has the focus once the sheet or the menu has printed, so Enter or Esc leaves it, and
-        // once the screen's controls are back, the button that printed it has it again.
+        // once the screen's controls are back, the button that printed it has it again. Close Out Register has
+        // it again once its checklist closes. While the button was off, the focus was on the page, where a Tab
+        // could take it on, and DialogHost would give it back there.
         if (_focusDone)
         {
             _focusDone = false;
@@ -212,6 +244,11 @@ else
         {
             _focusPrint = null;
             await (kind == SheetKind.StoreLabels ? _printLabels : _printCards).FocusAsync();
+        }
+        else if (_focusCloseOut)
+        {
+            _focusCloseOut = false;
+            await _closeOutButton.FocusAsync();
         }
     }
 
@@ -363,9 +400,72 @@ else
         ? "Printing the concession menu..."
         : "The concession menu. Didn't print, or jammed? Press Done, then Print the menu again.";
 
+    // ARCH-5: one call to Core, which closes the night, backs up, writes the phone catalog and copies the backups
+    // to the backup drive (ADR-0013), then the checklist of what that came to. Close Out doesn't shut Rewind
+    // down: the clerk presses Shut Down next.
+    private async Task CloseOutAsync()
+    {
+        if (Busy)
+        {
+            return; // a second press while Close Out runs
+        }
+
+        // Read while the screen is surely open. Once the question closes, an F-key can close the screen before
+        // the answer's turn comes, and the source's Token then throws.
+        var closing = _closing.Token;
+        if (!await Dialogs.ShowAsync(ConfirmCloseOut))
+        {
+            return;
+        }
+
+        if (await RunCloseOutAsync(closing) is not { } report)
+        {
+            return;
+        }
+
+        StateHasChanged(); // drawn first, so the buttons behind the checklist aren't left disabled
+        await Dialogs.ShowAsync(CloseOutChecklist.For(report));
+        _focusCloseOut = true;
+    }
+
+    // What Close Out came to, or null once the clerk has left the screen. Leaving cancels Close Out only until
+    // the night is closed, and nothing has happened by then, so that goes nowhere. From then on the report comes
+    // back anyway (NET-7), with no screen to show its checklist on (ADR-0011): the log has it, and the status
+    // bar shows the new backup. What Core throws while the screen is open goes on to its ErrorBoundary. Once the
+    // clerk has left, that went with the screen, and Blazor would hand the failure to the shell's ErrorBoundary,
+    // which would close the screen the clerk went to (#83), so it goes to ErrorHub instead (UI-11).
+    private async Task<CloseOutReport?> RunCloseOutAsync(CancellationToken closing)
+    {
+        _closingOut = true;
+        StateHasChanged(); // drawn now: Blazor draws for an event at its first await, which was the question's
+        try
+        {
+            var report = await CloseOut.RunAsync(closing);
+            return closing.IsCancellationRequested ? null : report;
+        }
+        catch (OperationCanceledException) when (closing.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch (Exception e) when (closing.IsCancellationRequested)
+        {
+            Errors.ReportFromComponent(nameof(StoreManager), e);
+            return null;
+        }
+        finally
+        {
+            _closingOut = false;
+        }
+    }
+
     // The host tells MainForm to close, so Rewind.UI never touches WinForms (ARCH-2).
     private async Task ShutDownAsync()
     {
+        if (Busy)
+        {
+            return; // not while Close Out runs, or while a sheet or the menu is made
+        }
+
         if (await Dialogs.ShowAsync(ConfirmShutDown))
         {
             Lifetime.StopApplication();

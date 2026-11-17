@@ -19,7 +19,8 @@
 </fieldset>
 
 @code {
-    // A checklist like the one Close Out will show (Build Plan 3.5), to look at before its button arrives.
+    // A checklist like Close Out's (Build Plan 3.5), to look at without closing out: each press of Close Out
+    // Register closes the night and makes a backup.
     private static readonly Dialog SampleChecklist = new(
         Store.Name, "A checklist like Close Out's: one line unticked, and one long enough to wrap.")
     {
