@@ -390,13 +390,18 @@ public sealed class StatusBarTests : BunitContext
         Assert.False(_crashed);
     }
 
-    // OBS-6: the last backup's field comes after the scanner's, and before the first backup it says there's none.
+    // OBS-6: the last backup's field comes right after the scanner's, before the root a Debug build shows, and
+    // before the first backup it says there's none.
     [Fact]
     public void Render_NoBackupYet_SaysSoAfterTheScanner()
     {
+        _paths.Root = @"C:\RewindDev";
+
         var cut = Render<StatusBar>();
 
-        Assert.Equal(["No scan yet", "Scanner missing", "No backup yet", "F1 to F5 switch screens", "Be kind, rewind."], Fields(cut));
+        Assert.Equal(
+            ["No scan yet", "Scanner missing", "No backup yet", @"Data: C:\RewindDev", "F1 to F5 switch screens", "Be kind, rewind."],
+            Fields(cut));
     }
 
     // Written the way Return writes a night: the weekday and the date, as the backup's name gives them.
@@ -410,16 +415,16 @@ public sealed class StatusBarTests : BunitContext
         Assert.Equal("Last backup: Friday, October 23", LastBackupField(cut));
     }
 
-    // A Close Out at 12:05 AM makes rewind-2026-10-24-0005.db, so the bar names Saturday, the day in the name,
-    // though Return would name the night Friday.
+    // A Close Out at 12:05 AM on Saturday, October 3 makes rewind-2026-10-03-0005.db, so the bar names Saturday,
+    // the day in the name, though Return would name the night Friday's. The date takes one digit when it has one.
     [Fact]
     public void Render_BackupMadePastMidnight_ShowsTheDayInItsName()
     {
-        _lastBackup.MadeAt = new DateTime(2026, 10, 24, 0, 5, 0);
+        _lastBackup.MadeAt = new DateTime(2026, 10, 3, 0, 5, 0);
 
         var cut = Render<StatusBar>();
 
-        Assert.Equal("Last backup: Saturday, October 24", LastBackupField(cut));
+        Assert.Equal("Last backup: Saturday, October 3", LastBackupField(cut));
     }
 
     // As in Return, the day is in English, as the rest of the bar is, whatever language the PC is set to.
