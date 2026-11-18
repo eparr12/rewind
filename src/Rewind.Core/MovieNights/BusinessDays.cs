@@ -6,9 +6,8 @@ namespace Rewind.Core.MovieNights;
 
 /// <summary>
 /// Opens the movie night at the first member card scanned at Checkout, and closes it at Close Out (Build
-/// Plan 3.2). A night nobody closed out ends at the first card more than 16 hours after it opened, which opens
-/// the next (ADR-0014). A return opens none. Nothing else decides which night it is, so a "once a night" rule
-/// only has to ask for the open one.
+/// Plan 3.2), or, when nobody closed it out, at the card that opens the next night (ADR-0014). A return opens
+/// none. Nothing else decides which night it is, so a "once a night" rule only has to ask for the open one.
 /// </summary>
 public sealed partial class BusinessDays(
     IDbContextFactory<RewindDb> dbFactory,
@@ -58,23 +57,26 @@ public sealed partial class BusinessDays(
         return new BusinessDayClosing(BusinessDayClosingStatus.Closed, Row(day));
     }
 
-    // The open night is read tracked, since one nobody closed out is closed in this save.
+    // DATA-12: the open night is read untracked, since a scan of it only reads. Only a stale one is loaded
+    // tracked, to be closed in this save.
     private async Task<BusinessDayRow> FindOrOpenAsync(CancellationToken cancellationToken)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var now = time.GetUtcNow().UtcDateTime; // NET-8, DATA-8
-        var open = await db.BusinessDays.SingleOrDefaultAsync(d => d.ClosedAt == null, cancellationToken);
+        var open = await FindOpenAsync(db, cancellationToken);
         if (open is not null && now - open.OpenedAt <= LongestNight)
         {
-            return Row(open);
+            return open;
         }
 
         // ADR-0014: a night that's been open that long is one nobody closed out, so this card ends it. Its
         // close and the new night are one save (DATA-7). EF Core sends the update before the insert, whichever
-        // it was given first, so the one-open-night index never sees two open nights.
+        // it was given first, so the one-open-night index never sees two open nights, as
+        // OpenOrCurrentAsync_StaleNight_EndsItWithNoError pins.
         if (open is not null)
         {
-            open.ClosedAt = now;
+            var stale = await db.BusinessDays.SingleAsync(d => d.Id == open.Id, cancellationToken);
+            stale.ClosedAt = now;
         }
 
         var day = new BusinessDay { OpenedAt = now };

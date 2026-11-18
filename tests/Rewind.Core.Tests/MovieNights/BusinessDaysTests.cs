@@ -188,6 +188,23 @@ public sealed class BusinessDaysTests
         Assert.Equal([opened], await SavedDaysAsync(rewind, ct));
     }
 
+    // ADR-0014: the rule trusts the register's clock. Set back a week since the night opened, the clock reads earlier
+    // than the opening, and the night is still tonight's, however old it really is, until Close Out closes it. A fake
+    // clock can't go backwards, so the night is saved a week ahead of it instead.
+    [Fact]
+    public async Task OpenOrCurrentAsync_ClockSetBackSinceTheNightOpened_ReturnsTheSameNight()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var opened = await OpenANightAsync(rewind, ct, openedAt: Now(rewind) + TimeSpan.FromDays(7));
+
+        var current = await Days(rewind).OpenOrCurrentAsync(ct);
+
+        Assert.Equal(opened, current);
+        Assert.Equal([opened], await SavedDaysAsync(rewind, ct));
+    }
+
     // DATA-11: the close goes before the new night, so the one-open-night index never sees two open nights and refuses
     // nothing. Were the new night first, the index would refuse it, and EF Core would log that as an error.
     [Fact]
@@ -443,12 +460,15 @@ public sealed class BusinessDaysTests
 
     private static DateTime Now(TempRewind rewind) => rewind.Time.GetUtcNow().UtcDateTime;
 
-    // A night opened before the test, or by another scan during it, saved straight to the database.
-    private static async Task OpenANightAsync(TempRewind rewind, CancellationToken cancellationToken)
+    // A night opened before the test, or by another scan during it, saved straight to the database: at the clock's time,
+    // or at the time given.
+    private static async Task<BusinessDayRow> OpenANightAsync(TempRewind rewind, CancellationToken cancellationToken, DateTime? openedAt = null)
     {
         await using var db = rewind.OpenDb();
-        db.BusinessDays.Add(new BusinessDay { OpenedAt = Now(rewind) });
+        var night = new BusinessDay { OpenedAt = openedAt ?? Now(rewind) };
+        db.BusinessDays.Add(night);
         await db.SaveChangesAsync(cancellationToken);
+        return new BusinessDayRow(night.Id, night.OpenedAt, night.ClosedAt);
     }
 
     // What another scan of a card saves the moment before this one's save, a second later on the clock: the stale night

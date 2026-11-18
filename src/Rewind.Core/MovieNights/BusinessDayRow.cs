@@ -4,7 +4,7 @@ namespace Rewind.Core.MovieNights;
 /// <param name="Id">The database key, which everything that belongs to the night points at.</param>
 /// <param name="OpenedAt">When the first member card scanned at Checkout opened it, in UTC (DATA-8).</param>
 /// <param name="ClosedAt">
-/// When Close Out closed it, or, when nobody closed it out, the first card more than 16 hours after it opened
-/// (ADR-0014), in UTC (DATA-8). Null while it's open.
+/// When Close Out closed it, or, when nobody closed it out, when the card that opened the next night was
+/// scanned (ADR-0014), in UTC (DATA-8). Null while it's open.
 /// </param>
 public sealed record BusinessDayRow(int Id, DateTime OpenedAt, DateTime? ClosedAt);

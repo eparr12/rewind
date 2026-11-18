@@ -2,9 +2,8 @@ namespace Rewind.Core.MovieNights;
 
 /// <summary>
 /// Keeps the movie night: the first member card scanned at Checkout opens a business day, and Close Out
-/// closes it. A night nobody closed out ends at the first card more than 16 hours after it opened, which
-/// opens the next (ADR-0014). A return opens none and closes none. Only one is open at a time (DATA-11).
-/// <see cref="BusinessDays"/> does it.
+/// closes it, or, when nobody closed it out, the card that opens the next night does (ADR-0014). A return
+/// opens none and closes none. Only one is open at a time (DATA-11). <see cref="BusinessDays"/> does it.
 /// </summary>
 public interface IBusinessDays
 {
