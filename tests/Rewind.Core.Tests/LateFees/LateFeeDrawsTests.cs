@@ -110,6 +110,26 @@ public sealed class LateFeeDrawsTests
         Assert.Equal("O", await SavedBagAsync(rewind, member, ct));
     }
 
+    // ADR-0014: nobody closed out last week's night, so tonight's first scan ends it and draws again, as a new night
+    // after a Close Out does, and the bag moves on.
+    [Fact]
+    public async Task DrawAsync_AfterANightNobodyClosedOut_DrawsAgainOnANewNight()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var member = await AddMemberAsync(rewind, MemberCard, bag: "CCO", ct);
+        var draws = Draws(rewind);
+        var lastWeek = await draws.DrawAsync(member, ct);
+        rewind.Time.Advance(TimeSpan.FromDays(7)); // and no Close Out
+
+        var tonight = await draws.DrawAsync(member, ct);
+
+        Assert.NotEqual(lastWeek.BusinessDayId, tonight.BusinessDayId);
+        Assert.Equal([lastWeek, tonight], await SavedDrawsAsync(rewind, ct));
+        Assert.Equal("O", await SavedBagAsync(rewind, member, ct));
+    }
+
     // The first member card scanned at Checkout opens the night.
     [Fact]
     public async Task DrawAsync_NoOpenNight_OpensOne()

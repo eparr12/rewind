@@ -8,7 +8,8 @@ public interface ILateFeeDraws
 {
     /// <summary>
     /// The member's card for tonight, opening the night if none is open, since the first member card scanned
-    /// at Checkout opens it. The member's first scan of the night draws from their bag and saves the draw with
+    /// at Checkout opens it. When the night that's open is one nobody closed out, the card ends it and opens
+    /// the next (ADR-0014). The member's first scan of the night draws from their bag and saves the draw with
     /// what's left of the bag. A rescan returns that draw unchanged, so it can't fish for a Clear (DATA-11). An
     /// Overdue card names a movie picked from those the member has watched: any movie the watch log says they
     /// watched, with stars or without, each counted once however often they've watched it. A member who hasn't

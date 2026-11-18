@@ -124,6 +124,8 @@ Each Close Out makes a backup in `C:\Rewind\backups` (see [Restore a backup](#re
 
 The status bar shows the day of the newest backup, such as **Last backup: Friday, October 23**, or **No backup yet**. That's the last movie night, or the day after when its Close Out ran past midnight. An older day means a Close Out was skipped, or its backup failed.
 
+A night nobody closed out ends by itself at the first member card scanned at Checkout more than 16 hours after it opened, such as at the next movie night. That card opens a new night, where each member draws a late-fee card again, and a late fee left unpaid on the old night is never charged ([ADR-0014](docs/adr/0014-a-night-nobody-closed-ends-at-the-next-nights-first-card.md)). Nothing is backed up then: the new night's Close Out backs up both, and the log has a warning that names the night that ended by itself and when it opened (see [Logs](#logs)).
+
 Close Out also writes the phone catalog to `C:\Rewind\outbox`: `catalog.json`, which lists every movie with a case that isn't retired, and a small poster for each in `outbox\thumbs`. It holds movies only, never anything about the family (SEC-2). Nothing reads it yet: once the NAS is running, Close Out uploads it there for the family's phones (Build Plan 7.2). [catalog-json.md](src/Rewind.Core/CloseOut/catalog-json.md) sets out its format.
 
 ### The backup drive

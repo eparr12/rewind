@@ -140,6 +140,26 @@ public sealed class CloseOutRegisterTests
         Assert.Equal((night.Id, Now(rewind)), (saved.Id, saved.ClosedAt));
     }
 
+    // ADR-0014: nobody closed out last week's night, so tonight's first card ended it. Tonight's Close Out closes
+    // tonight's night, and last week's keeps the time that card closed it.
+    [Fact]
+    public async Task RunAsync_AfterANightNobodyClosedOut_ClosesOnlyTonightsNight()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var lastWeek = await Days(rewind).OpenOrCurrentAsync(ct);
+        rewind.Time.Advance(TimeSpan.FromDays(7));
+        var tonight = await Days(rewind).OpenOrCurrentAsync(ct);
+        var endedAt = Now(rewind);
+        rewind.Time.Advance(TimeSpan.FromHours(3));
+        using var closeOut = CloseOutFor(rewind);
+
+        await closeOut.RunAsync(ct);
+
+        Assert.Equal([lastWeek with { ClosedAt = endedAt }, tonight with { ClosedAt = Now(rewind) }], await SavedDaysAsync(rewind, ct));
+    }
+
     // GEN-7: a file stands where the backups folder goes, so the backup can't be made, on Windows or on Linux. The
     // catalog is still written, the copy finds no backup to copy, and the one warning is the backup's, with what was
     // thrown (OBS-4).
