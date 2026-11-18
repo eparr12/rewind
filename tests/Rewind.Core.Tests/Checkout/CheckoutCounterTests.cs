@@ -203,6 +203,24 @@ public sealed class CheckoutCounterTests
         Assert.Equal(150, second.Fee?.PriceCents);
     }
 
+    // ADR-0014: an Overdue fee left unpaid on a night nobody closed out is never charged. A week later the card ends that
+    // night and draws again, Clear this time, so the alert doesn't show and no fee goes on the bill.
+    [Fact]
+    public async Task StartAsync_AfterANightNobodyClosedOutWithItsFeeUnpaid_GivesNoFee()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddMemberAsync(rewind, "OC", ct); // Overdue last week, then Clear
+        var lastWeek = await StartedAsync(rewind, ct); // and the sale never completed
+        rewind.Time.Advance(TimeSpan.FromDays(7)); // and no Close Out
+
+        var tonight = await StartedAsync(rewind, ct);
+
+        Assert.NotEqual(lastWeek.Draw, tonight.Draw);
+        Assert.Null(tonight.Fee);
+    }
+
     // NET-7: the draw has committed, so a clerk leaving just then doesn't turn it into an exception.
     [Fact]
     public async Task StartAsync_CancelledOnceDrawn_StillAnswers()

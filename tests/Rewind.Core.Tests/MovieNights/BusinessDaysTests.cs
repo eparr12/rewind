@@ -153,6 +153,174 @@ public sealed class BusinessDaysTests
         Assert.Empty(await SavedDaysAsync(rewind, ct));
     }
 
+    // ADR-0014: no movie night lasts 16 hours, so a night open longer is one nobody closed out, and this card ends it
+    // at the clock's time and opens tonight's. A second past the 16 hours is enough.
+    [Fact]
+    public async Task OpenOrCurrentAsync_OpenForMoreThanSixteenHours_ClosesItAndOpensANewOneAtTheClocksTime()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var days = Days(rewind);
+        var stale = await days.OpenOrCurrentAsync(ct);
+        rewind.Time.Advance(TimeSpan.FromHours(16) + TimeSpan.FromSeconds(1));
+
+        var tonight = await days.OpenOrCurrentAsync(ct);
+
+        Assert.Equal([stale with { ClosedAt = Now(rewind) }, tonight], await SavedDaysAsync(rewind, ct));
+        Assert.Equal((Now(rewind), (DateTime?)null), (tonight.OpenedAt, tonight.ClosedAt));
+    }
+
+    // ADR-0014: at exactly 16 hours it's still the same night, so a long night never ends early.
+    [Fact]
+    public async Task OpenOrCurrentAsync_OpenForExactlySixteenHours_ReturnsTheSameNight()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var days = Days(rewind);
+        var opened = await days.OpenOrCurrentAsync(ct);
+        rewind.Time.Advance(TimeSpan.FromHours(16));
+
+        var current = await days.OpenOrCurrentAsync(ct);
+
+        Assert.Equal(opened, current);
+        Assert.Equal([opened], await SavedDaysAsync(rewind, ct));
+    }
+
+    // DATA-11: the close goes before the new night, so the one-open-night index never sees two open nights and refuses
+    // nothing. Were the new night first, the index would refuse it, and EF Core would log that as an error.
+    [Fact]
+    public async Task OpenOrCurrentAsync_StaleNight_EndsItWithNoError()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await OpenANightAsync(rewind, ct);
+        rewind.Time.Advance(TimeSpan.FromDays(7));
+        var log = new ListLoggerProvider();
+        using var logged = new LoggedContexts(rewind, log);
+
+        await Days(rewind, logged).OpenOrCurrentAsync(ct);
+
+        Assert.Equal(2, (await SavedDaysAsync(rewind, ct)).Count); // last week's, closed, and tonight's
+        Assert.Contains(log.Entries, entry => entry.Category.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.Ordinal)); // the log is EF Core's
+        Assert.DoesNotContain(log.Entries, entry => entry.Level >= LogLevel.Error);
+    }
+
+    // DATA-11: two scans find the stale night, and the other one ends it and opens a night just before this one's save.
+    // The index refuses this one's new night, as it refuses a second night when none was open, so it gets the other's.
+    [Fact]
+    public async Task OpenOrCurrentAsync_StaleNightEndedDuringTheSave_ReturnsTheOtherScansNight()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var stale = await Days(rewind).OpenOrCurrentAsync(ct);
+        rewind.Time.Advance(TimeSpan.FromDays(7));
+        BusinessDayRow? theirs = null;
+        var days = Days(rewind, new BeforeEachSave(rewind, async cancellationToken => theirs ??= await AnotherScanEndsItAsync(rewind, stale.Id, cancellationToken)));
+
+        var night = await days.OpenOrCurrentAsync(ct);
+
+        Assert.Equal(Assert.IsType<BusinessDayRow>(theirs), night);
+    }
+
+    // DATA-7: this scan's close and its new night save together, so the refused night takes the close with it, and the
+    // stale night keeps the other scan's closing time, a second after this scan looked.
+    [Fact]
+    public async Task OpenOrCurrentAsync_StaleNightEndedDuringTheSave_KeepsTheOtherScansClosingTime()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var stale = await Days(rewind).OpenOrCurrentAsync(ct);
+        rewind.Time.Advance(TimeSpan.FromDays(7));
+        BusinessDayRow? theirs = null;
+        var days = Days(rewind, new BeforeEachSave(rewind, async cancellationToken => theirs ??= await AnotherScanEndsItAsync(rewind, stale.Id, cancellationToken)));
+
+        await days.OpenOrCurrentAsync(ct);
+
+        var other = Assert.IsType<BusinessDayRow>(theirs);
+        Assert.Equal([stale with { ClosedAt = other.OpenedAt }, other], await SavedDaysAsync(rewind, ct));
+    }
+
+    // OBS-3: the Warning comes once, from the scan that ended the night. This one closed nothing and opened nothing.
+    [Fact]
+    public async Task OpenOrCurrentAsync_StaleNightEndedDuringTheSave_LogsNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var stale = await Days(rewind).OpenOrCurrentAsync(ct);
+        rewind.Time.Advance(TimeSpan.FromDays(7));
+        BusinessDayRow? theirs = null;
+        var contexts = new BeforeEachSave(rewind, async cancellationToken => theirs ??= await AnotherScanEndsItAsync(rewind, stale.Id, cancellationToken));
+        var log = new ListLogger<BusinessDays>();
+
+        await new BusinessDays(contexts, rewind.Time, log).OpenOrCurrentAsync(ct);
+
+        Assert.NotNull(theirs); // the other scan got in
+        Assert.Empty(log.Entries);
+    }
+
+    // NET-7: the save hands its token on, so a clerk who leaves just then ends nothing: the stale night stays open, and
+    // no night opens.
+    [Fact]
+    public async Task OpenOrCurrentAsync_StaleNightCancelledJustBeforeTheSave_LeavesItOpen()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var stale = await Days(rewind).OpenOrCurrentAsync(ct);
+        rewind.Time.Advance(TimeSpan.FromDays(7));
+        using var leaving = new CancellationTokenSource();
+        var days = Days(rewind, new BeforeEachSave(rewind, _ => leaving.CancelAsync()));
+
+        var open = () => days.OpenOrCurrentAsync(leaving.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(open);
+        Assert.Equal([stale], await SavedDaysAsync(rewind, ct));
+    }
+
+    // OBS-3, ADR-0014: one Warning names the night nobody closed out and when it opened, on the register's clock
+    // (DATA-8), in place of the line a Close Out's closing writes. Tonight's opening is logged as any night's is.
+    [Fact]
+    public async Task OpenOrCurrentAsync_StaleNight_LogsAWarningNamingItAndWhenItOpened()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await OpenANightAsync(rewind, ct);
+        rewind.Time.Advance(TimeSpan.FromDays(7));
+        var log = new ListLogger<BusinessDays>();
+
+        await new BusinessDays(rewind.DbFactory, rewind.Time, log).OpenOrCurrentAsync(ct);
+
+        Assert.Equal(
+            [
+                (LogLevel.Warning, "Closed business day 1, which opened 2026-10-23 22:15 and was never closed out; the next Close Out backs it up", (Exception?)null),
+                (LogLevel.Information, "Opened business day 2", null),
+            ],
+            log.Entries);
+    }
+
+    // OBS-3: a night that isn't stale is still tonight's, and its scans log nothing, up to the last moment.
+    [Fact]
+    public async Task OpenOrCurrentAsync_OpenForExactlySixteenHours_LogsNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await OpenANightAsync(rewind, ct);
+        rewind.Time.Advance(TimeSpan.FromHours(16));
+        var log = new ListLogger<BusinessDays>();
+
+        await new BusinessDays(rewind.DbFactory, rewind.Time, log).OpenOrCurrentAsync(ct);
+
+        Assert.Empty(log.Entries);
+    }
+
     [Fact]
     public async Task CloseAsync_OneOpen_ClosesItAtTheClocksTime()
     {
@@ -281,6 +449,20 @@ public sealed class BusinessDaysTests
         await using var db = rewind.OpenDb();
         db.BusinessDays.Add(new BusinessDay { OpenedAt = Now(rewind) });
         await db.SaveChangesAsync(cancellationToken);
+    }
+
+    // What another scan of a card saves the moment before this one's save, a second later on the clock: the stale night
+    // closed, then a new night opened, saved straight to the database. Returns the new night.
+    private static async Task<BusinessDayRow> AnotherScanEndsItAsync(TempRewind rewind, int staleId, CancellationToken cancellationToken)
+    {
+        rewind.Time.Advance(TimeSpan.FromSeconds(1));
+        await using var db = rewind.OpenDb();
+        (await db.BusinessDays.SingleAsync(d => d.Id == staleId, cancellationToken)).ClosedAt = Now(rewind);
+        await db.SaveChangesAsync(cancellationToken);
+        var theirs = new BusinessDay { OpenedAt = Now(rewind) };
+        db.BusinessDays.Add(theirs);
+        await db.SaveChangesAsync(cancellationToken);
+        return new BusinessDayRow(theirs.Id, theirs.OpenedAt, theirs.ClosedAt);
     }
 
     // The nights as the database holds them, oldest first.
