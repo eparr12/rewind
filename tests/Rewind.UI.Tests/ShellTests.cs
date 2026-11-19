@@ -1,4 +1,5 @@
 using Bunit;
+using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -674,6 +675,101 @@ public sealed class ShellTests : BunitContext
         Assert.Equal(0, _boundaryLog.Count);
         await CloseDialogAsync(cut);
         Assert.Equal(["RV-00042 · Halloween (1978) · $2.00"], cut.FindAll(".checkout-ticket li").Select(line => line.TextContent));
+    }
+
+    // OBS-5: a save that fails after the clerk left Return has no screen to show it on, so it goes to ErrorHub.
+    // Checkout, where the clerk went, didn't crash, so it stays open, with any sale on it.
+    [Fact]
+    public async Task OnFunctionKey_F1WhileWhoWatchedSaves_ReportsALateFailureToErrorHub()
+    {
+        var logged = new TaskCompletionSource<WatchLogStatus>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _desk.Rentals["RV-00042"] = new ReturnedRental(5, "RV-00042", "Halloween", 1978, "Dad", DateTime.UnixEpoch, [new MemberRow(7, "Dad", "MEM-001", IsActive: true)]);
+        _desk.Logging = logged.Task;
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F2"));
+        await cut.InvokeAsync(() => _scanner.Receive("RV-00042"));
+        await cut.Find(".who-watched select").ChangeAsync(new ChangeEventArgs { Value = "5" });
+        var save = cut.Find(".who-watched-form").SubmitAsync();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
+
+        logged.SetException(new InvalidOperationException("The save failed."));
+        await save;
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(["Unhandled exception from Return; reported to the shell"], _errorLog.Entries.Select(entry => entry.Message));
+        Assert.Equal(0, _boundaryLog.Count);
+        Assert.Equal("This program has performed an illegal operation and will go back to Checkout.\n\nIf the problem persists, tell the Store Manager.", _dialogs.Current?.Message);
+        await CloseDialogAsync(cut);
+        Assert.Equal("Scan a member card to start a rental.", cut.Find(".checkout-prompt").TextContent);
+    }
+
+    // The same for Checkout's Complete Sale, the other way round: the clerk went to Return.
+    [Fact]
+    public async Task OnFunctionKey_F2WhileTheSaleSaves_ReportsALateFailureToErrorHub()
+    {
+        var completing = new TaskCompletionSource<SaleResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cut = await RenderWithASaleAsync();
+        _counter.Completing = completing.Task;
+        await cut.Find("#checkout-cash").InputAsync("10");
+        var submit = cut.Find(".checkout-cash").SubmitAsync();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F2"));
+
+        completing.SetException(new InvalidOperationException("The save failed."));
+        await submit;
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(["Unhandled exception from Checkout; reported to the shell"], _errorLog.Entries.Select(entry => entry.Message));
+        Assert.Equal(0, _boundaryLog.Count);
+    }
+
+    // And from Intake's title box, where #77 saw the hole: a typed search that fails after the clerk went to Checkout.
+    [Fact]
+    public async Task OnFunctionKey_F1WhileATypedSearchRuns_ReportsALateFailureToErrorHub()
+    {
+        var searching = new TaskCompletionSource<TmdbSearch>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _intake.Search = searching.Task;
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F4"));
+        await cut.Find("#intake-title").InputAsync("Halloween");
+        var search = cut.Find(".intake-search").SubmitAsync();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
+
+        searching.SetException(new InvalidOperationException("The search failed."));
+        await search;
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(["Unhandled exception from Intake; reported to the shell"], _errorLog.Entries.Select(entry => entry.Message));
+        Assert.Equal(0, _boundaryLog.Count);
+        Assert.Equal("This program has performed an illegal operation and will go back to Checkout.\n\nIf the problem persists, tell the Store Manager.", _dialogs.Current?.Message);
+        await CloseDialogAsync(cut);
+        Assert.Equal("Scan a member card to start a rental.", cut.Find(".checkout-prompt").TextContent);
+    }
+
+    // And from the picker: Enter on a match whose details fail after the clerk went to Checkout. Enter is the
+    // picker's own event, which waits on Intake's pick, so the failure would come up through the picker to the
+    // shell's ErrorBoundary as well.
+    [Fact]
+    public async Task OnFunctionKey_F1WhileAPickIsFetched_ReportsALateFailureToErrorHub()
+    {
+        var picking = new TaskCompletionSource<MoviePick>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _intake.Search = Task.FromResult(new TmdbSearch(TmdbStatus.Ok, [new TmdbMatch(948, "Halloween", 1978, "A masked killer comes home.", null)]));
+        _intake.Pick = picking.Task;
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F4"));
+        await cut.Find("#intake-title").InputAsync("Halloween");
+        await cut.Find(".intake-search").SubmitAsync();
+        var pick = cut.Find(".tmdb-picker tbody tr").KeyDownAsync(new KeyboardEventArgs { Key = "Enter" });
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
+
+        picking.SetException(new InvalidOperationException("The pick failed."));
+        await pick;
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(["Unhandled exception from Intake; reported to the shell"], _errorLog.Entries.Select(entry => entry.Message));
+        Assert.Equal(0, _boundaryLog.Count);
+        Assert.Equal("This program has performed an illegal operation and will go back to Checkout.\n\nIf the problem persists, tell the Store Manager.", _dialogs.Current?.Message);
+        await CloseDialogAsync(cut);
+        Assert.Equal("Scan a member card to start a rental.", cut.Find(".checkout-prompt").TextContent);
     }
 
     private IEnumerable<string> LoggedLines => _shellLog.Entries.Select(entry => entry.Message);

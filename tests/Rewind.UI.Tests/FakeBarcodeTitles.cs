@@ -5,7 +5,7 @@ namespace Rewind.UI.Tests;
 /// <summary>
 /// The barcode lookup's Core service as the screen tests set it up (ADR-0003): it answers with
 /// whatever the test gives it, which can be a task that hasn't finished, and records what it was
-/// asked. A cancelled lookup ends at once, as the real one does.
+/// asked. A cancelled lookup ends at once, as the real one does, unless a test says otherwise.
 /// </summary>
 internal sealed class FakeBarcodeTitles : IBarcodeTitles
 {
@@ -13,6 +13,12 @@ internal sealed class FakeBarcodeTitles : IBarcodeTitles
 
     /// <summary>What every lookup answers. Until a test says otherwise, UPCitemdb doesn't know the barcode.</summary>
     public Task<BarcodeTitle>? Lookup { get; set; }
+
+    /// <summary>
+    /// Whether a cancelled lookup ends at once. False for one whose failure was already on its way when
+    /// the token was cancelled, which comes after the cancel all the same (#77).
+    /// </summary>
+    public bool EndsWhenCancelled { get; set; } = true;
 
     /// <summary>The codes looked up, oldest first.</summary>
     public IReadOnlyList<string> Lookups => _lookups;
@@ -29,6 +35,6 @@ internal sealed class FakeBarcodeTitles : IBarcodeTitles
         LastToken = cancellationToken;
         LastWaiting = waiting;
         var answer = Lookup ?? Task.FromResult(new BarcodeTitle(code, UpcStatus.NotFound, null, null, null, null));
-        return answer.WaitAsync(cancellationToken);
+        return EndsWhenCancelled ? answer.WaitAsync(cancellationToken) : answer;
     }
 }

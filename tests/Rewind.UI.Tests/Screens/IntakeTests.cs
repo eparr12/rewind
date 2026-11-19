@@ -3,6 +3,7 @@ using Bunit;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Rewind.Core.Devices;
 using Rewind.Core.Intake;
@@ -602,6 +603,26 @@ public sealed class IntakeTests : BunitContext
         Assert.True(_titles.LastToken.IsCancellationRequested);
         Assert.False(cut.Find("#intake-title").HasAttribute("readonly"));
         Assert.Equal("This DVD's barcode: 032429258373", cut.Find(".intake-barcode").TextContent);
+    }
+
+    // Esc stops only the lookup, and the screen stays open, so a lookup that fails as Esc stops it is the
+    // screen's own failure. It goes to the screen's ErrorBoundary, not to ErrorHub as one from a screen the
+    // clerk has left.
+    [Fact]
+    public async Task KeyDownEscape_LookupFailsAsItStops_HandsItToTheErrorBoundary()
+    {
+        var lookup = new TaskCompletionSource<BarcodeTitle>();
+        _titles.Lookup = lookup.Task;
+        _titles.EndsWhenCancelled = false;
+        var cut = Render<Intake>();
+        await ScanAsync(cut, TommyBoyUpc);
+        await cut.Find("#intake-title").KeyDownAsync(new KeyboardEventArgs { Key = "Escape" });
+
+        await cut.InvokeAsync(() => lookup.SetException(new InvalidOperationException("The lookup failed.")));
+
+        Assert.True(_titles.LastToken.IsCancellationRequested);
+        Assert.True(Renderer.UnhandledException.IsCompleted);
+        Assert.False(_crashed);
     }
 
     // UI-6: the empty state. Whatever was in the title box belonged to the DVD before.
@@ -1569,6 +1590,26 @@ public sealed class IntakeTests : BunitContext
 
         Assert.Null(_dialogs.Current);
         Assert.False(Renderer.UnhandledException.IsCompleted);
+    }
+
+    // #77, from the title box: TmdbClient lets a web failure through as it is once its token is cancelled, as
+    // when the clerk left while its continuation waited its turn. The screen has gone, so the failure goes to
+    // ErrorHub, and it's the exception TMDB's call threw, for the log to keep its details (OBS-4).
+    [Fact]
+    public async Task Dispose_WhileSearching_ReportsAWebFailureToErrorHub()
+    {
+        var searched = new TaskCompletionSource<TmdbSearch>();
+        _intake.Search = searched.Task;
+        var cut = Render<Intake>();
+        var search = SearchAsync(cut, "Halloween");
+        await DisposeComponentsAsync();
+        var failure = new HttpRequestException("No connection.");
+
+        searched.SetException(failure);
+        await search;
+
+        Assert.True(_crashed);
+        Assert.Equal([(LogLevel.Error, "Unhandled exception from Intake; reported to the shell", (Exception?)failure)], _errorLog.Entries);
     }
 
     private static Task<TmdbSearch> Found(params TmdbMatch[] matches) =>
