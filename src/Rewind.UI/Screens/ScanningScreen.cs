@@ -25,9 +25,11 @@ namespace Rewind.UI.Screens;
 /// Blazor hands what it throws to the ErrorBoundary the screen sat in, even once the clerk has left. While the
 /// screen is open, that's right. Once the clerk has left, that ErrorBoundary holds the screen they went to,
 /// which would close over an error that isn't its own, and a sale on Checkout would go with it (#83). So once
-/// the clerk has left, <see cref="WhileBusyAsync"/> sends what its call throws to ErrorHub as well. A scan's
-/// work waits there too, so a failure is reported there once, and the scan's own route never sees it. Work
-/// that doesn't wait there, and a screen's first read, still go to that ErrorBoundary (#97).
+/// the clerk has left, <see cref="WhileBusyAsync"/> sends what its call throws to ErrorHub as well. When a
+/// scan's work waits there, its failure is reported there, once, and the scan's own route never sees it. That
+/// route still takes whatever else a scan's work throws, such as the Members tab's save, which doesn't wait
+/// there. Work the clerk starts that doesn't wait there, and a screen's first read, still go to that
+/// ErrorBoundary (#97).
 /// </para>
 /// </remarks>
 public abstract class ScanningScreen : ComponentBase, IDisposable
