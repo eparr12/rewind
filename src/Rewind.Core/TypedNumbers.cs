@@ -8,15 +8,13 @@ namespace Rewind.Core;
 /// </summary>
 internal static class TypedNumbers
 {
-    /// <summary>
-    /// The earliest year a typed year can be: Roundhay Garden Scene's, the oldest film that survives. An earlier year
-    /// is a slip.
-    /// </summary>
-    public const int FirstFilmYear = 1888;
+    // The earliest year a typed year can be: Roundhay Garden Scene's, the oldest film that survives. An earlier year is
+    // a slip.
+    private const int FirstFilmYear = 1888;
 
     /// <summary>
-    /// Reads a year in digits, from <see cref="FirstFilmYear"/> to next year on the register's own calendar. False
-    /// when the text is neither blank nor such a year.
+    /// Reads a year in digits, from the oldest film's to next year on the register's own calendar. False when the text
+    /// is neither blank nor such a year.
     /// </summary>
     public static bool TryReadYear(string? text, TimeProvider time, out int? year) =>
         TryReadWholeNumber(text, FirstFilmYear, time.GetLocalNow().Year + 1, out year); // NET-8

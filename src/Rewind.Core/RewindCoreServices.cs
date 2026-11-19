@@ -65,7 +65,7 @@ public static class RewindCoreServices
         services.AddSingleton<ICheckoutCounter, CheckoutCounter>();
         services.AddSingleton<IReturnDesk, ReturnDesk>();
 
-        // The posters on the register's disk, which intake saves and the search shows. They're here, not with intake,
+        // The posters on the register's disk, which intake saves and the search reads. They're here, not with intake,
         // so a host without intake can search too. They hold no state either.
         services.AddSingleton<Posters>();
         services.AddSingleton<ICatalogSearch, CatalogSearch>();

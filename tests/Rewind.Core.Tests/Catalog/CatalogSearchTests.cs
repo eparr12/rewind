@@ -74,7 +74,7 @@ public sealed class CatalogSearchTests
         Assert.Equal(["Halloween (1978)"], TitlesOf(found));
     }
 
-    // Null, blank or only spaces in every box is nothing typed or picked.
+    // Null, blank or only white space in every box is nothing typed or picked.
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -124,8 +124,8 @@ public sealed class CatalogSearchTests
         Assert.Equal([longest], found.Hits.Select(hit => hit.Title));
     }
 
-    // DATA-13: each is matched as itself. As wildcards, 100% would find 1001 Nights too, and e_N File Name too, and the
-    // backslash alone would make a pattern that finds only titles ending in %.
+    // DATA-13: each is matched as itself. As wildcards, 100% would find 1001 Nights too, and e_N File Name too. A
+    // backslash left as the escape character would escape the pattern's closing %, and find only titles ending in %.
     [Theory]
     [InlineData("100%", "100% Wolf")]
     [InlineData("e_N", "File_Name")]
@@ -209,7 +209,8 @@ public sealed class CatalogSearchTests
         Assert.Equal(expected, TitlesOf(found));
     }
 
-    // Each of the others misses just one of the four, so leaving any one out would find it too.
+    // Each of the others misses just one of the text, the genre, the year and the rating, so a search that left any
+    // one of them out would find that movie too.
     [Fact]
     public async Task SearchAsync_EveryFilterAndText_FindsWhatMatchesThemAll()
     {
@@ -369,8 +370,11 @@ public sealed class CatalogSearchTests
         Assert.Equal(inOrder, found.Hits.Select(hit => hit.MovieId));
     }
 
-    // TEST-4: SQLite never promised the order it reads rows in, so these contexts read them backwards. Two of the movies
-    // share a title and a year, and only their Ids put them in order.
+    // TEST-4: SQLite never promised the order it reads rows in, so these contexts read them backwards, which SQLite does
+    // only for a read with no ORDER BY. So this catches an order the code puts on the rows after the read, such as a
+    // sort without the Id, which would give the two movies that share a title and a year the wrong way round. SQLite's
+    // own ORDER BY gives tied rows in the order it reads them, Id order, either way, so no test here can show the Id
+    // left out of it.
     [Fact]
     public async Task SearchAsync_NothingTypedReadBackwards_ListsInTheSameOrder()
     {
@@ -504,8 +508,9 @@ public sealed class CatalogSearchTests
         Assert.True(cancel.IsCancellationRequested); // the interceptor fired
     }
 
-    // The register's log keeps Microsoft's warnings, so a search that made EF Core warn would fill it, on every search.
-    // Here each warning throws, in contexts that compile the read afresh (see EveryWarningThrows).
+    // The register's log keeps Microsoft's warnings, so a warning EF Core gave for the search would land in it after
+    // every start, for nothing that's wrong. Here each warning throws, in contexts that compile the read afresh (see
+    // EveryWarningThrows).
     [Fact]
     public async Task SearchAsync_EveryFilterAndText_TripsNoEfCoreWarning()
     {

@@ -6,7 +6,7 @@ using Rewind.Core.Metadata;
 namespace Rewind.Core.Catalog;
 
 /// <summary>
-/// Searches the catalog for F3 Ask the Clerk (Build Plan 4.1), and lists the genres its search can pick. Each call
+/// Searches the catalog for F3 Ask the Clerk (Build Plan 4.1), and lists the genres the clerk can pick. Each call
 /// reads with a context of its own and keeps nothing after it (DATA-6), so one serves every screen. A search isn't a
 /// key event, so it logs nothing of its own (OBS-3), though <see cref="Posters"/> logs a thumbnail it can't read.
 /// </summary>
