@@ -3,7 +3,6 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using Rewind.Core.Data;
 using Rewind.Core.Metadata;
 
 namespace Rewind.Core.Tests.Metadata;

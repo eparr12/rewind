@@ -69,9 +69,11 @@ internal sealed class TempRewind : IAsyncDisposable
     /// <summary>
     /// Contexts over the live database with what a test needs and <see cref="DbFactory"/>'s don't have: an
     /// interceptor, connections kept out of the pool, or EF Core warnings set to something else. Every context they
-    /// make shares the one interceptor, so one that keeps state, such as LabelSheetsTests' gate, sees them all.
-    /// Warnings are set only when a test passes them: EF Core keys its internal services and its query cache partly
-    /// on them, so contexts with warnings of their own compile each query afresh.
+    /// make shares the one interceptor, so one that keeps state, such as LabelSheetsTests' gate, sees them all. The
+    /// pool switch is for an interceptor that sets something on its connection, as <see cref="BackwardsReads"/> does,
+    /// so the setting never reaches a context that draws that connection from the pool later. Warnings are set only
+    /// when a test passes them: EF Core keys its internal services and its query cache partly on them, so contexts
+    /// with warnings of their own compile each query afresh.
     /// </summary>
     public IDbContextFactory<RewindDb> ContextsWith(
         IInterceptor? interceptor = null,

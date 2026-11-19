@@ -26,6 +26,29 @@ public sealed class BackwardsReadsTests
         Assert.Equal(usual.AsEnumerable().Reverse(), backwards);
     }
 
+    // TEST-4: a pragma lasts as long as its connection, so a backwards read whose connection went back to the pool
+    // would turn the next context's unsorted read around too. No other test fails when a call stops asking for
+    // pooled: false, so this holds the switch to its job.
+    [Fact]
+    public async Task CreateDbContext_UsualReadAfterABackwardsOne_ComesBackInTheUsualOrder()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await using (var db = rewind.OpenDb())
+        {
+            db.Movies.AddRange(new Movie { Title = "Halloween" }, new Movie { Title = "Scream" });
+            await db.SaveChangesAsync(ct);
+        }
+
+        var usual = await UnsortedIdsAsync(rewind.DbFactory, ct);
+        await UnsortedIdsAsync(rewind.ContextsWith(new BackwardsReads(), pooled: false), ct);
+
+        var next = await UnsortedIdsAsync(rewind.DbFactory, ct);
+
+        Assert.Equal(usual, next);
+    }
+
     // No OrderBy, so the ids come back in whatever order SQLite reads them.
     private static async Task<List<int>> UnsortedIdsAsync(IDbContextFactory<RewindDb> contexts, CancellationToken cancellationToken)
     {

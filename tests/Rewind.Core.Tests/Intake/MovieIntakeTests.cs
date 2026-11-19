@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -791,7 +790,7 @@ public sealed class MovieIntakeTests : IDisposable
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
         using var leaving = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var intake = Intake(rewind, dbFactory: rewind.ContextsWith(new LeaveOnceSaved(leaving)));
+        var intake = Intake(rewind, dbFactory: rewind.ContextsWith(new AfterEachSave(_ => leaving.CancelAsync())));
         var halloween = await PickedAsync(intake, TmdbJson.HalloweenId);
 
         var shelving = await intake.ShelveAsync(Label, FactoryUpc, [halloween], leaving.Token);
@@ -1065,19 +1064,5 @@ public sealed class MovieIntakeTests : IDisposable
         await using var db = rewind.OpenDb();
         db.Cases.AddRange(cases);
         await db.SaveChangesAsync(cancellationToken);
-    }
-
-    // Cancels the clerk's token the moment a save commits, as if the clerk left the
-    // screen just then.
-    private sealed class LeaveOnceSaved(CancellationTokenSource leaving) : SaveChangesInterceptor
-    {
-        public override async ValueTask<int> SavedChangesAsync(
-            SaveChangesCompletedEventData eventData,
-            int result,
-            CancellationToken cancellationToken = default)
-        {
-            await leaving.CancelAsync();
-            return result;
-        }
     }
 }
