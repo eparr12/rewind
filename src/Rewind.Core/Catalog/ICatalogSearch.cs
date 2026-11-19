@@ -32,11 +32,15 @@ public interface ICatalogSearch
     /// <param name="text">
     /// What the clerk typed. It matches a movie whose title, director or cast member's name has it anywhere, such as
     /// curtis in Jamie Lee Curtis. It's cleaned and capped as a title typed in by hand is (SEC-5), and a %, an _ or a
-    /// backslash in it is matched as itself, not as a wildcard (DATA-13). Null, blank or only spaces matches every movie.
+    /// backslash in it is matched as itself, not as a wildcard (DATA-13). Null, blank or only white space matches every
+    /// movie.
     /// </param>
     /// <param name="genre">A genre's name as <see cref="GenresAsync"/> gives it, or null or blank for any genre.</param>
     /// <param name="year">The year, in digits, as a movie typed in by hand takes one, or null or blank for any year.</param>
     /// <param name="rating">One of <see cref="UsRatings.All"/>, in any letter case, or null or blank for any rating.</param>
-    /// <param name="cancellationToken">Cancels the search, such as when the clerk leaves the screen. The search then throws (NET-7).</param>
+    /// <param name="cancellationToken">
+    /// Cancels the search, such as when the clerk leaves the screen, and the search then throws (NET-7). A year or a
+    /// rating that isn't one is answered first, before anything is read, so there's nothing to cancel.
+    /// </param>
     Task<SearchResult> SearchAsync(string? text, string? genre, string? year, string? rating, CancellationToken cancellationToken);
 }
