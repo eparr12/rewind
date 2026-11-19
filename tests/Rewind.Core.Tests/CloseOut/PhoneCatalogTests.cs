@@ -1,4 +1,3 @@
-using System.Data.Common;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
@@ -728,18 +727,4 @@ public sealed class PhoneCatalogTests
     // read compiles here, whichever test ran first.
     private static IDbContextFactory<RewindDb> SplitWarningThrows(TempRewind rewind) =>
         rewind.ContextsWith(warnings: warnings => warnings.Throw(RelationalEventId.MultipleCollectionIncludeWarning));
-
-    // Cancels the call as soon as the read has every row, so whatever comes after it is what has to
-    // hear the cancel. A stand-in for this class's tests alone, so it's private to them.
-    private sealed class CancelAfterTheRead(CancellationTokenSource cancel) : DbCommandInterceptor
-    {
-        public override async ValueTask<InterceptionResult> DataReaderClosingAsync(
-            DbCommand command,
-            DataReaderClosingEventData eventData,
-            InterceptionResult result)
-        {
-            await cancel.CancelAsync();
-            return result;
-        }
-    }
 }

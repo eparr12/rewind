@@ -1,4 +1,3 @@
-using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Rewind.Core.Catalog;
@@ -21,10 +20,6 @@ public sealed partial class MovieIntake(
     TimeProvider time,
     ILogger<MovieIntake> logger) : IMovieIntake
 {
-    // The earliest year a movie typed in by hand can have: Roundhay Garden Scene's, the oldest film
-    // that survives. An earlier year is a slip.
-    private const int FirstFilmYear = 1888;
-
     // The longest runtime a movie typed in by hand can have: ten hours, longer than any movie on a
     // DVD, so a slip such as 1100 for 110 is caught.
     private const int MaxRuntimeMinutes = 600;
@@ -79,13 +74,12 @@ public sealed partial class MovieIntake(
             return new HandEntry(HandEntryStatus.NoTitle, null);
         }
 
-        var nextYear = time.GetLocalNow().Year + 1; // NET-8: next year on the register's own calendar
-        if (!TryReadWholeNumber(year, FirstFilmYear, nextYear, out var knownYear))
+        if (!TypedNumbers.TryReadYear(year, time, out var knownYear))
         {
             return new HandEntry(HandEntryStatus.NotAYear, null);
         }
 
-        if (!TryReadWholeNumber(runtimeMinutes, 1, MaxRuntimeMinutes, out var knownRuntime))
+        if (!TypedNumbers.TryReadWholeNumber(runtimeMinutes, 1, MaxRuntimeMinutes, out var knownRuntime))
         {
             return new HandEntry(HandEntryStatus.NotARuntime, null);
         }
@@ -379,27 +373,6 @@ public sealed partial class MovieIntake(
         RuntimeMinutes = movie.RuntimeMinutes,
         Rating = movie.Rating,
     };
-
-    // A number the clerk typed, within its bounds. Blank is unknown, so null (DATA-3). NumberStyles.None
-    // takes the digits 0 to 9 alone: no sign, separator or decimal point, and no other script's digits.
-    private static bool TryReadWholeNumber(string? text, int lowest, int highest, out int? number)
-    {
-        number = null;
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return true;
-        }
-
-        if (!int.TryParse(text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var value)
-            || value < lowest
-            || value > highest)
-        {
-            return false;
-        }
-
-        number = value;
-        return true;
-    }
 
     private static PickStatus PickStatusFor(TmdbStatus status) => status switch
     {
