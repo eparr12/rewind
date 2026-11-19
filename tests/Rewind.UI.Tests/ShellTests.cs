@@ -745,8 +745,9 @@ public sealed class ShellTests : BunitContext
         Assert.Equal("Scan a member card to start a rental.", cut.Find(".checkout-prompt").TextContent);
     }
 
-    // And from the picker: Enter on a match whose details fail after the clerk went to Checkout. The key is the
-    // picker's event, which ends with Intake's pick, so it would reach the same ErrorBoundary.
+    // And from the picker: Enter on a match whose details fail after the clerk went to Checkout. Enter is the
+    // picker's own event, which waits on Intake's pick, so the failure would come up through the picker to the
+    // shell's ErrorBoundary as well.
     [Fact]
     public async Task OnFunctionKey_F1WhileAPickIsFetched_ReportsALateFailureToErrorHub()
     {

@@ -9,9 +9,9 @@ namespace Rewind.UI.Errors;
 /// Application.ThreadException, which only WinForms code such as MainForm can throw and which the
 /// shell answers with the same dialog, and what reaches AppDomain.UnhandledException, which can only
 /// be logged. Program.cs also sends it why Rewind couldn't start, and shows the same reason in a plain
-/// message box. A screen sends it what fails once the clerk has left it: a background event of its
-/// own, or a call that waits in ScanningScreen.WhileBusyAsync, whatever started it. The status bar
-/// sends it what its lookups throw and what its ErrorBoundary catches.
+/// message box. A screen sends it what fails once the clerk has left it, in a background event of its
+/// own or in a call that waits in ScanningScreen.WhileBusyAsync, whatever started that call. The
+/// status bar sends it what its lookups throw and what its ErrorBoundary catches.
 /// </summary>
 /// <remarks>
 /// BlazorWebView itself never passes an exception on to either event. One that no ErrorBoundary
@@ -48,11 +48,11 @@ public sealed partial class ErrorHub(ILogger<ErrorHub> logger)
 
     /// <summary>
     /// Logs an exception from a component, then raises <see cref="Crashed"/>, as <see cref="Report"/>
-    /// does. That's what fails in a screen the clerk has left, such as a save, from a background event or
-    /// a call in ScanningScreen.WhileBusyAsync, since the screen has no ErrorBoundary of its own by then;
-    /// the status bar's lookup, open or not (see the remarks); and whatever reaches the status bar's own
-    /// ErrorBoundary. The log names the component (OBS-3), such as nameof(Intake), so nobody has to work
-    /// it out from the stack trace.
+    /// does. That's what fails in a screen the clerk has left, such as a save, in a background event
+    /// or in a call that waits in ScanningScreen.WhileBusyAsync, since the screen has no ErrorBoundary
+    /// of its own by then; the status bar's lookup, open or not (see the remarks); and whatever reaches
+    /// the status bar's own ErrorBoundary. The log names the component (OBS-3), such as nameof(Intake),
+    /// so nobody has to work it out from the stack trace.
     /// </summary>
     public void ReportFromComponent(string component, Exception exception)
     {
