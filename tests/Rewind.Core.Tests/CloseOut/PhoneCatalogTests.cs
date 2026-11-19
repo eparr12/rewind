@@ -550,7 +550,7 @@ public sealed class PhoneCatalogTests
         using var cancel = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => CatalogFor(rewind, new CancelAfterTheRead(rewind, cancel)).WriteAsync(cancel.Token));
+            () => CatalogFor(rewind, rewind.ContextsWith(new CancelAfterTheRead(cancel))).WriteAsync(cancel.Token));
 
         Assert.Equal(earlier, await File.ReadAllBytesAsync(InOutbox(rewind, "catalog.json"), ct));
         Assert.Equal(["catalog.json"], OutboxFiles(rewind));
@@ -568,7 +568,7 @@ public sealed class PhoneCatalogTests
         using var cancel = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => CatalogFor(rewind, new CancelAfterTheRead(rewind, cancel)).WriteAsync(cancel.Token));
+            () => CatalogFor(rewind, rewind.ContextsWith(new CancelAfterTheRead(cancel))).WriteAsync(cancel.Token));
 
         Assert.Empty(OutboxFiles(rewind));
     }
@@ -585,7 +585,7 @@ public sealed class PhoneCatalogTests
         using var cancel = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => CatalogFor(rewind, new CancelAfterTheRead(rewind, cancel), log).WriteAsync(cancel.Token));
+            () => CatalogFor(rewind, rewind.ContextsWith(new CancelAfterTheRead(cancel)), log).WriteAsync(cancel.Token));
 
         Assert.Empty(log.Entries);
     }
@@ -615,7 +615,7 @@ public sealed class PhoneCatalogTests
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
 
-        var failure = await Record.ExceptionAsync(() => CatalogFor(rewind, new SplitWarningThrows(rewind)).WriteAsync(ct));
+        var failure = await Record.ExceptionAsync(() => CatalogFor(rewind, SplitWarningThrows(rewind)).WriteAsync(ct));
 
         Assert.Null(failure);
     }
@@ -721,40 +721,25 @@ public sealed class PhoneCatalogTests
     private static List<string?> ThumbsIn(JsonElement catalog) =>
         [.. catalog.GetProperty("movies").EnumerateArray().Select(movie => movie.GetProperty("thumb").GetString())];
 
-    // Contexts that cancel the call as soon as the read has every row, so whatever comes after it is what has to
-    // hear the cancel. Like ReturnDeskTests' NoDatabase, a stand-in for one class's tests.
-    private sealed class CancelAfterTheRead(TempRewind rewind, CancellationTokenSource cancel) : IDbContextFactory<RewindDb>
-    {
-        public RewindDb CreateDbContext() =>
-            new(new DbContextOptionsBuilder<RewindDb>()
-                .UseSqlite(RewindDb.ConnectionStringFor(rewind.Paths.Database))
-                .AddInterceptors(new Interceptor(cancel))
-                .Options);
-
-        private sealed class Interceptor(CancellationTokenSource cancel) : DbCommandInterceptor
-        {
-            public override async ValueTask<InterceptionResult> DataReaderClosingAsync(
-                DbCommand command,
-                DataReaderClosingEventData eventData,
-                InterceptionResult result)
-            {
-                await cancel.CancelAsync();
-                return result;
-            }
-        }
-    }
-
     // Contexts in which EF Core's warning about a query with two lists it wasn't told how to split throws, rather
     // than going to a log. EF Core compiles a query once for every context that shares its internal services, and
     // warns only then, so a read that another test compiled first would never warn in a test's own log. A warning set
     // to throw is part of what EF Core builds those services for, so these contexts get services of their own, and the
     // read compiles here, whichever test ran first.
-    private sealed class SplitWarningThrows(TempRewind rewind) : IDbContextFactory<RewindDb>
+    private static IDbContextFactory<RewindDb> SplitWarningThrows(TempRewind rewind) =>
+        rewind.ContextsWith(warnings: warnings => warnings.Throw(RelationalEventId.MultipleCollectionIncludeWarning));
+
+    // Cancels the call as soon as the read has every row, so whatever comes after it is what has to
+    // hear the cancel. A stand-in for this class's tests alone, so it's private to them.
+    private sealed class CancelAfterTheRead(CancellationTokenSource cancel) : DbCommandInterceptor
     {
-        public RewindDb CreateDbContext() =>
-            new(new DbContextOptionsBuilder<RewindDb>()
-                .UseSqlite(RewindDb.ConnectionStringFor(rewind.Paths.Database))
-                .ConfigureWarnings(warnings => warnings.Throw(RelationalEventId.MultipleCollectionIncludeWarning))
-                .Options);
+        public override async ValueTask<InterceptionResult> DataReaderClosingAsync(
+            DbCommand command,
+            DataReaderClosingEventData eventData,
+            InterceptionResult result)
+        {
+            await cancel.CancelAsync();
+            return result;
+        }
     }
 }

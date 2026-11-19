@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -551,7 +550,7 @@ public sealed class MovieIntakeTests : IDisposable
         var ct = TestContext.Current.CancellationToken;
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
-        var intake = Intake(rewind, dbFactory: new BeforeEachSave(rewind, token => TakeTheLabelAsync(rewind, token)));
+        var intake = Intake(rewind, dbFactory: rewind.ContextsWith(new BeforeEachSave(token => TakeTheLabelAsync(rewind, token))));
         var halloween = await PickedAsync(intake, TmdbJson.HalloweenId);
 
         var shelving = await intake.ShelveAsync(Label, FactoryUpc, [halloween], ct);
@@ -791,7 +790,7 @@ public sealed class MovieIntakeTests : IDisposable
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
         using var leaving = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var intake = Intake(rewind, dbFactory: new LeftJustAfterEachSave(rewind, leaving));
+        var intake = Intake(rewind, dbFactory: rewind.ContextsWith(new AfterEachSave(_ => leaving.CancelAsync())));
         var halloween = await PickedAsync(intake, TmdbJson.HalloweenId);
 
         var shelving = await intake.ShelveAsync(Label, FactoryUpc, [halloween], leaving.Token);
@@ -1013,7 +1012,7 @@ public sealed class MovieIntakeTests : IDisposable
         new(
             new TmdbClient(_http, Options.Create(new TmdbOptions { AccessToken = Token }), NullLogger<TmdbClient>.Instance),
             new Posters(Options.Create(new RewindPaths { Root = Path.Combine(Path.GetTempPath(), $"rewind-test-{Guid.NewGuid():N}") }), NullLogger<Posters>.Instance),
-            new NoDatabase(),
+            new NoDatabase("EnterByHand"),
             _registerClock,
             NullLogger<MovieIntake>.Instance);
 
@@ -1065,33 +1064,5 @@ public sealed class MovieIntakeTests : IDisposable
         await using var db = rewind.OpenDb();
         db.Cases.AddRange(cases);
         await db.SaveChangesAsync(cancellationToken);
-    }
-
-    private sealed class NoDatabase : IDbContextFactory<RewindDb>
-    {
-        public RewindDb CreateDbContext() => throw new InvalidOperationException("EnterByHand opened the database.");
-    }
-
-    // Contexts that cancel the clerk's token the moment a save commits, as if the clerk left the
-    // screen just then.
-    private sealed class LeftJustAfterEachSave(TempRewind rewind, CancellationTokenSource leaving) : IDbContextFactory<RewindDb>
-    {
-        public RewindDb CreateDbContext() =>
-            new(new DbContextOptionsBuilder<RewindDb>()
-                .UseSqlite(RewindDb.ConnectionStringFor(rewind.Paths.Database))
-                .AddInterceptors(new LeaveOnceSaved(leaving))
-                .Options);
-    }
-
-    private sealed class LeaveOnceSaved(CancellationTokenSource leaving) : SaveChangesInterceptor
-    {
-        public override async ValueTask<int> SavedChangesAsync(
-            SaveChangesCompletedEventData eventData,
-            int result,
-            CancellationToken cancellationToken = default)
-        {
-            await leaving.CancelAsync();
-            return result;
-        }
     }
 }

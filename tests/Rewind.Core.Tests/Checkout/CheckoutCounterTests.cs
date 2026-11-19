@@ -353,7 +353,7 @@ public sealed class CheckoutCounterTests
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
 
-        var scan = await Counter(rewind, new NoDatabase()).ScanCaseAsync(MemberCard, ct);
+        var scan = await Counter(rewind, new NoDatabase("The checkout counter")).ScanCaseAsync(MemberCard, ct);
 
         Assert.Equal(new CaseScan(CaseScanStatus.NoSuchCase, null), scan);
     }
@@ -572,7 +572,7 @@ public sealed class CheckoutCounterTests
         await rewind.StartAsync(ct);
         var ticket = await DoneWhenTicketAsync(rewind, ct);
         var caseId = ticket.Items[0].CaseId;
-        var flips = new BeforeEachTransaction(rewind, token => SetStatusAsync(rewind, caseId, CaseStatus.Retired, token));
+        var flips = rewind.ContextsWith(new BeforeEachTransaction(token => SetStatusAsync(rewind, caseId, CaseStatus.Retired, token)));
 
         var result = await Counter(rewind, flips).CompleteAsync(ticket, ct);
 
@@ -660,7 +660,7 @@ public sealed class CheckoutCounterTests
         await rewind.StartAsync(ct);
         var ticket = await DoneWhenTicketAsync(rewind, ct);
         using var leaving = new CancellationTokenSource();
-        var counter = Counter(rewind, new BeforeEachSave(rewind, _ => leaving.CancelAsync()));
+        var counter = Counter(rewind, rewind.ContextsWith(new BeforeEachSave(_ => leaving.CancelAsync())));
 
         var complete = () => counter.CompleteAsync(ticket, leaving.Token);
 
@@ -875,11 +875,6 @@ public sealed class CheckoutCounterTests
         Assert.False(await db.Rentals.AnyAsync(cancellationToken));
         Assert.False(await db.RentalItems.AnyAsync(cancellationToken));
         Assert.False(await db.SaleLines.AnyAsync(cancellationToken));
-    }
-
-    private sealed class NoDatabase : IDbContextFactory<RewindDb>
-    {
-        public RewindDb CreateDbContext() => throw new InvalidOperationException("The checkout counter opened the database.");
     }
 
     private sealed class HearsTheToken(ILateFeeDraws draws) : ILateFeeDraws

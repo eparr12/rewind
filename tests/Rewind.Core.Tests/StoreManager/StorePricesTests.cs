@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Rewind.Core.Data;
 using Rewind.Core.Labels;
 using Rewind.Core.StoreManager;
 
@@ -167,7 +166,7 @@ public sealed class StorePricesTests
         var ct = TestContext.Current.CancellationToken;
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
-        var sheetFirst = new BeforeEachSave(rewind, token => MakeASheetAsync(rewind, token));
+        var sheetFirst = rewind.ContextsWith(new BeforeEachSave(token => MakeASheetAsync(rewind, token)));
 
         await new StorePrices(sheetFirst, NullLogger<StorePrices>.Instance).SaveAsync("3", "1", ct);
 
@@ -199,7 +198,7 @@ public sealed class StorePricesTests
     private static StorePrices StorePricesFor(TempRewind rewind) => new(rewind.DbFactory, NullLogger<StorePrices>.Instance);
 
     // For what's answered before the database is opened, such as a null.
-    private static StorePrices WithNoDatabase() => new(new NoDatabase(), NullLogger<StorePrices>.Instance);
+    private static StorePrices WithNoDatabase() => new(new NoDatabase("The prices"), NullLogger<StorePrices>.Instance);
 
     // The prices as the database holds them.
     private static async Task<Prices> SavedPricesAsync(TempRewind rewind, CancellationToken cancellationToken)
@@ -209,11 +208,6 @@ public sealed class StorePricesTests
             .AsNoTracking()
             .Select(s => new Prices(s.RentalPriceCents, s.LateFeeCents))
             .SingleAsync(cancellationToken);
-    }
-
-    private sealed class NoDatabase : IDbContextFactory<RewindDb>
-    {
-        public RewindDb CreateDbContext() => throw new InvalidOperationException("The prices opened the database.");
     }
 
     // The next label number moves on by a sheet, through a context of its own, as LabelSheets would move it.
