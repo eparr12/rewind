@@ -21,7 +21,7 @@ public sealed class BackwardsReadsTests
         }
 
         var usual = await UnsortedIdsAsync(rewind.DbFactory, ct);
-        var backwards = await UnsortedIdsAsync(new BackwardsReads(rewind), ct);
+        var backwards = await UnsortedIdsAsync(rewind.ContextsWith(new BackwardsReads(), pooled: false), ct);
 
         Assert.Equal(usual.AsEnumerable().Reverse(), backwards);
     }

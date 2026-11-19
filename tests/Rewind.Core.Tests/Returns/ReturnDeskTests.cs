@@ -133,7 +133,7 @@ public sealed class ReturnDeskTests
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
 
-        var checkIn = await Desk(rewind, new NoDatabase()).CheckInAsync(FactoryUpc, ct);
+        var checkIn = await Desk(rewind, new NoDatabase("The return desk")).CheckInAsync(FactoryUpc, ct);
 
         Assert.Equal(new CheckIn(CheckInStatus.NoSuchCase, null), checkIn);
     }
@@ -375,7 +375,7 @@ public sealed class ReturnDeskTests
         await AddCaseAsync(rewind, Label, Halloween, ct);
         await RentAsync(rewind, ct, Label);
         using var leaving = new CancellationTokenSource();
-        var desk = Desk(rewind, new BeforeEachSave(rewind, _ => leaving.CancelAsync()));
+        var desk = Desk(rewind, rewind.ContextsWith(new BeforeEachSave(_ => leaving.CancelAsync())));
 
         var checkIn = () => desk.CheckInAsync(Label, leaving.Token);
 
@@ -396,7 +396,7 @@ public sealed class ReturnDeskTests
         await AddCaseAsync(rewind, Label, Halloween, ct);
         await RentAsync(rewind, ct, Label);
         using var leaving = new CancellationTokenSource();
-        var desk = Desk(rewind, new AfterEachCommit(rewind, _ => leaving.CancelAsync()));
+        var desk = Desk(rewind, rewind.ContextsWith(new AfterEachCommit(_ => leaving.CancelAsync())));
 
         var checkIn = await desk.CheckInAsync(Label, leaving.Token);
 
@@ -417,11 +417,11 @@ public sealed class ReturnDeskTests
         await AddCaseAsync(rewind, Label, Halloween, ct);
         await RentAsync(rewind, ct, Label);
         var firstBack = rewind.Time.GetUtcNow().UtcDateTime;
-        var first = new BeforeEachTransaction(rewind, async token =>
+        var first = rewind.ContextsWith(new BeforeEachTransaction(async token =>
         {
             await Desk(rewind).CheckInAsync(Label, token);
             rewind.Time.Advance(TimeSpan.FromMinutes(1)); // so a second return time would differ
-        });
+        }));
 
         var checkIn = await Desk(rewind, first).CheckInAsync(Label, ct);
 
@@ -574,7 +574,7 @@ public sealed class ReturnDeskTests
         await rewind.StartAsync(ct);
         var family = await AddFamilyAsync(rewind, ct);
         var rental = await ReturnedAsync(rewind, ct);
-        var first = new BeforeEachTransaction(rewind, token => Desk(rewind).LogWhoWatchedAsync(rental.RentalItemId, [new Watcher(family.Mom, 4)], token));
+        var first = rewind.ContextsWith(new BeforeEachTransaction(token => Desk(rewind).LogWhoWatchedAsync(rental.RentalItemId, [new Watcher(family.Mom, 4)], token)));
 
         var logged = await Desk(rewind, first).LogWhoWatchedAsync(rental.RentalItemId, [new Watcher(family.Dad, 5)], ct);
 
@@ -591,7 +591,7 @@ public sealed class ReturnDeskTests
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
 
-        var logged = await Desk(rewind, new NoDatabase()).LogWhoWatchedAsync(SaleParts.NoSuchId, [], ct);
+        var logged = await Desk(rewind, new NoDatabase("The return desk")).LogWhoWatchedAsync(SaleParts.NoSuchId, [], ct);
 
         Assert.Equal(WatchLogStatus.NoWatchers, logged);
     }
@@ -695,7 +695,7 @@ public sealed class ReturnDeskTests
         var family = await AddFamilyAsync(rewind, ct);
         var rental = await ReturnedAsync(rewind, ct);
         using var leaving = new CancellationTokenSource();
-        var desk = Desk(rewind, new BeforeEachSave(rewind, _ => leaving.CancelAsync()));
+        var desk = Desk(rewind, rewind.ContextsWith(new BeforeEachSave(_ => leaving.CancelAsync())));
 
         var log = () => desk.LogWhoWatchedAsync(rental.RentalItemId, [new Watcher(family.Dad, 5)], leaving.Token);
 
@@ -844,9 +844,4 @@ public sealed class ReturnDeskTests
     }
 
     private sealed record Family(int Dad, int Mom, int Ava);
-
-    private sealed class NoDatabase : IDbContextFactory<RewindDb>
-    {
-        public RewindDb CreateDbContext() => throw new InvalidOperationException("The return desk opened the database.");
-    }
 }

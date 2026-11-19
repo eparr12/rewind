@@ -345,7 +345,7 @@ public sealed class LateFeeDrawsTests
         }
 
         var dads = await Draws(rewind, random: new Random(Seed)).DrawAsync(dad, ct);
-        var moms = await Draws(rewind, new BackwardsReads(rewind), random: new Random(Seed)).DrawAsync(mom, ct);
+        var moms = await Draws(rewind, rewind.ContextsWith(new BackwardsReads(), pooled: false), random: new Random(Seed)).DrawAsync(mom, ct);
 
         Assert.NotNull(dads.FlavorMovieId);
         Assert.Equal(dads.FlavorMovieId, moms.FlavorMovieId);
@@ -419,7 +419,7 @@ public sealed class LateFeeDrawsTests
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
         var member = await AddMemberAsync(rewind, MemberCard, bag: "CCO", ct);
-        var draws = Draws(rewind, new BeforeEachSave(rewind, cancellationToken => AnotherScanDrawsAsync(rewind, member, cancellationToken)));
+        var draws = Draws(rewind, rewind.ContextsWith(new BeforeEachSave(cancellationToken => AnotherScanDrawsAsync(rewind, member, cancellationToken))));
 
         var draw = await draws.DrawAsync(member, ct);
 
@@ -434,7 +434,7 @@ public sealed class LateFeeDrawsTests
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
         var member = await AddMemberAsync(rewind, MemberCard, bag: "CCO", ct);
-        var draws = Draws(rewind, new BeforeEachSave(rewind, cancellationToken => AnotherScanDrawsAsync(rewind, member, cancellationToken)));
+        var draws = Draws(rewind, rewind.ContextsWith(new BeforeEachSave(cancellationToken => AnotherScanDrawsAsync(rewind, member, cancellationToken))));
 
         await draws.DrawAsync(member, ct);
 
@@ -530,7 +530,7 @@ public sealed class LateFeeDrawsTests
         await rewind.StartAsync(ct);
         var member = await AddMemberAsync(rewind, MemberCard, bag: "CCO", ct);
         using var leaving = new CancellationTokenSource();
-        var draws = Draws(rewind, new BeforeEachSave(rewind, _ => leaving.CancelAsync()));
+        var draws = Draws(rewind, rewind.ContextsWith(new BeforeEachSave(_ => leaving.CancelAsync())));
 
         var draw = () => draws.DrawAsync(member, leaving.Token);
 

@@ -81,7 +81,7 @@ public sealed class BusinessDaysTests
         var ct = TestContext.Current.CancellationToken;
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
-        var days = Days(rewind, new BeforeEachSave(rewind, cancellationToken => OpenANightAsync(rewind, cancellationToken)));
+        var days = Days(rewind, rewind.ContextsWith(new BeforeEachSave(cancellationToken => OpenANightAsync(rewind, cancellationToken))));
 
         var night = await days.OpenOrCurrentAsync(ct);
 
@@ -145,7 +145,7 @@ public sealed class BusinessDaysTests
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
         using var leaving = new CancellationTokenSource();
-        var days = Days(rewind, new BeforeEachSave(rewind, _ => leaving.CancelAsync()));
+        var days = Days(rewind, rewind.ContextsWith(new BeforeEachSave(_ => leaving.CancelAsync())));
 
         var open = () => days.OpenOrCurrentAsync(leaving.Token);
 
@@ -236,7 +236,7 @@ public sealed class BusinessDaysTests
         var stale = await Days(rewind).OpenOrCurrentAsync(ct);
         rewind.Time.Advance(TimeSpan.FromDays(7));
         BusinessDayRow? theirs = null;
-        var days = Days(rewind, new BeforeEachSave(rewind, async cancellationToken => theirs ??= await AnotherScanEndsItAsync(rewind, stale.Id, cancellationToken)));
+        var days = Days(rewind, rewind.ContextsWith(new BeforeEachSave(async cancellationToken => theirs ??= await AnotherScanEndsItAsync(rewind, stale.Id, cancellationToken))));
 
         var night = await days.OpenOrCurrentAsync(ct);
 
@@ -254,7 +254,7 @@ public sealed class BusinessDaysTests
         var stale = await Days(rewind).OpenOrCurrentAsync(ct);
         rewind.Time.Advance(TimeSpan.FromDays(7));
         BusinessDayRow? theirs = null;
-        var days = Days(rewind, new BeforeEachSave(rewind, async cancellationToken => theirs ??= await AnotherScanEndsItAsync(rewind, stale.Id, cancellationToken)));
+        var days = Days(rewind, rewind.ContextsWith(new BeforeEachSave(async cancellationToken => theirs ??= await AnotherScanEndsItAsync(rewind, stale.Id, cancellationToken))));
 
         await days.OpenOrCurrentAsync(ct);
 
@@ -272,7 +272,7 @@ public sealed class BusinessDaysTests
         var stale = await Days(rewind).OpenOrCurrentAsync(ct);
         rewind.Time.Advance(TimeSpan.FromDays(7));
         BusinessDayRow? theirs = null;
-        var contexts = new BeforeEachSave(rewind, async cancellationToken => theirs ??= await AnotherScanEndsItAsync(rewind, stale.Id, cancellationToken));
+        var contexts = rewind.ContextsWith(new BeforeEachSave(async cancellationToken => theirs ??= await AnotherScanEndsItAsync(rewind, stale.Id, cancellationToken)));
         var log = new ListLogger<BusinessDays>();
 
         await new BusinessDays(contexts, rewind.Time, log).OpenOrCurrentAsync(ct);
@@ -292,7 +292,7 @@ public sealed class BusinessDaysTests
         var stale = await Days(rewind).OpenOrCurrentAsync(ct);
         rewind.Time.Advance(TimeSpan.FromDays(7));
         using var leaving = new CancellationTokenSource();
-        var days = Days(rewind, new BeforeEachSave(rewind, _ => leaving.CancelAsync()));
+        var days = Days(rewind, rewind.ContextsWith(new BeforeEachSave(_ => leaving.CancelAsync())));
 
         var open = () => days.OpenOrCurrentAsync(leaving.Token);
 
@@ -426,7 +426,7 @@ public sealed class BusinessDaysTests
         await rewind.StartAsync(ct);
         var opened = await Days(rewind).OpenOrCurrentAsync(ct);
         using var leaving = new CancellationTokenSource();
-        var days = Days(rewind, new BeforeEachSave(rewind, _ => leaving.CancelAsync()));
+        var days = Days(rewind, rewind.ContextsWith(new BeforeEachSave(_ => leaving.CancelAsync())));
 
         var close = () => days.CloseAsync(leaving.Token);
 

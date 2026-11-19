@@ -5,7 +5,6 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Rewind.Core.Concessions;
-using Rewind.Core.Data;
 using Rewind.Core.Labels;
 
 namespace Rewind.Core.Tests.Labels;
@@ -144,7 +143,7 @@ public sealed class LabelSheetsTests
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
         var gate = new FirstSaveWaitsForASecond();
-        var sheets = new LabelSheets(new GatedContexts(rewind, gate), rewind.Time, NullLogger<LabelSheets>.Instance);
+        var sheets = new LabelSheets(rewind.ContextsWith(gate), rewind.Time, NullLogger<LabelSheets>.Instance);
 
         var first = sheets.ReserveLabelsAsync(ct);
         await Task.WhenAny(gate.FirstHeld, first);
@@ -505,16 +504,6 @@ public sealed class LabelSheetsTests
         await using var db = rewind.OpenDb();
         var settings = await db.StoreSettings.AsNoTracking().SingleAsync(ct);
         return (settings.NextStoreLabelNumber, settings.NextMemberCardNumber);
-    }
-
-    // Contexts that hold the first reservation's save at the gate below.
-    private sealed class GatedContexts(TempRewind rewind, FirstSaveWaitsForASecond gate) : IDbContextFactory<RewindDb>
-    {
-        public RewindDb CreateDbContext() =>
-            new(new DbContextOptionsBuilder<RewindDb>()
-                .UseSqlite(RewindDb.ConnectionStringFor(rewind.Paths.Database))
-                .AddInterceptors(gate)
-                .Options);
     }
 
     // Holds the first save until another context asks to begin a transaction. The gate opens as the

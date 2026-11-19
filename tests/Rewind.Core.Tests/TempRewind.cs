@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -65,6 +66,24 @@ internal sealed class TempRewind : IAsyncDisposable
     /// <summary>The database factory that the Rewind.Core StartAsync started hands to services (DATA-6).</summary>
     public IDbContextFactory<RewindDb> DbFactory => _hosts[^1].Services.GetRequiredService<IDbContextFactory<RewindDb>>();
 
+    /// <summary>
+    /// Contexts over the live database with what a test needs and <see cref="DbFactory"/>'s don't have: an
+    /// interceptor, connections kept out of the pool, or EF Core warnings set to something else. Every context they
+    /// make shares the one interceptor, so one that keeps state, such as LabelSheetsTests' gate, sees them all.
+    /// Warnings are set only when a test passes them: EF Core keys its internal services and its query cache partly
+    /// on them, so contexts with warnings of their own compile each query afresh.
+    /// </summary>
+    public IDbContextFactory<RewindDb> ContextsWith(
+        IInterceptor? interceptor = null,
+        bool pooled = true,
+        Action<WarningsConfigurationBuilder>? warnings = null) =>
+        new Contexts(
+            pooled
+                ? RewindDb.ConnectionStringFor(Paths.Database)
+                : new SqliteConnectionStringBuilder(RewindDb.ConnectionStringFor(Paths.Database)) { Pooling = false }.ToString(),
+            interceptor,
+            warnings);
+
     /// <summary>The drives that the Rewind.Core StartAsync started hands to services, which are <see cref="Drives"/>.</summary>
     public IDrives HostDrives => _hosts[^1].Services.GetRequiredService<IDrives>();
 
@@ -89,6 +108,26 @@ internal sealed class TempRewind : IAsyncDisposable
         if (Directory.Exists(Paths.Root))
         {
             Directory.Delete(Paths.Root, recursive: true);
+        }
+    }
+
+    private sealed class Contexts(string connectionString, IInterceptor? interceptor, Action<WarningsConfigurationBuilder>? warnings)
+        : IDbContextFactory<RewindDb>
+    {
+        public RewindDb CreateDbContext()
+        {
+            var options = new DbContextOptionsBuilder<RewindDb>().UseSqlite(connectionString);
+            if (interceptor is not null)
+            {
+                options.AddInterceptors(interceptor);
+            }
+
+            if (warnings is not null)
+            {
+                options.ConfigureWarnings(warnings);
+            }
+
+            return new RewindDb(options.Options);
         }
     }
 }

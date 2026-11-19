@@ -139,7 +139,7 @@ public sealed class ConcessionBarTests
         var ct = TestContext.Current.CancellationToken;
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
-        var popcornFirst = new BeforeEachSave(rewind, token => AddItemAsync(rewind, "Popcorn", Code, 100, token));
+        var popcornFirst = rewind.ContextsWith(new BeforeEachSave(token => AddItemAsync(rewind, "Popcorn", Code, 100, token)));
 
         var change = await Bar(rewind, popcornFirst).AddAsync("Kettle corn", Code, "1.25", ct);
 
@@ -487,7 +487,7 @@ public sealed class ConcessionBarTests
         new(dbFactory ?? rewind.DbFactory, NullLogger<ConcessionBar>.Instance);
 
     // For what's answered before the database is opened, such as a null.
-    private static ConcessionBar WithNoDatabase() => new(new NoDatabase(), NullLogger<ConcessionBar>.Instance);
+    private static ConcessionBar WithNoDatabase() => new(new NoDatabase("The concession bar"), NullLogger<ConcessionBar>.Instance);
 
     // An item added before the test, saved straight to the database.
     private static async Task<ConcessionRow> AddItemAsync(
@@ -509,10 +509,5 @@ public sealed class ConcessionBarTests
             .OrderBy(i => i.Id)
             .Select(i => new ConcessionRow(i.Id, i.Name, i.Code, i.PriceCents, i.IsActive))
             .ToListAsync(cancellationToken);
-    }
-
-    private sealed class NoDatabase : IDbContextFactory<RewindDb>
-    {
-        public RewindDb CreateDbContext() => throw new InvalidOperationException("The concession bar opened the database.");
     }
 }

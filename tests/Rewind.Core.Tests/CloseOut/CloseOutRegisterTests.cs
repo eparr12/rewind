@@ -305,7 +305,7 @@ public sealed class CloseOutRegisterTests
         await rewind.StartAsync(ct);
         var night = await Days(rewind).OpenOrCurrentAsync(ct);
         var drive = rewind.Drives.PlugInBackupDrive("E");
-        using var closeOut = CloseOutFor(rewind, new BeforeEachSave(rewind, _ => throw new IOException("The disk is gone.")));
+        using var closeOut = CloseOutFor(rewind, rewind.ContextsWith(new BeforeEachSave(_ => throw new IOException("The disk is gone."))));
 
         var run = () => closeOut.RunAsync(ct);
 
@@ -347,7 +347,7 @@ public sealed class CloseOutRegisterTests
         var night = await Days(rewind).OpenOrCurrentAsync(ct);
         var drive = rewind.Drives.PlugInBackupDrive("E");
         using var leaving = new CancellationTokenSource();
-        using var closeOut = CloseOutFor(rewind, new BeforeEachSave(rewind, _ => leaving.CancelAsync()));
+        using var closeOut = CloseOutFor(rewind, rewind.ContextsWith(new BeforeEachSave(_ => leaving.CancelAsync())));
 
         var run = () => closeOut.RunAsync(leaving.Token);
 
@@ -369,7 +369,7 @@ public sealed class CloseOutRegisterTests
         await Days(rewind).OpenOrCurrentAsync(ct);
         using var leaving = new CancellationTokenSource();
         var saves = 0;
-        using var closeOut = CloseOutFor(rewind, new BeforeEachSave(rewind, _ => Interlocked.Increment(ref saves) == 1 ? leaving.CancelAsync() : Task.CompletedTask));
+        using var closeOut = CloseOutFor(rewind, rewind.ContextsWith(new BeforeEachSave(_ => Interlocked.Increment(ref saves) == 1 ? leaving.CancelAsync() : Task.CompletedTask)));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => closeOut.RunAsync(leaving.Token));
 
         var again = await closeOut.RunAsync(ct).WaitAsync(NoHang, ct);
@@ -388,7 +388,7 @@ public sealed class CloseOutRegisterTests
         await Days(rewind).OpenOrCurrentAsync(ct);
         rewind.Drives.PlugInBackupDrive("E");
         using var leaving = new CancellationTokenSource();
-        using var closeOut = CloseOutFor(rewind, new AfterEachSave(rewind, _ => leaving.CancelAsync()));
+        using var closeOut = CloseOutFor(rewind, rewind.ContextsWith(new AfterEachSave(_ => leaving.CancelAsync())));
 
         var report = await closeOut.RunAsync(leaving.Token);
 
@@ -436,7 +436,7 @@ public sealed class CloseOutRegisterTests
         await rewind.StartAsync(ct);
         await Days(rewind).OpenOrCurrentAsync(ct);
         var held = new TaskCompletionSource();
-        using var closeOut = CloseOutFor(rewind, new BeforeEachSave(rewind, _ => held.Task));
+        using var closeOut = CloseOutFor(rewind, rewind.ContextsWith(new BeforeEachSave(_ => held.Task)));
         var first = closeOut.RunAsync(ct);
         using var leaving = new CancellationTokenSource();
         var second = closeOut.RunAsync(leaving.Token);

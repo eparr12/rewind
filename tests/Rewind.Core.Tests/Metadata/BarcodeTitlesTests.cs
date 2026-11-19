@@ -252,7 +252,7 @@ public sealed class BarcodeTitlesTests : IAsyncLifetime
     {
         var ct = TestContext.Current.CancellationToken;
         _upcItemDb.AnswerLookup(UpcJson.TommyBoyUpc, UpcJson.NoItems);
-        _titles = new BarcodeTitles(Client(), _pacer, new BeforeEachSave(_rewind, SaveATitleFirstAsync), _rewind.Time, NullLogger<BarcodeTitles>.Instance);
+        _titles = new BarcodeTitles(Client(), _pacer, _rewind.ContextsWith(new BeforeEachSave(SaveATitleFirstAsync)), _rewind.Time, NullLogger<BarcodeTitles>.Instance);
 
         var title = await LookUpAsync(UpcJson.TommyBoyUpc);
 

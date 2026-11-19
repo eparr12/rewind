@@ -133,7 +133,7 @@ public sealed class MemberRosterTests
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
 
-        var momFirst = new BeforeEachSave(rewind, token => AddMemberAsync(rewind, "Mom", Card, token));
+        var momFirst = rewind.ContextsWith(new BeforeEachSave(token => AddMemberAsync(rewind, "Mom", Card, token)));
 
         var change = await Roster(rewind, momFirst).AddAsync("Grandma", Card, ct);
 
@@ -495,7 +495,7 @@ public sealed class MemberRosterTests
         new(dbFactory ?? rewind.DbFactory, NullLogger<MemberRoster>.Instance);
 
     // For what's answered before the database is opened, such as a null.
-    private static MemberRoster WithNoDatabase() => new(new NoDatabase(), NullLogger<MemberRoster>.Instance);
+    private static MemberRoster WithNoDatabase() => new(new NoDatabase("The roster"), NullLogger<MemberRoster>.Instance);
 
     // A member added before the test, saved straight to the database.
     private static async Task<MemberRow> AddMemberAsync(
@@ -517,10 +517,5 @@ public sealed class MemberRosterTests
             .OrderBy(m => m.Id)
             .Select(m => new MemberRow(m.Id, m.Name, m.CardBarcode, m.IsActive))
             .ToListAsync(cancellationToken);
-    }
-
-    private sealed class NoDatabase : IDbContextFactory<RewindDb>
-    {
-        public RewindDb CreateDbContext() => throw new InvalidOperationException("The roster opened the database.");
     }
 }
