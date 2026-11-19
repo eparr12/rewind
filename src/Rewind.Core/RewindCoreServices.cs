@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Rewind.Core.Catalog;
 using Rewind.Core.Checkout;
 using Rewind.Core.CloseOut;
 using Rewind.Core.Concessions;
@@ -27,9 +28,9 @@ public static class RewindCoreServices
     /// Adds Rewind's folders, the database, its backups, with the last one for the status bar, and the startup that
     /// prepares it, the sheets of store labels and member cards, whose numbers the database keeps, the members, the
     /// prices, the concession bar's snacks, the business days, the late-fee draws, the checkout counter, the return
-    /// desk, the phone catalog's writer, the copy to the backup drive with the PC's drives it looks among, and Close
-    /// Out, which runs them. Call this before adding any other hosted service: hosted services start in the order
-    /// they're added, and everything else needs the database.
+    /// desk, the movies' posters, the catalog search, the phone catalog's writer, the copy to the backup drive with the
+    /// PC's drives it looks among, and Close Out, which runs them. Call this before adding any other hosted service:
+    /// hosted services start in the order they're added, and everything else needs the database.
     /// </summary>
     public static IServiceCollection AddRewindCore(this IServiceCollection services, IConfiguration configuration)
     {
@@ -63,6 +64,11 @@ public static class RewindCoreServices
         services.AddSingleton<ILateFeeDraws, LateFeeDraws>();
         services.AddSingleton<ICheckoutCounter, CheckoutCounter>();
         services.AddSingleton<IReturnDesk, ReturnDesk>();
+
+        // The posters on the register's disk, which intake saves and the search reads. They're here, not with intake,
+        // so a host without intake can search too. They hold no state either.
+        services.AddSingleton<Posters>();
+        services.AddSingleton<ICatalogSearch, CatalogSearch>();
 
         // Close Out's, which hold no state either: the phone catalog asks the factory for its context too, and the
         // copy looks for the backup drive each time it's called.
@@ -98,9 +104,10 @@ public static class RewindCoreServices
     }
 
     /// <summary>
-    /// Adds intake: TMDB's and UPCitemdb's settings and clients, the posters folder, and the
-    /// services the Intake screen finds titles and movies with. TMDB's token is a secret, so the
-    /// host reads it from somewhere outside the repo (SEC-1). UPCitemdb's free plan needs none.
+    /// Adds intake: TMDB's and UPCitemdb's settings and clients, and the services the Intake
+    /// screen finds titles and movies with, which also need the database and the posters that
+    /// <see cref="AddRewindCore"/> adds. TMDB's token is a secret, so the host reads it from
+    /// somewhere outside the repo (SEC-1). UPCitemdb's free plan needs none.
     /// </summary>
     public static IServiceCollection AddRewindIntake(this IServiceCollection services, IConfiguration configuration)
     {
@@ -120,7 +127,6 @@ public static class RewindCoreServices
         // the token stays out of the log even if someone lifts that limit.
         services.AddHttpClient<TmdbClient>()
             .RedactLoggedHeaders(_ => true);
-        services.AddSingleton<Posters>();
 
         // UpcItemDbClient sets its own timeout and cap too, and sends nothing secret. UPCitemdb's
         // limits count every lookup the register makes, so one pacer serves every screen.

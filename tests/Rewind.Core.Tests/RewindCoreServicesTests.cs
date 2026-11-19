@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Rewind.Core.Catalog;
 using Rewind.Core.Checkout;
 using Rewind.Core.CloseOut;
 using Rewind.Core.Concessions;
@@ -163,6 +164,22 @@ public sealed class RewindCoreServicesTests
         await using var provider = services.BuildServiceProvider();
 
         Assert.IsType<ReturnDesk>(provider.GetRequiredService<IReturnDesk>());
+    }
+
+    // Ask the Clerk will inject it, and a host without it would only fail once F3 opened. It reads the posters, which
+    // AddRewindCore adds too, so it needs no AddRewindIntake. Making it reads no folder.
+    [Fact]
+    public async Task AddRewindCore_AnyHost_ProvidesTheCatalogSearch()
+    {
+        // A full path on Linux too, as for the label sheets above.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddRewindCore(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { [$"{RewindPaths.SectionName}:Root"] = Path.GetTempPath() })
+            .Build());
+        await using var provider = services.BuildServiceProvider();
+
+        Assert.IsType<CatalogSearch>(provider.GetRequiredService<ICatalogSearch>());
     }
 
     // Close Out will inject it, and a host without it would only fail at closing time. It holds no state, so one

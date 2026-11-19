@@ -9,6 +9,6 @@ public enum PosterSize
     /// <summary>342 pixels wide, for the register's screens.</summary>
     Register,
 
-    /// <summary>154 pixels wide, for the phone catalog's thumbnails.</summary>
+    /// <summary>154 pixels wide, for the phone catalog's thumbnails, and for each hit in Ask the Clerk's list.</summary>
     Thumb,
 }
