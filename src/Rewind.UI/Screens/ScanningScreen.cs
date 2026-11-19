@@ -9,7 +9,8 @@ namespace Rewind.UI.Screens;
 /// <summary>
 /// A screen that takes scans (UI-4), such as Checkout or Intake (ADR-0011). It listens from the moment it
 /// opens until the clerk leaves, and the screen itself says only what a scan means to it, in
-/// <see cref="OnScanAsync"/>.
+/// <see cref="OnScanAsync"/>. Once the clerk has left, a failure in a scan's work, or in a call that waits in
+/// <see cref="WhileBusyAsync"/>, goes to ErrorHub rather than to the screen they went to.
 /// </summary>
 /// <remarks>
 /// UI-11: a scan can arrive on the scanner's thread, so it moves onto the renderer's first. An exception in
@@ -19,6 +20,15 @@ namespace Rewind.UI.Screens;
 /// DispatchExceptionAsync throws, since the renderer has no component to give it to, so an error then goes to
 /// ErrorHub instead, which logs it and shows the error dialog (OBS-5). The cancellation that leaving causes
 /// isn't an error, so it goes nowhere.
+/// <para>
+/// Work the clerk starts, such as a save from Enter, runs in an event handler that Blazor awaits itself, and
+/// Blazor hands what it throws to the ErrorBoundary the screen sat in, even once the clerk has left. While the
+/// screen is open, that's right. Once the clerk has left, that ErrorBoundary holds the screen they went to,
+/// which would close over an error that isn't its own, and a sale on Checkout would go with it (#83). So once
+/// the clerk has left, <see cref="WhileBusyAsync"/> sends what its call throws to ErrorHub as well. A scan's
+/// work waits there too, so a failure is reported there once, and the scan's own route never sees it. Work
+/// that doesn't wait there, and a screen's first read, still go to that ErrorBoundary (#97).
+/// </para>
 /// </remarks>
 public abstract class ScanningScreen : ComponentBase, IDisposable
 {
@@ -77,9 +87,11 @@ public abstract class ScanningScreen : ComponentBase, IDisposable
 
     /// <summary>
     /// Shows what Rewind is doing until Core answers, and returns the answer. Null when the call was cancelled,
-    /// by the clerk leaving the screen or by the token the screen passed, such as Intake's Esc. An answer that
-    /// arrives after the clerk has left still comes back, since a save that committed is done (NET-7): what the
-    /// screen does with it is its own, and only ShowAsync refuses once the screen has closed.
+    /// by the clerk leaving the screen or by the token the screen passed, such as Intake's Esc. Null too when the
+    /// call failed once the clerk had left, a failure this sends to ErrorHub (see the remarks above). One while
+    /// the screen is open goes on to the screen's ErrorBoundary. An answer that arrives after the clerk has left
+    /// still comes back, since a save that committed is done (NET-7): what the screen does with it is its own,
+    /// and only ShowAsync refuses once the screen has closed.
     /// </summary>
     protected async Task<T?> WhileBusyAsync<T>(string doing, Func<CancellationToken, Task<T>> call, CancellationToken token)
         where T : class?
@@ -92,6 +104,11 @@ public abstract class ScanningScreen : ComponentBase, IDisposable
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
+            return null;
+        }
+        catch (Exception e) when (Closing.IsCancellationRequested)
+        {
+            Errors.ReportFromComponent(GetType().Name, e);
             return null;
         }
         finally

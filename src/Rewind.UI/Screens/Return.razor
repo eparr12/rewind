@@ -155,7 +155,8 @@
             return;
         }
 
-        // Boxed, since WhileBusyAsync answers null for a save the clerk's leaving cancelled, which an enum can't be.
+        // Boxed, since WhileBusyAsync answers null once the clerk has left, for a save their leaving cancelled or
+        // one that failed, and an enum can't be null.
         var saved = await WhileBusyAsync(
             "Saving who watched...",
             async token => (object)await Desk.LogWhoWatchedAsync(asking.RentalItemId, watchers, token),
