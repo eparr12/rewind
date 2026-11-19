@@ -41,12 +41,27 @@ public sealed class CatalogSearchTests
         Assert.Equal([("Halloween", true), ("True Lies", false)], found.Hits.Select(hit => (hit.Title, hit.OnShelf)));
     }
 
-    // Part of a word from the middle, so a match only at the start or the end isn't enough: of Halloween's title, of
-    // its director's name in capitals, and of a cast member's name.
+    // Every field of the hit. Jaws is saved first, so Halloween's Id isn't 1, and it has no thumbnail saved.
+    [Fact]
+    public async Task SearchAsync_Movie_GivesItsIdTitleYearRatingAndShelf()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var halloween = Halloween();
+        await AddInOrderAsync(rewind, ct, new Case { StoreLabel = "RV-00001", Movies = { Jaws() } }, new Case { StoreLabel = "RV-00002", Movies = { halloween } });
+
+        var found = await SearchFor(rewind).SearchAsync("Halloween", null, null, null, ct);
+
+        Assert.Equal(new MovieHit(halloween.Id, "Halloween", 1978, "R", OnShelf: true, Thumb: null), Assert.Single(found.Hits));
+    }
+
+    // Part of a word from the middle, so a match only at the start or the end isn't enough, and in capitals, so an
+    // exact match of letter case isn't either: of Halloween's title, its director's name and a cast member's.
     [Theory]
-    [InlineData("allowe")]
+    [InlineData("ALLOWE")]
     [InlineData("CARPENT")]
-    [InlineData("pleas")]
+    [InlineData("PLEAS")]
     public async Task SearchAsync_PartOfATitleADirectorOrACastMember_FindsTheMovie(string text)
     {
         var ct = TestContext.Current.CancellationToken;
