@@ -15,8 +15,9 @@ internal sealed class FakeBarcodeTitles : IBarcodeTitles
     public Task<BarcodeTitle>? Lookup { get; set; }
 
     /// <summary>
-    /// Whether a cancelled lookup ends at once. False for one whose failure was already on its way when
-    /// the token was cancelled, which comes after the cancel all the same (#77).
+    /// Whether a cancelled lookup ends at once. False for a lookup that fails after the cancel all the
+    /// same, with a failure Core didn't expect. The real lookup turns a web failure that's in as the token
+    /// is cancelled into the cancellation, so no other kind comes late.
     /// </summary>
     public bool EndsWhenCancelled { get; set; } = true;
 

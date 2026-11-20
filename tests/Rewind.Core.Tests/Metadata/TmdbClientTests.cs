@@ -219,6 +219,32 @@ public sealed class TmdbClientTests : IDisposable
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Client().SearchAsync("Halloween", cancelled.Token));
     }
 
+    // ADR-0011's window, for a failure rather than an answer. TMDB's call fails while the token is
+    // still live, so HttpClient lets the failure through as it is. The clerk's F-key then takes its turn
+    // on the renderer's thread and cancels, and only after that does the client's next step run. That's
+    // the caller's cancellation, not TMDB failing to answer, so it isn't TryLater and nothing goes in the
+    // log. A failure given once the token is cancelled would show nothing, since HttpClient makes that a
+    // cancellation itself. So would one given before the call is out: a call that waited for something
+    // first would start only after the cancel, and end cancelled whatever the filter.
+    [Theory]
+    [MemberData(nameof(NoAnswer))]
+    public async Task SearchAsync_NoAnswerAsTheCallerCancels_IsCancelled(Exception failure)
+    {
+        var log = new ListLogger<TmdbClient>();
+        var answer = _tmdb.HoldAnswer(FakeTmdb.SearchFor("Halloween"));
+        using var caller = new CancellationTokenSource();
+        var renderer = new RendererThread();
+        var search = renderer.Start(() => Client(logger: log).SearchAsync("Halloween", caller.Token));
+        Assert.Single(_tmdb.Requests); // the call is out, waiting on TMDB
+
+        answer.SetException(failure);
+        await caller.CancelAsync();
+        renderer.RunQueued();
+
+        Assert.Equal((TaskStatus.Canceled, (Exception?)null), (search.Status, search.Exception?.InnerException));
+        Assert.Empty(log.Entries);
+    }
+
     // SEC-7: even when TMDB refuses it, the token never reaches the log.
     [Fact]
     public async Task SearchAsync_TokenRefused_LogsNoToken()
@@ -516,6 +542,41 @@ public sealed class TmdbClientTests : IDisposable
         var poster = await Client().GetPosterAsync(TmdbJson.HalloweenPoster, PosterSize.Register, TestContext.Current.CancellationToken);
 
         Assert.Null(poster);
+    }
+
+    // NET-12: a poster that doesn't come, such as when the register is offline or TMDB is slow, is no
+    // poster, not an exception.
+    [Theory]
+    [MemberData(nameof(NoAnswer))]
+    public async Task GetPosterAsync_NoAnswer_ReturnsNull(Exception failure)
+    {
+        _tmdb.Throw(FakeTmdb.PosterFor("w342", TmdbJson.HalloweenPoster), failure);
+
+        var poster = await Client().GetPosterAsync(TmdbJson.HalloweenPoster, PosterSize.Register, TestContext.Current.CancellationToken);
+
+        Assert.Null(poster);
+    }
+
+    // The same window for a poster: a download that fails just before the caller cancels is the
+    // caller's cancellation too, not a poster TMDB couldn't give, so it isn't null and nothing goes in
+    // the log.
+    [Theory]
+    [MemberData(nameof(NoAnswer))]
+    public async Task GetPosterAsync_NoAnswerAsTheCallerCancels_IsCancelled(Exception failure)
+    {
+        var log = new ListLogger<TmdbClient>();
+        var answer = _tmdb.HoldAnswer(FakeTmdb.PosterFor("w342", TmdbJson.HalloweenPoster));
+        using var caller = new CancellationTokenSource();
+        var renderer = new RendererThread();
+        var poster = renderer.Start(() => Client(logger: log).GetPosterAsync(TmdbJson.HalloweenPoster, PosterSize.Register, caller.Token));
+        Assert.Single(_tmdb.Requests); // the download is out, waiting on TMDB's image server
+
+        answer.SetException(failure);
+        await caller.CancelAsync();
+        renderer.RunQueued();
+
+        Assert.Equal((TaskStatus.Canceled, (Exception?)null), (poster.Status, poster.Exception?.InnerException));
+        Assert.Empty(log.Entries);
     }
 
     [Fact]

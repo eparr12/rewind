@@ -243,6 +243,28 @@ public sealed class BarcodeTitlesTests : IAsyncLifetime
         Assert.Equal(1, await db.UpcLookups.CountAsync(ct));
     }
 
+    // ADR-0011's window from the top, as a scan's lookup meets it: UPCitemdb's call fails while the
+    // token is still live, and Esc or the clerk's F-key cancels before the lookup's next step runs.
+    // Neither the pacer nor BarcodeTitles turns that cancellation into anything else, so the screen
+    // gets what it gets for any lookup it stopped. The call is out before the failure comes, past the
+    // database and the pacer: a lookup that waited for something first would start only after the
+    // cancel, and end cancelled whatever the filter.
+    [Fact]
+    public async Task LookupAsync_UpcItemDbFailsAsTheCallerCancels_IsCancelled()
+    {
+        var answer = _upcItemDb.HoldAnswer(FakeUpcItemDb.LookupFor(UpcJson.TommyBoyUpc));
+        using var caller = new CancellationTokenSource();
+        var renderer = new RendererThread();
+        var lookup = renderer.Start(() => Titles.LookupAsync(UpcJson.TommyBoyUpc, null, caller.Token));
+        Assert.Single(_upcItemDb.Requests); // the call is out, waiting on UPCitemdb
+
+        answer.SetException(new HttpRequestException("No such host is known."));
+        await caller.CancelAsync();
+        renderer.RunQueued();
+
+        Assert.Equal((TaskStatus.Canceled, (Exception?)null), (lookup.Status, lookup.Exception?.InnerException));
+    }
+
     // Another save of the barcode lands between this one's look at UpcLookups and its new row, so
     // UpcLookups.Upc's unique index refuses the row, and the answer saved first stands. A save
     // interceptor makes that other save, as no lookup through the screen could today.

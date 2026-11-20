@@ -73,7 +73,10 @@ public sealed partial class UpcItemDbClient
     /// found, without asking UPCitemdb (SEC-5).
     /// </summary>
     /// <param name="upc">The barcode, such as 032429258373.</param>
-    /// <param name="cancellationToken">Cancels the lookup. A cancelled lookup throws; it isn't UPCitemdb failing to answer.</param>
+    /// <param name="cancellationToken">
+    /// Cancels the lookup. A lookup cancelled while it waits throws the cancellation, and so does one
+    /// whose failure is read only after the cancel: neither is UPCitemdb failing to answer.
+    /// </param>
     public async Task<UpcAnswer> LookupAsync(string upc, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(upc);
@@ -92,8 +95,14 @@ public sealed partial class UpcItemDbClient
             LogAnswer(code, answer, response);
             return answer;
         }
-        catch (Exception e) when (!cancellationToken.IsCancellationRequested && e is HttpRequestException or TaskCanceledException or JsonException)
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException)
         {
+            // Once the caller has cancelled, a failure is its cancellation, as HttpClient makes one that
+            // it sees after the cancel. The failure can come first and still be read here after the
+            // cancel, as when this waits its turn on the renderer's thread behind the Esc or F-key that
+            // cancels (ADR-0011).
+            cancellationToken.ThrowIfCancellationRequested();
+
             var reason = ReasonFor(e);
             LogNoAnswer(_logger, e, code, reason);
             return TryLater(reason);

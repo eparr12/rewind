@@ -17,7 +17,8 @@ namespace Rewind.Core.Metadata;
 /// (SEC-1). Every answer is untrusted (SEC-5): only JSON is read, text is trimmed and capped, a
 /// poster path must look like one, and anything unknown comes back null, never 0, blank or "NR"
 /// (DATA-3). When TMDB can't answer, such as when the register is offline, the status says so
-/// instead of an exception (NET-12).
+/// instead of an exception (NET-12). A call cancelled while it waits throws the cancellation, and
+/// so does one whose failure is read only after the cancel: neither is TMDB failing to answer.
 /// </summary>
 public sealed partial class TmdbClient
 {
@@ -167,8 +168,10 @@ public sealed partial class TmdbClient
 
             LogNotJpeg(_logger, posterPath);
         }
-        catch (Exception e) when (!cancellationToken.IsCancellationRequested && e is HttpRequestException or TaskCanceledException)
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
         {
+            // Once the caller has cancelled, a failure is its cancellation, as in GetAsync.
+            cancellationToken.ThrowIfCancellationRequested();
             LogPosterFailed(_logger, e, posterPath);
         }
 
@@ -209,8 +212,14 @@ public sealed partial class TmdbClient
                     return (TmdbStatus.TryLater, null);
             }
         }
-        catch (Exception e) when (!cancellationToken.IsCancellationRequested && e is HttpRequestException or TaskCanceledException or JsonException)
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException)
         {
+            // Once the caller has cancelled, a failure is its cancellation, as HttpClient makes one that
+            // it sees after the cancel. The failure can come first and still be read here after the
+            // cancel, as when this waits its turn on the renderer's thread behind the F-key that cancels
+            // (ADR-0011).
+            cancellationToken.ThrowIfCancellationRequested();
+
             // Offline, no answer within RequestTimeout, an answer over MaxAnswerBytes, or JSON that
             // isn't TMDB's. The clerk is asked to try again later.
             LogNoAnswer(_logger, e);
