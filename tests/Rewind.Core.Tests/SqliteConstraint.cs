@@ -13,6 +13,13 @@ internal enum SqliteConstraint
     ForeignKey = 787,
 
     /// <summary>
+    /// SQLITE_CONSTRAINT_PRIMARYKEY: a primary key, such as a link table's two-column key, refusing a
+    /// row it holds already. SQLite reports this code rather than SQLITE_CONSTRAINT_UNIQUE, though such a
+    /// key is a unique index underneath.
+    /// </summary>
+    PrimaryKey = 1555,
+
+    /// <summary>
     /// SQLITE_CONSTRAINT_TRIGGER: a Restrict foreign key refusing a delete (DATA-4). SQLite enforces
     /// ON DELETE RESTRICT with a trigger of its own, so it reports this code rather than
     /// SQLITE_CONSTRAINT_FOREIGNKEY, though the message still says "FOREIGN KEY constraint failed".
