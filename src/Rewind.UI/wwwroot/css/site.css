@@ -494,14 +494,9 @@ body {
   max-height: 200px;
 }
 
-/* Ask the Clerk's list: about four rows, short enough to sit under the search without the screen
-   scrolling at 960 by 540, a 1080p monitor at zoom 2 (UI-8). The title takes the width the year, the
-   rating and the status don't need, which makes the table as wide as its panel, as the other lists'
-   tables are, and keeps those columns put from one search to the next, as a Windows 98 list's are. */
-.movie-hits-list {
-  height: 300px;
-}
-
+/* Ask the Clerk's list: the title takes the width the year, the rating and the status don't need, which
+   makes the table as wide as its panel, as the other lists' tables are, and keeps those columns put from
+   one search to the next, as a Windows 98 list's are. The screen sets its height, below. */
 .movie-hits-list th:first-child {
   width: 100%;
 }
@@ -509,6 +504,33 @@ body {
 /* A title with no space in it breaks anywhere, rather than widen the list past the screen (UI-8). */
 .movie-hits-title span {
   overflow-wrap: anywhere;
+}
+
+/* F3 Ask the Clerk (Build Plan 4.1): the search, a line saying what it found or what to do, then the
+   list, which takes the room left under them, so a bigger screen shows more rows. The list scrolls inside
+   its panel, and the screen never does (UI-8). Only Ask the Clerk's window body is as tall as the shell's
+   panel: every other screen's is as tall as what it holds, so the panel scrolls to its last line. */
+.shell-panel:has(> .window-body > .ask-the-clerk) > .window-body {
+  height: calc(100% - 16px); /* 98.css's 8px margins */
+}
+
+.ask-the-clerk {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* The list's panel scrolls (98.css), so the list can shrink below its rows' height without a min-height. */
+.ask-the-clerk > .movie-hits-list {
+  flex: 1;
+}
+
+#ask-the-clerk-text {
+  width: 240px;
+}
+
+#ask-the-clerk-year {
+  width: 48px; /* four digits, as the hand-entry form's year */
 }
 
 /* Who watched?: each person's name beside their list, lined up as the hand-entry form's labels and

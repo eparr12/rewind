@@ -86,7 +86,7 @@ Every build reads `keys\secrets.json` under its own root. So a Debug build on `C
 
 Rewind reads the token once, as it starts, so restart it after setting or changing the token. It won't start with a `secrets.json` that isn't valid JSON, or with a token that has a space in it, such as `Bearer` pasted in front: a message box says why. When TMDB refuses the token, Intake says the token isn't set up, and the log says TMDB refused it.
 
-Rewind saves each movie's poster in `C:\Rewind\data`, named for the movie's TMDB ID: `posters\948.jpg` at 342 pixels wide for the register's screens, and `thumbs\948.jpg` at 154 for the phone catalog, whose format [catalog-json.md](src/Rewind.Core/CloseOut/catalog-json.md) sets out. Posters aren't in Git (GIT-6) or in the backups, which hold only the database.
+Rewind saves each movie's poster in `C:\Rewind\data`, named for the movie's TMDB ID: `posters\948.jpg` at 342 pixels wide for the register's screens, and `thumbs\948.jpg` at 154 for Ask the Clerk's list and for the phone catalog, whose format [catalog-json.md](src/Rewind.Core/CloseOut/catalog-json.md) sets out. Posters aren't in Git (GIT-6) or in the backups, which hold only the database.
 
 ## Checkout
 
@@ -99,6 +99,18 @@ To try it in a Debug build, first add a member and a snack in the Store Manager 
 Return (F2) puts a returned case back on the shelf and asks who watched it. The scan checks the case in at once, so it's back whatever the clerk does next. Save then puts each person's stars in the watch log, which each rented movie gets once. Skip saves nothing, and neither does leaving the screen, so scanning the case again asks again, for as long as nobody has answered for its last rental ([ADR-0012](docs/adr/0012-a-return-is-saved-at-the-scan-and-its-watch-log-once.md)).
 
 To try it in a Debug build, carry on from Checkout's: open Return (F2), type `RV-00042` into the scan simulator and press Enter. Rewind chimes, says the case is back on the shelf and asks who watched. Type `5` in the member's list and press Enter: the screen says the movie is in the watch log, with 5 stars. Scan `RV-00042` again, and Rewind says it's already on the shelf.
+
+## Ask the Clerk
+
+Ask the Clerk (F3) searches the catalog. The clerk types part of a title, part of an actor's or the director's name, or a year, or picks a genre or a rating, in any mix, and presses Enter. Each movie found shows its thumbnail, year and rating, and whether a case of it is **On the shelf** or **Checked out**. With nothing typed or picked, it lists the whole catalog. It only reads, so nothing it does is saved. Esc on the list goes back to the Look for box, which keeps what was typed, so typing adds to it. Esc twice starts a new search.
+
+It lists each movie that has a case that isn't retired, as the phone catalog does, once however many cases it's in, so a movie whose cases are all retired isn't there. A filter never matches what isn't known: a movie with no year isn't from 1978, and one with no rating isn't rated R. The list shows the first 50, A to Z by title, and when more match, the line above it says to type more.
+
+Letter case doesn't matter from A to Z, but accents do: `amelie` doesn't find *Amélie*, and neither does `AMÉLIE` ([#100](https://github.com/eparr12/rewind/issues/100)). Type a part without the accent instead, such as `lie`.
+
+Ask the Clerk takes no scans. A store label, a member card, a snack or a DVD's barcode brings a dialog that says to press F1 to check out, F2 to return a movie or F4 to add one, then scan again. An unknown barcode plays the error chord, as on every screen.
+
+To try it in a Debug build, carry on from Return's: open Ask the Clerk (F3), type `farley` and press Enter. The list shows Tommy Boy, found by Chris Farley's name in its cast, On the shelf. Check it out again at F1, then search again at F3: it says Checked out. Type `78` in the Year box and press Enter, and the line says the year is four digits or blank.
 
 ## Close Out
 

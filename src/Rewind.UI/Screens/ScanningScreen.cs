@@ -28,8 +28,8 @@ namespace Rewind.UI.Screens;
 /// the clerk has left, <see cref="WhileBusyAsync"/> sends what its call throws to ErrorHub as well. When a
 /// scan's work waits there, its failure is reported there, once, and the scan's own route never sees it. That
 /// route still takes whatever else a scan's work throws, such as the Members tab's save, which doesn't wait
-/// there. Work the clerk starts that doesn't wait there, and a screen's first read, still go to that
-/// ErrorBoundary (#97).
+/// there. Work the clerk starts that doesn't wait there, and a screen's first read that doesn't, such as
+/// Intake's count of the shelf, still go to that ErrorBoundary (#97).
 /// </para>
 /// </remarks>
 public abstract class ScanningScreen : ComponentBase, IDisposable

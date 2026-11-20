@@ -1,3 +1,244 @@
-@* Screens/AskTheClerk.razor *@
-<p>Search by title, actor, director, genre, year or rating.</p>
-<p>Ask the Clerk arrives in Phase 4.</p>
+@inherits ScanningScreen
+@using System.Diagnostics
+@using Microsoft.Extensions.Logging
+@inject ICatalogSearch Catalog
+@inject ILogger<AskTheClerk> Logger
+
+@* F3 Ask the Clerk (Build Plan 4.1): the clerk types part of a title, a name from the cast or the director, or
+   a year, or picks a genre or a rating, or any of them together, and Enter searches the catalog. The movies it
+   found go in the list under the search, each saying whether a case of it is on the shelf. The list takes the
+   room left under the search, so a bigger screen shows more of it. Each Esc goes one step back, as Intake's does.
+   Esc on the list puts the cursor back in the Look for box, which keeps what was typed, with the cursor where it
+   was, after the text, so typing adds to it. A second Esc, in the search, clears it, to start a new search. Every
+   Enter in the search searches: a text box submits the form by itself, and keyboard.js has Enter in a list do the
+   same. The search and what it found live in these fields (ADR-0003), so leaving the screen loses them, and
+   nothing is saved. *@
+<div class="ask-the-clerk">
+    @* Esc is the form's: the list sits outside it, so Esc on the list never clears the search. *@
+    <form class="field-row ask-the-clerk-search" @onsubmit="SearchAsync" @onsubmit:preventDefault @onkeydown="OnSearchKeyDown">
+        <label for="ask-the-clerk-text">Look for:</label>
+        <input id="ask-the-clerk-text" type="text" autocomplete="off" spellcheck="false"
+               maxlength="@TmdbClient.MaxNameLength" @ref="_textBox" @bind="_text" @bind:event="oninput" />
+        <label for="ask-the-clerk-genre">Genre:</label>
+        <select id="ask-the-clerk-genre" @bind="_genre">
+            <option value="">Any</option>
+            @foreach (var genre in _genres)
+            {
+                <option value="@genre">@genre</option>
+            }
+        </select>
+        @* A text box, as the hand-entry form's year is, so a slip such as 198S reaches Core as typed, and isn't
+           handed over as blank, which would search every year. *@
+        <label for="ask-the-clerk-year">Year:</label>
+        <input id="ask-the-clerk-year" type="text" autocomplete="off"
+               maxlength="@YearLength" @ref="_yearBox" @bind="_year" @bind:event="oninput" />
+        <label for="ask-the-clerk-rating">Rating:</label>
+        <select id="ask-the-clerk-rating" @bind="_rating">
+            <option value="">Any</option>
+            @foreach (var rating in UsRatings.All)
+            {
+                <option value="@rating">@rating</option>
+            }
+        </select>
+        <button type="submit" class="default">Search</button>
+    </form>
+    <p class="ask-the-clerk-prompt">@Prompt</p>
+    @if (_found is { } found)
+    {
+        @* Keyed by search: the list sets itself up once, as it opens, so each search gets a new one, which takes
+           the focus. *@
+        <MovieHits @key="_searchesRun" Hits="found.Hits" OnEscape="BackToTheBox" />
+    }
+</div>
+
+@code {
+    // A year is four digits, as in the hand-entry form.
+    private const int YearLength = 4;
+
+    private const string BeforeASearch = "Type part of a title or a name, type a year, or pick a genre or a rating, then press Enter.";
+
+    // Ask the Clerk only looks movies up, so each barcode belongs on another screen.
+    private static readonly Dialog TakesNoScans = new(
+        Store.Name,
+        "Ask the Clerk doesn't take scans.\n\nPress F1 to check out, F2 to return a movie or F4 to add one, then scan again.",
+        DialogIcon.Warning);
+
+    private ElementReference _textBox;
+    private ElementReference _yearBox;
+
+    // The box the cursor goes to once the screen has drawn, such as the Year box after a year that isn't one. Null
+    // leaves it where it is.
+    private ElementReference? _cursorTo;
+
+    // The four boxes, just as the clerk typed and picked them. Any is blank, which Core reads as nothing picked.
+    private string _text = "";
+    private string _genre = "";
+    private string _year = "";
+    private string _rating = "";
+
+    // The genres for the list, in Core's order, read once, as the screen opens.
+    private IReadOnlyList<string> _genres = [];
+
+    // What the last search that ran found, until the next search or Esc in the search. Null before the first.
+    private SearchResult? _found;
+
+    // Whether that search had nothing typed or picked, and so asked for the whole catalog.
+    private bool _askedForEverything;
+
+    // Counts the searches that ran, so each one's list has a key of its own.
+    private int _searchesRun;
+
+    // What a search that didn't run said to fix, such as the year. It takes the prompt's place until the next
+    // search, or Esc.
+    private string? _notice;
+
+    // One line that always says what's happening or what to do next (UI-6).
+    private string Prompt
+    {
+        get
+        {
+            if (Doing is { } busy)
+            {
+                return busy;
+            }
+
+            if (_notice is { } notice)
+            {
+                return notice;
+            }
+
+            return _found switch
+            {
+                null => BeforeASearch,
+                { Hits.Count: 0 } when _askedForEverything => "The store has no movies yet. Press F4 to add one.",
+                { Hits.Count: 0 } => "Nothing in the store matches. Check the spelling, then press Enter.",
+                { MoreMatched: true } found => $"The first {Movies(found.Hits.Count)}. {OnTheShelf(found.Hits)} Type more to narrow it down.",
+                var found => $"{Movies(found.Hits.Count)}. {OnTheShelf(found.Hits)}",
+            };
+        }
+    }
+
+    // Whether nothing is typed or picked. Core reads a box of only spaces as blank, so the screen does too.
+    private bool NothingAsked =>
+        string.IsNullOrWhiteSpace(_text)
+        && string.IsNullOrWhiteSpace(_genre)
+        && string.IsNullOrWhiteSpace(_year)
+        && string.IsNullOrWhiteSpace(_rating);
+
+    // The genres wait in the busy line, as a search does, so a read that fails after the clerk has left goes to
+    // ErrorHub, rather than closing the screen they went to (#97).
+    protected override async Task OnInitializedAsync()
+    {
+        if (await WhileBusyAsync("Reading the genres...", Catalog.GenresAsync, Closing) is { } genres)
+        {
+            _genres = genres;
+        }
+    }
+
+    // UI-3: the cursor starts in the Look for box, so the clerk can just type, and goes where a search or Esc sends
+    // it. Only once the screen has drawn, so an answer that comes after the clerk left moves nothing.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var box = firstRender ? _textBox : _cursorTo;
+        _cursorTo = null;
+        if (box is { } toFocus)
+        {
+            await toFocus.FocusAsync();
+        }
+    }
+
+    // A scan has no place here, so each kind gets the same dialog, saying where it goes. An unknown barcode has had
+    // its chord from ScannerHub (HW-5).
+    protected override async Task OnScanAsync(Scan scan)
+    {
+        if (scan.Kind == ScanKind.Unknown)
+        {
+            return;
+        }
+
+        // One thing at a time, as on Return: a scan while Core answers, or while a dialog waits for an answer,
+        // would start something new in the middle of it.
+        if (Busy || DialogOpen)
+        {
+            LogScanIgnored(Logger, scan.Kind, scan.Code);
+            return;
+        }
+
+        await ShowAsync(TakesNoScans);
+    }
+
+    // Enter in any box or list, or the Search button: one call to Core for each search (ARCH-5), with the four
+    // boxes as they are. The boxes only cap what fits (SEC-5), and Core reads what was typed. A second Enter while
+    // it searches is ignored, since the first one's answer is on its way.
+    private async Task SearchAsync()
+    {
+        if (Busy)
+        {
+            return;
+        }
+
+        var askedForEverything = NothingAsked;
+        var result = await WhileBusyAsync("Searching...", token => Catalog.SearchAsync(_text, _genre, _year, _rating, token), Closing);
+        switch (result)
+        {
+            case null:
+                return; // the clerk left the screen before Core answered
+            case { Status: SearchStatus.Searched }:
+                _notice = null;
+                _found = result;
+                _askedForEverything = askedForEverything;
+                _searchesRun++;
+                return;
+            case { Status: SearchStatus.NotAYear }:
+                DidNotRun("The year is four digits, such as 1978, or blank."); // Intake's words
+                _cursorTo = _yearBox;
+                return;
+            case { Status: SearchStatus.NotARating }:
+                DidNotRun("Pick a rating from the list, or Any."); // the list can't send one, but Core says so if it did
+                return;
+            default:
+                // OBS-5: Core answers with a status above, so any other is a bug, such as one Core gained later.
+                throw new UnreachableException($"Searching the catalog came back {result.Status}.");
+        }
+    }
+
+    // A search that didn't run found nothing, so the hits from the one before it go, and the line says what to fix.
+    private void DidNotRun(string notice)
+    {
+        _found = null;
+        _notice = notice;
+    }
+
+    // UI-3: Esc in the search clears it, with both lists back on Any and the hits gone, and the cursor goes back to
+    // the Look for box. Not while Core answers: the search's answer would land on a search that had been cleared.
+    private void OnSearchKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key != "Escape" || Busy)
+        {
+            return;
+        }
+
+        _text = "";
+        _genre = "";
+        _year = "";
+        _rating = "";
+        _found = null;
+        _notice = null;
+        _cursorTo = _textBox;
+    }
+
+    // Esc on the list puts the cursor back in the Look for box and leaves the list as it is. The box keeps what was
+    // typed, and the browser puts the cursor back where it was, after the text, so typing adds to it. A second Esc,
+    // in the search, starts over.
+    private void BackToTheBox() => _cursorTo = _textBox;
+
+    // Such as "1 movie" or "3 movies".
+    private static string Movies(int count) => count == 1 ? "1 movie" : $"{count} movies";
+
+    // Such as "2 are on the shelf.", counting the movies listed.
+    private static string OnTheShelf(IReadOnlyList<MovieHit> hits)
+    {
+        var onShelf = hits.Count(hit => hit.OnShelf);
+        return onShelf == 1 ? "1 is on the shelf." : $"{onShelf} are on the shelf.";
+    }
+}
