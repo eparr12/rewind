@@ -501,6 +501,69 @@ namespace Rewind.Core.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Rewind.Core.Shelves.Shelf", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("FromDay")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("FromMonth")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("MemberId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("TEXT")
+                        .UseCollation("NOCASE");
+
+                    b.Property<int?>("ToDay")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("ToMonth")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MemberId")
+                        .IsUnique();
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("Shelves", t =>
+                        {
+                            t.HasCheckConstraint("CK_Shelves_From", "\"FromMonth\" BETWEEN 1 AND 12 AND \"FromDay\" BETWEEN 1 AND CASE \"FromMonth\" WHEN 1 THEN 31 WHEN 2 THEN 29 WHEN 3 THEN 31 WHEN 4 THEN 30 WHEN 5 THEN 31 WHEN 6 THEN 30 WHEN 7 THEN 31 WHEN 8 THEN 31 WHEN 9 THEN 30 WHEN 10 THEN 31 WHEN 11 THEN 30 WHEN 12 THEN 31 END");
+
+                            t.HasCheckConstraint("CK_Shelves_Kind", "(\"MemberId\" IS NOT NULL AND \"Name\" IS NULL AND \"FromMonth\" IS NULL AND \"FromDay\" IS NULL AND \"ToMonth\" IS NULL AND \"ToDay\" IS NULL AND \"IsActive\") OR (\"MemberId\" IS NULL AND \"Name\" IS NOT NULL AND \"FromMonth\" IS NOT NULL AND \"FromDay\" IS NOT NULL AND \"ToMonth\" IS NOT NULL AND \"ToDay\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_Shelves_Name", "trim(\"Name\") <> ''");
+
+                            t.HasCheckConstraint("CK_Shelves_To", "\"ToMonth\" BETWEEN 1 AND 12 AND \"ToDay\" BETWEEN 1 AND CASE \"ToMonth\" WHEN 1 THEN 31 WHEN 2 THEN 29 WHEN 3 THEN 31 WHEN 4 THEN 30 WHEN 5 THEN 31 WHEN 6 THEN 30 WHEN 7 THEN 31 WHEN 8 THEN 31 WHEN 9 THEN 30 WHEN 10 THEN 31 WHEN 11 THEN 30 WHEN 12 THEN 31 END");
+                        });
+                });
+
+            modelBuilder.Entity("Rewind.Core.Shelves.ShelfMovie", b =>
+                {
+                    b.Property<int>("ShelfId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MovieId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("ShelfId", "MovieId");
+
+                    b.HasIndex("MovieId");
+
+                    b.ToTable("ShelfMovies");
+                });
+
             modelBuilder.Entity("Rewind.Core.StoreManager.StoreSettings", b =>
                 {
                     b.Property<int>("Id")
@@ -657,6 +720,31 @@ namespace Rewind.Core.Migrations
                     b.HasOne("Rewind.Core.Checkout.RentalItem", null)
                         .WithMany()
                         .HasForeignKey("RentalItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Rewind.Core.Shelves.Shelf", b =>
+                {
+                    b.HasOne("Rewind.Core.Members.Member", "Member")
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Member");
+                });
+
+            modelBuilder.Entity("Rewind.Core.Shelves.ShelfMovie", b =>
+                {
+                    b.HasOne("Rewind.Core.Catalog.Movie", null)
+                        .WithMany()
+                        .HasForeignKey("MovieId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Rewind.Core.Shelves.Shelf", null)
+                        .WithMany()
+                        .HasForeignKey("ShelfId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

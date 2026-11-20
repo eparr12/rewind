@@ -18,9 +18,10 @@ public interface IMemberRoster
     Task<MemberRow?> FindByCardAsync(string cardBarcode, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Adds an active member with the card that was scanned. The name is cleaned as a title typed into
-    /// Intake is, and cut at <see cref="Member.MaxNameLength"/> characters. A card another member has,
-    /// active or not, comes back <see cref="MemberChangeStatus.CardInUse"/>, with that member.
+    /// Adds an active member with the card that was scanned, and their Staff Picks shelf with nothing on
+    /// it, in one save (ADR-0015). The name is cleaned as a title typed into Intake is, and cut at
+    /// <see cref="Member.MaxNameLength"/> characters. A card another member has, active or not, comes back
+    /// <see cref="MemberChangeStatus.CardInUse"/>, with that member, and saves nothing.
     /// </summary>
     Task<MemberChange> AddAsync(string name, string cardBarcode, CancellationToken cancellationToken);
 

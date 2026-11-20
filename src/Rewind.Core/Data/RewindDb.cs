@@ -8,6 +8,7 @@ using Rewind.Core.Members;
 using Rewind.Core.Metadata;
 using Rewind.Core.MovieNights;
 using Rewind.Core.Returns;
+using Rewind.Core.Shelves;
 using Rewind.Core.StoreManager;
 
 namespace Rewind.Core.Data;
@@ -68,6 +69,12 @@ public sealed class RewindDb(DbContextOptions<RewindDb> options) : DbContext(opt
 
     /// <summary>Who watched each rented movie, with their stars.</summary>
     public DbSet<Viewing> WatchLog => Set<Viewing>();
+
+    /// <summary>Each member's Staff Picks shelf, and the seasonal shelves the Store Manager keeps (ADR-0015).</summary>
+    public DbSet<Shelf> Shelves => Set<Shelf>();
+
+    /// <summary>Which movies are on each shelf now.</summary>
+    public DbSet<ShelfMovie> ShelfMovies => Set<ShelfMovie>();
 
     /// <summary>
     /// The connection string for a Rewind database file. Foreign Keys=True sends

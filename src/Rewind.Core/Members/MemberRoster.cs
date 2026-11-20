@@ -3,12 +3,13 @@ using Microsoft.Extensions.Logging;
 using Rewind.Core.Data;
 using Rewind.Core.Metadata;
 using Rewind.Core.Scans;
+using Rewind.Core.Shelves;
 
 namespace Rewind.Core.Members;
 
 /// <summary>
-/// Keeps the family's members for the Store Manager (Build Plan 3.1): each with a name and the card
-/// printed for them, deactivated when they stop renting, never deleted (DATA-4).
+/// Keeps the family's members for the Store Manager (Build Plan 3.1): each with a name, the card
+/// printed for them and a Staff Picks shelf, deactivated when they stop renting, never deleted (DATA-4).
 /// </summary>
 public sealed partial class MemberRoster(IDbContextFactory<RewindDb> dbFactory, ILogger<MemberRoster> logger) : IMemberRoster
 {
@@ -124,8 +125,11 @@ public sealed partial class MemberRoster(IDbContextFactory<RewindDb> dbFactory, 
             return CardInUse(owner);
         }
 
+        // Every member has a Staff Picks shelf from the save that adds them (ADR-0015), so both rows go in this one
+        // SaveChanges (DATA-7). The shelf takes the member through its navigation, since the member has no key yet.
         var member = new Member { Name = name, CardBarcode = card };
         db.Members.Add(member);
+        db.Shelves.Add(new Shelf { Member = member });
         await db.SaveChangesAsync(cancellationToken);
         LogAdded(logger, card, name);
         return Saved(member);

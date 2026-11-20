@@ -411,7 +411,8 @@ public sealed class ConcessionBarTests
         var bar = new ConcessionBar(rewind.DbFactory, log);
 
         var added = await bar.AddAsync("Popcron", Code, "1.00", ct);
-        await bar.RenameAsync(added.Item!.Id, "Popcorn", ct);
+        Assert.NotNull(added.Item);
+        await bar.RenameAsync(added.Item.Id, "Popcorn", ct);
         await bar.SetPriceAsync(added.Item.Id, "1.25", ct);
         await bar.SetActiveAsync(added.Item.Id, isActive: false, ct);
         await bar.SetActiveAsync(added.Item.Id, isActive: true, ct);

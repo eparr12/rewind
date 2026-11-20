@@ -24,6 +24,39 @@ public sealed class MemberRosterTests
         Assert.Equal(("Grandma", Card, true), (saved.Name, saved.CardBarcode, saved.IsActive));
     }
 
+    // Every member has a Staff Picks shelf from the save that adds them (ADR-0015), with nothing on it yet.
+    [Fact]
+    public async Task AddAsync_NameAndCard_SavesTheirStaffPicksShelfWithNothingOnIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+
+        var change = await Roster(rewind).AddAsync("Grandma", Card, ct);
+
+        Assert.NotNull(change.Member);
+        Assert.Equal<int?>([change.Member.Id], await SavedShelvesAsync(rewind, ct));
+        await using var db = rewind.OpenDb();
+        Assert.Equal(0, await db.ShelfMovies.CountAsync(ct));
+    }
+
+    // The first member's key is 1, so it takes a second member to show each shelf is its own member's.
+    [Fact]
+    public async Task AddAsync_SecondMember_SavesTheirOwnShelf()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var roster = Roster(rewind);
+        var grandma = await roster.AddAsync("Grandma", Card, ct);
+
+        var grandpa = await roster.AddAsync("Grandpa", "MEM-002", ct);
+
+        Assert.NotNull(grandma.Member);
+        Assert.NotNull(grandpa.Member);
+        Assert.Equal<int?>([grandma.Member.Id, grandpa.Member.Id], await SavedShelvesAsync(rewind, ct));
+    }
+
     [Fact]
     public async Task AddAsync_NameWithSpacesAround_SavesItTrimmed()
     {
@@ -107,6 +140,20 @@ public sealed class MemberRosterTests
         Assert.Equal([mom], await SavedMembersAsync(rewind, ct));
     }
 
+    // A card in use saves nothing, so no shelf either. Mom was saved straight to the database, with no shelf.
+    [Fact]
+    public async Task AddAsync_CardOfAnotherMember_SavesNoShelf()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddMemberAsync(rewind, "Mom", Card, ct);
+
+        await Roster(rewind).AddAsync("Grandma", Card, ct);
+
+        Assert.Empty(await SavedShelvesAsync(rewind, ct));
+    }
+
     // A deactivated member keeps their card (DATA-4): they're reactivated, not added again.
     [Fact]
     public async Task AddAsync_CardOfAnInactiveMember_IsCardInUse()
@@ -140,6 +187,41 @@ public sealed class MemberRosterTests
         var mom = Assert.Single(await SavedMembersAsync(rewind, ct));
         Assert.Equal(new MemberChange(MemberChangeStatus.CardInUse, mom), change);
         Assert.Equal("Mom", mom.Name);
+    }
+
+    // The same lost race: the card's index refuses Grandma, so her shelf, which needs her key, is never saved
+    // either. Mom was saved straight to the database, with no shelf.
+    [Fact]
+    public async Task AddAsync_CardTakenDuringTheSave_SavesNoShelf()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var momFirst = rewind.ContextsWith(new BeforeEachSave(token => AddMemberAsync(rewind, "Mom", Card, token)));
+
+        var change = await Roster(rewind, momFirst).AddAsync("Grandma", Card, ct);
+
+        Assert.Equal(MemberChangeStatus.CardInUse, change.Status); // so the race was run, and lost
+        Assert.Empty(await SavedShelvesAsync(rewind, ct));
+    }
+
+    // DATA-7: the member and their shelf are one save, so the Store Manager leaving the Members tab just as it lands
+    // can't leave a member without a shelf, and the member still comes back saved (NET-7).
+    [Fact]
+    public async Task AddAsync_CancelledOnceSaved_StillSavesTheirShelf()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        using var leaving = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var leaveOnceSaved = rewind.ContextsWith(new AfterEachSave(_ => leaving.CancelAsync()));
+
+        var change = await Roster(rewind, leaveOnceSaved).AddAsync("Grandma", Card, leaving.Token);
+
+        Assert.True(leaving.IsCancellationRequested);
+        Assert.Equal(MemberChangeStatus.Saved, change.Status);
+        Assert.NotNull(change.Member);
+        Assert.Equal<int?>([change.Member.Id], await SavedShelvesAsync(rewind, ct));
     }
 
     // NET-12, OBS-3: a card in use is a slip, found before the save, so the log has no error for it.
@@ -187,7 +269,8 @@ public sealed class MemberRosterTests
         var roster = new MemberRoster(rewind.DbFactory, log);
 
         var added = await roster.AddAsync("Granma", Card, ct);
-        await roster.RenameAsync(added.Member!.Id, "Grandma", ct);
+        Assert.NotNull(added.Member);
+        await roster.RenameAsync(added.Member.Id, "Grandma", ct);
         await roster.SetActiveAsync(added.Member.Id, isActive: false, ct);
         await roster.SetActiveAsync(added.Member.Id, isActive: true, ct);
 
@@ -516,6 +599,18 @@ public sealed class MemberRosterTests
             .AsNoTracking()
             .OrderBy(m => m.Id)
             .Select(m => new MemberRow(m.Id, m.Name, m.CardBarcode, m.IsActive))
+            .ToListAsync(cancellationToken);
+    }
+
+    // The member each saved shelf is for, in the order the shelves were added. The database holds a member's shelf
+    // to its member alone (ShelfTests), so a member here is a Staff Picks shelf.
+    private static async Task<List<int?>> SavedShelvesAsync(TempRewind rewind, CancellationToken cancellationToken)
+    {
+        await using var db = rewind.OpenDb();
+        return await db.Shelves
+            .AsNoTracking()
+            .OrderBy(s => s.Id)
+            .Select(s => s.MemberId)
             .ToListAsync(cancellationToken);
     }
 }
