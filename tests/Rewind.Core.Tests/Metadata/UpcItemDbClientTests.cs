@@ -385,6 +385,30 @@ public sealed class UpcItemDbClientTests : IDisposable
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Client().LookupAsync(UpcJson.TommyBoyUpc, cancelled.Token));
     }
 
+    // ADR-0011's window, for a failure rather than an answer. UPCitemdb's call fails while the token is
+    // still live, so HttpClient lets the failure through as it is. Esc, or the clerk's F-key, then takes its
+    // turn on the renderer's thread and cancels, and only after that does the client's next step run.
+    // That's the caller's cancellation, not UPCitemdb failing to answer, so it isn't TryLater and nothing
+    // goes in the log. A failure given once the token is cancelled would show nothing, since HttpClient
+    // makes that a cancellation itself.
+    [Theory]
+    [MemberData(nameof(NoAnswer))]
+    public async Task LookupAsync_NoAnswerAsTheCallerCancels_IsCancelled(Exception failure)
+    {
+        var log = new ListLogger<UpcItemDbClient>();
+        var answer = _upcItemDb.HoldAnswer(FakeUpcItemDb.LookupFor(UpcJson.TommyBoyUpc));
+        using var caller = new CancellationTokenSource();
+        var renderer = new RendererThread();
+        var lookup = renderer.Start(() => Client(logger: log).LookupAsync(UpcJson.TommyBoyUpc, caller.Token));
+
+        answer.SetException(failure);
+        await caller.CancelAsync();
+        renderer.RunQueued();
+
+        Assert.Equal((TaskStatus.Canceled, (Exception?)null), (lookup.Status, lookup.Exception?.InnerException));
+        Assert.Empty(log.Entries);
+    }
+
     // OBS-3: each answer at Debug with the lookups UPCitemdb says are left, but nothing from the
     // answer's body.
     [Fact]

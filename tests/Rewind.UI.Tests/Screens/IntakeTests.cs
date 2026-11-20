@@ -1592,9 +1592,10 @@ public sealed class IntakeTests : BunitContext
         Assert.False(Renderer.UnhandledException.IsCompleted);
     }
 
-    // #77, from the title box: TmdbClient lets a web failure through as it is once its token is cancelled, as
-    // when the clerk left while its continuation waited its turn. The screen has gone, so the failure goes to
-    // ErrorHub, and it's the exception TMDB's call threw, for the log to keep its details (OBS-4).
+    // From the title box: a search that fails after the clerk left goes to ErrorHub, since the screen has
+    // gone, as the exception it threw, for the log to keep its details (OBS-4). TmdbClient turns a web
+    // failure that's in as the clerk leaves into the caller's cancellation, so only one Core didn't expect
+    // comes this way. This one is an HttpRequestException all the same, a type the Shell tests don't throw.
     [Fact]
     public async Task Dispose_WhileSearching_ReportsAWebFailureToErrorHub()
     {

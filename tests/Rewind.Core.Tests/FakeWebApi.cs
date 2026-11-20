@@ -59,6 +59,19 @@ internal class FakeWebApi : HttpMessageHandler
     public void AnswerLater(string pathAndQuery, Func<Task<HttpResponseMessage>> answer) =>
         _answers[pathAndQuery] = answer;
 
+    /// <summary>
+    /// Holds the answer back until the test gives it, with SetResult or SetException. Whatever waits on
+    /// it runs then and there, so once SetException returns, HttpClient has the failure, as it would from
+    /// the network, and only the caller's own next step can still be waiting its turn, such as on a
+    /// <see cref="RendererThread"/>.
+    /// </summary>
+    public TaskCompletionSource<HttpResponseMessage> HoldAnswer(string pathAndQuery)
+    {
+        var answer = new TaskCompletionSource<HttpResponseMessage>();
+        AnswerLater(pathAndQuery, () => answer.Task);
+        return answer;
+    }
+
     protected static HttpResponseMessage Json(string json, HttpStatusCode status) =>
         new(status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
 
@@ -77,8 +90,11 @@ internal class FakeWebApi : HttpMessageHandler
             _requests.Add(new SentRequest(uri, headers));
         }
 
+        // A real handler answers from the network's own threads and never comes back to the caller's
+        // context, so an answer the test gives later reaches HttpClient at once, wherever the caller is
+        // waiting.
         return _answers.TryGetValue(uri.PathAndQuery, out var answer)
-            ? await answer()
+            ? await answer().ConfigureAwait(false)
             : new HttpResponseMessage(HttpStatusCode.NotFound);
     }
 
