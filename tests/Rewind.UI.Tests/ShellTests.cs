@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Rewind.Core;
+using Rewind.Core.Catalog;
 using Rewind.Core.Checkout;
 using Rewind.Core.CloseOut;
 using Rewind.Core.Concessions;
@@ -27,6 +28,10 @@ namespace Rewind.UI.Tests;
 
 public sealed class ShellTests : BunitContext
 {
+    // The error dialog, for a crash anywhere but Checkout (OBS-5).
+    private const string GoesBackToCheckout =
+        "This program has performed an illegal operation and will go back to Checkout.\n\nIf the problem persists, tell the Store Manager.";
+
     private readonly DialogService _dialogs;
     private readonly ScannerHub _scanner;
     private readonly ErrorHub _errors;
@@ -38,6 +43,7 @@ public sealed class ShellTests : BunitContext
     private readonly FakeConcessionBar _bar = new();
     private readonly FakeReturnDesk _desk = new();
     private readonly FakeCloseOutRegister _closeOut = new();
+    private readonly FakeCatalogSearch _catalog = new();
     private readonly ListLogger<Shell> _shellLog = new();
     private readonly ListLogger<ErrorHub> _errorLog = new();
     private readonly CountingBoundaryLogger _boundaryLog = new();
@@ -67,6 +73,7 @@ public sealed class ShellTests : BunitContext
         Services.AddSingleton<ICheckoutCounter>(_counter);
         Services.AddSingleton<IReturnDesk>(_desk);
         Services.AddSingleton<ICloseOutRegister>(_closeOut);
+        Services.AddSingleton<ICatalogSearch>(_catalog);
         Services.AddSingleton(TimeProvider.System);
         Services.AddSingleton(Options.Create(new RewindPaths()));
 
@@ -86,6 +93,17 @@ public sealed class ShellTests : BunitContext
 
         Assert.True(cut.HasComponent<Return>());
         Assert.Equal("F2 Return", cut.Find("[role=tab][aria-selected=true]").TextContent);
+    }
+
+    [Fact]
+    public async Task OnFunctionKey_F3_OpensAskTheClerk()
+    {
+        var cut = Render<Shell>();
+
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F3"));
+
+        Assert.True(cut.HasComponent<AskTheClerk>());
+        Assert.Equal("F3 Ask the Clerk", cut.Find("[role=tab][aria-selected=true]").TextContent);
     }
 
     // ADR-0012: a case is back at its scan, so leaving Who watched? loses only the answer. F2 then opens a new
@@ -639,9 +657,7 @@ public sealed class ShellTests : BunitContext
 
         await CloseDialogAsync(cut); // OK on the question, and Core throws
 
-        Assert.Equal(
-            "This program has performed an illegal operation and will go back to Checkout.\n\nIf the problem persists, tell the Store Manager.",
-            _dialogs.Current?.Message);
+        Assert.Equal(GoesBackToCheckout, _dialogs.Current?.Message);
         Assert.Equal(1, _boundaryLog.Count);
         Assert.Empty(_errorLog.Entries);
         await CloseDialogAsync(cut);
@@ -698,7 +714,7 @@ public sealed class ShellTests : BunitContext
 
         Assert.Equal(["Unhandled exception from Return; reported to the shell"], _errorLog.Entries.Select(entry => entry.Message));
         Assert.Equal(0, _boundaryLog.Count);
-        Assert.Equal("This program has performed an illegal operation and will go back to Checkout.\n\nIf the problem persists, tell the Store Manager.", _dialogs.Current?.Message);
+        Assert.Equal(GoesBackToCheckout, _dialogs.Current?.Message);
         await CloseDialogAsync(cut);
         Assert.Equal("Scan a member card to start a rental.", cut.Find(".checkout-prompt").TextContent);
     }
@@ -740,7 +756,7 @@ public sealed class ShellTests : BunitContext
 
         Assert.Equal(["Unhandled exception from Intake; reported to the shell"], _errorLog.Entries.Select(entry => entry.Message));
         Assert.Equal(0, _boundaryLog.Count);
-        Assert.Equal("This program has performed an illegal operation and will go back to Checkout.\n\nIf the problem persists, tell the Store Manager.", _dialogs.Current?.Message);
+        Assert.Equal(GoesBackToCheckout, _dialogs.Current?.Message);
         await CloseDialogAsync(cut);
         Assert.Equal("Scan a member card to start a rental.", cut.Find(".checkout-prompt").TextContent);
     }
@@ -767,9 +783,89 @@ public sealed class ShellTests : BunitContext
 
         Assert.Equal(["Unhandled exception from Intake; reported to the shell"], _errorLog.Entries.Select(entry => entry.Message));
         Assert.Equal(0, _boundaryLog.Count);
-        Assert.Equal("This program has performed an illegal operation and will go back to Checkout.\n\nIf the problem persists, tell the Store Manager.", _dialogs.Current?.Message);
+        Assert.Equal(GoesBackToCheckout, _dialogs.Current?.Message);
         await CloseDialogAsync(cut);
         Assert.Equal("Scan a member card to start a rental.", cut.Find(".checkout-prompt").TextContent);
+    }
+
+    // UI-6: a search that fails while F3 is open goes to the screen's ErrorBoundary, as any screen's work does: the
+    // error dialog, then Checkout.
+    [Fact]
+    public async Task Submit_AskTheClerksSearchFails_ShowsErrorDialogThenCheckout()
+    {
+        _catalog.Search = Task.FromException<SearchResult>(new InvalidOperationException("The search failed."));
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F3"));
+        var search = cut.Find(".ask-the-clerk-search").SubmitAsync();
+
+        Assert.Equal(GoesBackToCheckout, _dialogs.Current?.Message);
+        Assert.Equal(1, _boundaryLog.Count);
+        Assert.Empty(_errorLog.Entries);
+        await CloseDialogAsync(cut);
+        await search;
+        Assert.True(cut.HasComponent<Checkout>());
+    }
+
+    // UI-11, OBS-5: #83's route, from a fourth screen. A search that fails after the clerk went to Checkout goes to
+    // ErrorHub, which logs it once and shows the error dialog, and the Checkout the clerk went to stays open.
+    [Fact]
+    public async Task OnFunctionKey_F1WhileAskTheClerkSearches_ReportsALateFailureToErrorHub()
+    {
+        var searched = new TaskCompletionSource<SearchResult>();
+        _catalog.Search = searched.Task;
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F3"));
+        var search = cut.Find(".ask-the-clerk-search").SubmitAsync();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
+        var checkout = cut.FindComponent<Checkout>().Instance;
+
+        await cut.InvokeAsync(() => searched.SetException(new InvalidOperationException("The search failed.")));
+        await search;
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(["Unhandled exception from AskTheClerk; reported to the shell"], _errorLog.Entries.Select(entry => entry.Message));
+        Assert.Equal(0, _boundaryLog.Count);
+        Assert.Equal(GoesBackToCheckout, _dialogs.Current?.Message);
+        await CloseDialogAsync(cut);
+        Assert.Same(checkout, cut.FindComponent<Checkout>().Instance);
+    }
+
+    // UI-6, OBS-5: Ask the Clerk reads the genres as it opens, so a database Rewind can't read fails it at F3, with the
+    // error dialog and then Checkout.
+    [Fact]
+    public async Task OnFunctionKey_AskTheClerkCantReadTheGenres_ShowsErrorDialogThenCheckout()
+    {
+        _catalog.Genres = Task.FromException<IReadOnlyList<string>>(new InvalidOperationException("The read failed."));
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F3"));
+
+        Assert.Equal(GoesBackToCheckout, _dialogs.Current?.Message);
+        Assert.Equal(1, _boundaryLog.Count);
+        Assert.Empty(_errorLog.Entries);
+        await CloseDialogAsync(cut);
+        Assert.True(cut.HasComponent<Checkout>());
+    }
+
+    // The genres' read waits in the busy line, unlike the other screens' first reads (#97), so one that fails after
+    // the clerk went on to Checkout takes #83's route too, and Checkout stays open.
+    [Fact]
+    public async Task OnFunctionKey_F1WhileAskTheClerkReadsTheGenres_ReportsALateFailureToErrorHub()
+    {
+        var genres = new TaskCompletionSource<IReadOnlyList<string>>();
+        _catalog.Genres = genres.Task;
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F3"));
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
+        var checkout = cut.FindComponent<Checkout>().Instance;
+
+        await cut.InvokeAsync(() => genres.SetException(new InvalidOperationException("The read failed.")));
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(["Unhandled exception from AskTheClerk; reported to the shell"], _errorLog.Entries.Select(entry => entry.Message));
+        Assert.Equal(0, _boundaryLog.Count);
+        Assert.Equal(GoesBackToCheckout, _dialogs.Current?.Message);
+        await CloseDialogAsync(cut);
+        Assert.Same(checkout, cut.FindComponent<Checkout>().Instance);
     }
 
     private IEnumerable<string> LoggedLines => _shellLog.Entries.Select(entry => entry.Message);

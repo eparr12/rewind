@@ -4,7 +4,7 @@ namespace Rewind.Core.Catalog;
 /// What F3 Ask the Clerk asks of Core to search the catalog, one call per thing the clerk does (ARCH-5): the genres for
 /// the screen's list, and each search. Both only read, and both look only at the listed movies: each one with at least
 /// one case that isn't retired, as the phone catalog lists them. <see cref="CatalogSearch"/> does it, and the screen's
-/// tests will use a fake (ADR-0003).
+/// tests use a fake (ADR-0003).
 /// </summary>
 public interface ICatalogSearch
 {

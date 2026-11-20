@@ -166,7 +166,7 @@ public sealed class RewindCoreServicesTests
         Assert.IsType<ReturnDesk>(provider.GetRequiredService<IReturnDesk>());
     }
 
-    // Ask the Clerk will inject it, and a host without it would only fail once F3 opened. It reads the posters, which
+    // Ask the Clerk injects it, and a host without it would only fail once F3 opened. It reads the posters, which
     // AddRewindCore adds too, so it needs no AddRewindIntake. Making it reads no folder.
     [Fact]
     public async Task AddRewindCore_AnyHost_ProvidesTheCatalogSearch()
