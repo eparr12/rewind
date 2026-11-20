@@ -1593,18 +1593,18 @@ public sealed class IntakeTests : BunitContext
     }
 
     // From the title box: a search that fails after the clerk left goes to ErrorHub, since the screen has
-    // gone, as the exception it threw, for the log to keep its details (OBS-4). TmdbClient turns a web
-    // failure that's in as the clerk leaves into the caller's cancellation, so only one Core didn't expect
-    // comes this way. This one is an HttpRequestException all the same, a type the Shell tests don't throw.
+    // gone, as the exception it threw, for the log to keep its details (OBS-4). A NotSupportedException
+    // can still come this way, since Core turns it into neither a result nor a cancellation, and it isn't
+    // the InvalidOperationException the Shell tests throw: the route takes any type.
     [Fact]
-    public async Task Dispose_WhileSearching_ReportsAWebFailureToErrorHub()
+    public async Task Dispose_WhileSearching_ReportsALateFailureToErrorHub()
     {
         var searched = new TaskCompletionSource<TmdbSearch>();
         _intake.Search = searched.Task;
         var cut = Render<Intake>();
         var search = SearchAsync(cut, "Halloween");
         await DisposeComponentsAsync();
-        var failure = new HttpRequestException("No connection.");
+        var failure = new NotSupportedException("The search failed.");
 
         searched.SetException(failure);
         await search;

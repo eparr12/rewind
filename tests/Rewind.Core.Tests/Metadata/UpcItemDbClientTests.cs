@@ -390,7 +390,8 @@ public sealed class UpcItemDbClientTests : IDisposable
     // turn on the renderer's thread and cancels, and only after that does the client's next step run.
     // That's the caller's cancellation, not UPCitemdb failing to answer, so it isn't TryLater and nothing
     // goes in the log. A failure given once the token is cancelled would show nothing, since HttpClient
-    // makes that a cancellation itself.
+    // makes that a cancellation itself. So would one given before the call is out: a call that waited for
+    // something first would start only after the cancel, and end cancelled whatever the filter.
     [Theory]
     [MemberData(nameof(NoAnswer))]
     public async Task LookupAsync_NoAnswerAsTheCallerCancels_IsCancelled(Exception failure)
@@ -400,6 +401,7 @@ public sealed class UpcItemDbClientTests : IDisposable
         using var caller = new CancellationTokenSource();
         var renderer = new RendererThread();
         var lookup = renderer.Start(() => Client(logger: log).LookupAsync(UpcJson.TommyBoyUpc, caller.Token));
+        Assert.Single(_upcItemDb.Requests); // the call is out, waiting on UPCitemdb
 
         answer.SetException(failure);
         await caller.CancelAsync();

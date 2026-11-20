@@ -246,7 +246,9 @@ public sealed class BarcodeTitlesTests : IAsyncLifetime
     // ADR-0011's window from the top, as a scan's lookup meets it: UPCitemdb's call fails while the
     // token is still live, and Esc or the clerk's F-key cancels before the lookup's next step runs.
     // Neither the pacer nor BarcodeTitles turns that cancellation into anything else, so the screen
-    // gets what it gets for any lookup it stopped.
+    // gets what it gets for any lookup it stopped. The call is out before the failure comes, past the
+    // database and the pacer: a lookup that waited for something first would start only after the
+    // cancel, and end cancelled whatever the filter.
     [Fact]
     public async Task LookupAsync_UpcItemDbFailsAsTheCallerCancels_IsCancelled()
     {
@@ -254,6 +256,7 @@ public sealed class BarcodeTitlesTests : IAsyncLifetime
         using var caller = new CancellationTokenSource();
         var renderer = new RendererThread();
         var lookup = renderer.Start(() => Titles.LookupAsync(UpcJson.TommyBoyUpc, null, caller.Token));
+        Assert.Single(_upcItemDb.Requests); // the call is out, waiting on UPCitemdb
 
         answer.SetException(new HttpRequestException("No such host is known."));
         await caller.CancelAsync();

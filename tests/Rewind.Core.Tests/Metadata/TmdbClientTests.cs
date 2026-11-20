@@ -224,7 +224,8 @@ public sealed class TmdbClientTests : IDisposable
     // on the renderer's thread and cancels, and only after that does the client's next step run. That's
     // the caller's cancellation, not TMDB failing to answer, so it isn't TryLater and nothing goes in the
     // log. A failure given once the token is cancelled would show nothing, since HttpClient makes that a
-    // cancellation itself.
+    // cancellation itself. So would one given before the call is out: a call that waited for something
+    // first would start only after the cancel, and end cancelled whatever the filter.
     [Theory]
     [MemberData(nameof(NoAnswer))]
     public async Task SearchAsync_NoAnswerAsTheCallerCancels_IsCancelled(Exception failure)
@@ -234,6 +235,7 @@ public sealed class TmdbClientTests : IDisposable
         using var caller = new CancellationTokenSource();
         var renderer = new RendererThread();
         var search = renderer.Start(() => Client(logger: log).SearchAsync("Halloween", caller.Token));
+        Assert.Single(_tmdb.Requests); // the call is out, waiting on TMDB
 
         answer.SetException(failure);
         await caller.CancelAsync();
@@ -567,6 +569,7 @@ public sealed class TmdbClientTests : IDisposable
         using var caller = new CancellationTokenSource();
         var renderer = new RendererThread();
         var poster = renderer.Start(() => Client(logger: log).GetPosterAsync(TmdbJson.HalloweenPoster, PosterSize.Register, caller.Token));
+        Assert.Single(_tmdb.Requests); // the download is out, waiting on TMDB's image server
 
         answer.SetException(failure);
         await caller.CancelAsync();
