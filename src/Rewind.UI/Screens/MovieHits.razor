@@ -1,0 +1,97 @@
+@* Ask the Clerk's list (Build Plan 4.1): the movies a search found, in a 98.css list. Each row shows the movie's
+   thumbnail beside its title, as the picker shows each match's poster, then its year, its rating and whether a
+   case of it is on the shelf. It opens with the first row focused. The arrow keys, Home and End move between the
+   rows (keyboard.js), and the highlight follows the focus. Esc hands the cursor back to the screen, for its search
+   box. Build Plan 4.1 picks nothing from the list, so Enter and a double-click do nothing. *@
+@if (Hits.Count > 0)
+{
+    <div class="sunken-panel movie-hits-list" @onkeydown="OnKeyDownAsync">
+        <table class="interactive">
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Year</th>
+                    <th>Rating</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (var i = 0; i < Hits.Count; i++)
+                {
+                    var row = i;
+                    var hit = Hits[row];
+                    <tr class="@(row == _highlighted ? "highlighted" : null)"
+                        tabindex="@(row == _highlighted ? 0 : -1)"
+                        aria-selected="@(row == _highlighted ? "true" : "false")"
+                        @ref="_rows[row]"
+                        @onfocus="() => Highlight(row)">
+                        <td>
+                            <div class="movie-hits-title">
+                                @* As a Windows 98 list shows an icon beside each name. *@
+                                @if (_thumbs[row] is { } thumb)
+                                {
+                                    <img src="@thumb" alt="" />
+                                }
+                                else
+                                {
+                                    <span class="movie-hits-no-thumb"></span>
+                                }
+                                <span>@hit.Title</span>
+                            </div>
+                        </td>
+                        <td>@hit.Year</td>
+                        <td>@hit.Rating</td>
+                        <td>@(hit.OnShelf ? "On the shelf" : "Checked out")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private ElementReference[] _rows = [];
+    private string?[] _thumbs = [];
+    private int _highlighted;
+
+    /// <summary>
+    /// The movies the search found, in the order Core gives them. The screen shows a new list for each search,
+    /// under a new key, so the list sets itself up once, as it opens, and a redraw keeps the highlight. Given none,
+    /// it draws nothing and takes no focus: saying that nothing matched is the screen's job (UI-6).
+    /// </summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<MovieHit> Hits { get; set; } = [];
+
+    /// <summary>Called when the clerk presses Esc on the list, so the screen can put the cursor back in its search box.</summary>
+    [Parameter]
+    public EventCallback OnEscape { get; set; }
+
+    // Each thumbnail's src is made once, as the list opens, not on every render: each is a thumbnail's bytes in
+    // base64, and the highlight moves with every arrow key.
+    protected override void OnInitialized()
+    {
+        _rows = new ElementReference[Hits.Count];
+        _thumbs = [.. Hits.Select(hit => hit.Thumb is { } thumb ? PosterImage.Source(thumb) : null)];
+    }
+
+    // UI-3: the arrow keys work at once, without a click on the list first. With no hits, there's no row to focus.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _rows.Length > 0)
+        {
+            await _rows[0].FocusAsync();
+        }
+    }
+
+    // The highlight follows the focus, which a click or keyboard.js's arrow keys move.
+    private void Highlight(int row) => _highlighted = row;
+
+    // UI-3: Esc hands the cursor back to the screen. Every other key is left alone, since there's nothing to pick.
+    private async Task OnKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            await OnEscape.InvokeAsync();
+        }
+    }
+}
