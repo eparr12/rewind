@@ -17,7 +17,7 @@ namespace Rewind.UI.Tests.Screens;
 
 public sealed class AskTheClerkTests : BunitContext
 {
-    private const string BeforeASearch = "Type part of a title or a name, or pick a genre, a year or a rating, then press Enter.";
+    private const string BeforeASearch = "Type part of a title or a name, type a year, or pick a genre or a rating, then press Enter.";
     private const string NotAYear = "The year is four digits, such as 1978, or blank.";
     private const string NotARating = "Pick a rating from the list, or Any.";
     private const string LookForBox = "#ask-the-clerk-text";
@@ -547,7 +547,8 @@ public sealed class AskTheClerkTests : BunitContext
         Assert.Equal(["Halloween"], Rows(cut).Select(Title));
     }
 
-    // UI-3: Esc on the list puts the cursor back in the Look for box, to search again.
+    // UI-3: Esc on the list puts the cursor back in the Look for box. The box keeps what was typed, with the cursor
+    // after it, so typing adds to it, and a second Esc starts over.
     [Fact]
     public async Task KeyDownEscape_OnTheList_PutsTheCursorInTheLookForBox()
     {

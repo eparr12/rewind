@@ -7,10 +7,12 @@
 @* F3 Ask the Clerk (Build Plan 4.1): the clerk types part of a title, a name from the cast or the director, or
    a year, or picks a genre or a rating, or any of them together, and Enter searches the catalog. The movies it
    found go in the list under the search, each saying whether a case of it is on the shelf. The list takes the
-   room left under the search, so a bigger screen shows more of it. Esc on the list puts the cursor back in the
-   Look for box, to search again, and Esc in the search clears it. Every Enter in the search searches: a text box
-   submits the form by itself, and keyboard.js has Enter in a list do the same. The search and what it found live
-   in these fields (ADR-0003), so leaving the screen loses them, and nothing is saved. *@
+   room left under the search, so a bigger screen shows more of it. Each Esc goes one step back, as Intake's does.
+   Esc on the list puts the cursor back in the Look for box, which keeps what was typed, with the cursor where it
+   was, after the text, so typing adds to it. A second Esc, in the search, clears it, to start a new search. Every
+   Enter in the search searches: a text box submits the form by itself, and keyboard.js has Enter in a list do the
+   same. The search and what it found live in these fields (ADR-0003), so leaving the screen loses them, and
+   nothing is saved. *@
 <div class="ask-the-clerk">
     @* Esc is the form's: the list sits outside it, so Esc on the list never clears the search. *@
     <form class="field-row ask-the-clerk-search" @onsubmit="SearchAsync" @onsubmit:preventDefault @onkeydown="OnSearchKeyDown">
@@ -53,7 +55,7 @@
     // A year is four digits, as in the hand-entry form.
     private const int YearLength = 4;
 
-    private const string BeforeASearch = "Type part of a title or a name, or pick a genre, a year or a rating, then press Enter.";
+    private const string BeforeASearch = "Type part of a title or a name, type a year, or pick a genre or a rating, then press Enter.";
 
     // Ask the Clerk only looks movies up, so each barcode belongs on another screen.
     private static readonly Dialog TakesNoScans = new(
@@ -225,7 +227,9 @@
         _cursorTo = _textBox;
     }
 
-    // Esc on the list puts the cursor back in the Look for box, to search again, and leaves the list as it is.
+    // Esc on the list puts the cursor back in the Look for box and leaves the list as it is. The box keeps what was
+    // typed, and the browser puts the cursor back where it was, after the text, so typing adds to it. A second Esc,
+    // in the search, starts over.
     private void BackToTheBox() => _cursorTo = _textBox;
 
     // Such as "1 movie" or "3 movies".

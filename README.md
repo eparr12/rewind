@@ -102,7 +102,7 @@ To try it in a Debug build, carry on from Checkout's: open Return (F2), type `RV
 
 ## Ask the Clerk
 
-Ask the Clerk (F3) searches the catalog. The clerk types part of a title, part of an actor's or the director's name, or a year, or picks a genre or a rating, in any mix, and presses Enter. Each movie found shows its thumbnail, year and rating, and whether a case of it is **On the shelf** or **Checked out**. With nothing typed or picked, it lists the whole catalog. It only reads, so nothing it does is saved. Esc on the list goes back to the Look for box, and Esc in the search clears it.
+Ask the Clerk (F3) searches the catalog. The clerk types part of a title, part of an actor's or the director's name, or a year, or picks a genre or a rating, in any mix, and presses Enter. Each movie found shows its thumbnail, year and rating, and whether a case of it is **On the shelf** or **Checked out**. With nothing typed or picked, it lists the whole catalog. It only reads, so nothing it does is saved. Esc on the list goes back to the Look for box, which keeps what was typed, so typing adds to it. Esc twice starts a new search.
 
 It lists each movie that has a case that isn't retired, as the phone catalog does, once however many cases it's in, so a movie whose cases are all retired isn't there. A filter never matches what isn't known: a movie with no year isn't from 1978, and one with no rating isn't rated R. The list shows the first 50, A to Z by title, and when more match, the line above it says to type more.
 
