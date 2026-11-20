@@ -338,6 +338,137 @@ public sealed class BusinessDaysTests
         Assert.Empty(log.Entries);
     }
 
+    // ADR-0015: the seasonal shelves ask which night it is before the night's first card too, so with none open the
+    // answer is none, and asking opens none.
+    [Fact]
+    public async Task CurrentAsync_NoneOpen_ReturnsNoneAndOpensNone()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+
+        var current = await Days(rewind).CurrentAsync(ct);
+
+        Assert.Null(current);
+        Assert.Empty(await SavedDaysAsync(rewind, ct));
+    }
+
+    [Fact]
+    public async Task CurrentAsync_OneOpen_ReturnsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var opened = await OpenANightAsync(rewind, ct);
+        rewind.Time.Advance(TimeSpan.FromHours(3));
+
+        var current = await Days(rewind).CurrentAsync(ct);
+
+        Assert.Equal(opened, current);
+    }
+
+    // ADR-0014's limit, as OpenOrCurrentAsync keeps it: at exactly 16 hours the night is still tonight's.
+    [Fact]
+    public async Task CurrentAsync_OpenForExactlySixteenHours_ReturnsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var opened = await OpenANightAsync(rewind, ct);
+        rewind.Time.Advance(TimeSpan.FromHours(16));
+
+        var current = await Days(rewind).CurrentAsync(ct);
+
+        Assert.Equal(opened, current);
+    }
+
+    // A second past the 16 hours, the night is one nobody closed out, so it's no longer tonight's. This closes nothing
+    // and opens nothing: the next night's first card does both (ADR-0014).
+    [Fact]
+    public async Task CurrentAsync_OpenForMoreThanSixteenHours_ReturnsNoneAndLeavesItOpen()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var stale = await OpenANightAsync(rewind, ct);
+        rewind.Time.Advance(TimeSpan.FromHours(16) + TimeSpan.FromSeconds(1));
+
+        var current = await Days(rewind).CurrentAsync(ct);
+
+        Assert.Null(current);
+        Assert.Equal([stale], await SavedDaysAsync(rewind, ct));
+    }
+
+    [Fact]
+    public async Task CurrentAsync_AfterClosing_ReturnsNone()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var days = Days(rewind);
+        await days.OpenOrCurrentAsync(ct);
+        await days.CloseAsync(ct);
+
+        var current = await days.CurrentAsync(ct);
+
+        Assert.Null(current);
+    }
+
+    // ADR-0014: the rule trusts the register's clock, as OpenOrCurrentAsync's does. A night saved a week ahead of the
+    // clock stands for a clock set back since it opened, and it's still tonight's.
+    [Fact]
+    public async Task CurrentAsync_ClockSetBackSinceTheNightOpened_ReturnsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var opened = await OpenANightAsync(rewind, ct, openedAt: Now(rewind) + TimeSpan.FromDays(7));
+
+        var current = await Days(rewind).CurrentAsync(ct);
+
+        Assert.Equal(opened, current);
+    }
+
+    // OBS-3: a read logs nothing, with no night open, a night of three hours or one nobody closed out a week ago,
+    // whose Warning comes from the card that ends it.
+    [Theory]
+    [InlineData(null)]
+    [InlineData(3)]
+    [InlineData(7 * 24)]
+    public async Task CurrentAsync_AnyNight_LogsNothing(int? hoursOpen)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        if (hoursOpen is { } hours)
+        {
+            await OpenANightAsync(rewind, ct);
+            rewind.Time.Advance(TimeSpan.FromHours(hours));
+        }
+
+        var log = new ListLogger<BusinessDays>();
+
+        await new BusinessDays(rewind.DbFactory, rewind.Time, log).CurrentAsync(ct);
+
+        Assert.Empty(log.Entries);
+    }
+
+    // NET-7: the read hands its token on, so a screen that closes stops it.
+    [Fact]
+    public async Task CurrentAsync_Cancelled_Stops()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await OpenANightAsync(rewind, ct);
+        using var leaving = new CancellationTokenSource();
+        await leaving.CancelAsync();
+
+        var read = () => Days(rewind).CurrentAsync(leaving.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(read);
+    }
+
     [Fact]
     public async Task CloseAsync_OneOpen_ClosesItAtTheClocksTime()
     {

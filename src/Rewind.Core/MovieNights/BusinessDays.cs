@@ -42,6 +42,15 @@ public sealed partial class BusinessDays(
     }
 
     /// <inheritdoc />
+    public async Task<BusinessDayRow?> CurrentAsync(CancellationToken cancellationToken)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        var now = time.GetUtcNow().UtcDateTime; // NET-8, DATA-8
+        var open = await FindOpenAsync(db, cancellationToken);
+        return open is not null && IsTonights(open, now) ? open : null;
+    }
+
+    /// <inheritdoc />
     public async Task<BusinessDayClosing> CloseAsync(CancellationToken cancellationToken)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
@@ -64,7 +73,7 @@ public sealed partial class BusinessDays(
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var now = time.GetUtcNow().UtcDateTime; // NET-8, DATA-8
         var open = await FindOpenAsync(db, cancellationToken);
-        if (open is not null && now - open.OpenedAt <= LongestNight)
+        if (open is not null && IsTonights(open, now))
         {
             return open;
         }
@@ -90,6 +99,11 @@ public sealed partial class BusinessDays(
         LogOpened(logger, day.Id);
         return Row(day);
     }
+
+    // ADR-0014: the open night is still tonight's for up to LongestNight after it opened, exactly that long included,
+    // whichever call asks. The rule trusts the register's clock, so one set back to before the night opened makes the
+    // night look newer, and it's still tonight's.
+    private static bool IsTonights(BusinessDayRow open, DateTime now) => now - open.OpenedAt <= LongestNight;
 
     private static Task<BusinessDayRow?> FindOpenAsync(RewindDb db, CancellationToken cancellationToken) =>
         db.BusinessDays

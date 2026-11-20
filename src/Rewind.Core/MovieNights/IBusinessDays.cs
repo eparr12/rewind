@@ -17,6 +17,15 @@ public interface IBusinessDays
     Task<BusinessDayRow> OpenOrCurrentAsync(CancellationToken cancellationToken);
 
     /// <summary>
+    /// The night that's open, while it's still tonight's, or null when none is. It's the night
+    /// <see cref="OpenOrCurrentAsync"/> gives back when it has one to give, but this opens none, closes none and logs
+    /// nothing: it's null before the night's first card, after its Close Out, and once a night nobody closed out is too
+    /// old for OpenOrCurrentAsync to give back. It's for what goes by the night without starting one, such as which
+    /// seasonal shelves are in season (ADR-0015).
+    /// </summary>
+    Task<BusinessDayRow?> CurrentAsync(CancellationToken cancellationToken);
+
+    /// <summary>
     /// Closes the open night at the clock's time. With none open, such as at a second Close Out the same
     /// night, nothing changes and <see cref="BusinessDayClosingStatus.NothingOpen"/> comes back (NET-12).
     /// </summary>

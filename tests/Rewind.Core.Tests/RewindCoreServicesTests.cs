@@ -12,6 +12,7 @@ using Rewind.Core.Members;
 using Rewind.Core.Metadata;
 using Rewind.Core.MovieNights;
 using Rewind.Core.Returns;
+using Rewind.Core.Shelves;
 using Rewind.Core.StoreManager;
 
 namespace Rewind.Core.Tests;
@@ -104,6 +105,25 @@ public sealed class RewindCoreServicesTests
         await using var provider = services.BuildServiceProvider();
 
         Assert.IsType<ConcessionBar>(provider.GetRequiredService<IConcessionBar>());
+    }
+
+    // The Store Manager's Shelves tab will inject it, and a host without it would only fail once that tab opened. It
+    // holds no state, so one serves every screen. Making it reads no night: it asks the business days only when called.
+    [Fact]
+    public async Task AddRewindCore_AnyHost_ProvidesOneDisplayShelves()
+    {
+        // A full path on Linux too, as for the label sheets above.
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddRewindCore(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { [$"{RewindPaths.SectionName}:Root"] = Path.GetTempPath() })
+            .Build());
+        await using var provider = services.BuildServiceProvider();
+
+        var shelves = provider.GetRequiredService<IDisplayShelves>();
+
+        Assert.IsType<DisplayShelves>(shelves);
+        Assert.Same(shelves, provider.GetRequiredService<IDisplayShelves>());
     }
 
     // The night's first member card at Checkout and Close Out need it, and a host without it would only fail then.
