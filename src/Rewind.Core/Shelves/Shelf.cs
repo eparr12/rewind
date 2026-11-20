@@ -69,7 +69,7 @@ public sealed class Shelf
 
     /// <summary>
     /// False once the Store Manager deactivates a seasonal shelf. A member's shelf is always active, since it goes by
-    /// its member: it's hidden while they're deactivated, and back when they are (ADR-0015).
+    /// its member: it's hidden while they're deactivated, and shown again once they're reactivated (ADR-0015).
     /// </summary>
     public bool IsActive { get; set; } = true;
 

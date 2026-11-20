@@ -52,9 +52,11 @@ public sealed class ShelfConfiguration : IEntityTypeConfiguration<Shelf>
     // Each end of a season is a real day of the year: a month from 1 to 12, and a day from 1 to that month's last,
     // with 29 for February. It's built from Shelf's constants, as CaseConfiguration builds its CHECK from the enum's
     // names, so the two can't drift: a change to them is a model change, which fails the model test until a migration
-    // rebuilds Shelves. A month outside 1 to 12 has no arm in the CASE, which then gives NULL, but the month's own
-    // BETWEEN has refused it already. Both NULL, for a member's shelf, passes. DATA-13 doesn't apply: this is DDL from
-    // constants, not a query built from input.
+    // rebuilds Shelves. A whole month outside 1 to 12 has no arm in the CASE, which then gives NULL, but the month's
+    // own BETWEEN has refused it already. That holds for whole numbers only. A month of 1.5, typed in the SQLite shell,
+    // passes the BETWEEN and has no arm either, so the CASE gives NULL, and any day from 1 up passes: no range CHECK in
+    // Rewind holds a value to whole numbers, and EF Core writes only whole ones. Both NULL, for a member's shelf,
+    // passes. DATA-13 doesn't apply: this is DDL from constants, not a query built from input.
     private static string RealDay(string month, string day)
     {
         var lastDays = string.Join(

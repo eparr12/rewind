@@ -34,7 +34,8 @@ public sealed class MemberRosterTests
 
         var change = await Roster(rewind).AddAsync("Grandma", Card, ct);
 
-        Assert.Equal<int?>([change.Member!.Id], await SavedShelvesAsync(rewind, ct));
+        Assert.NotNull(change.Member);
+        Assert.Equal<int?>([change.Member.Id], await SavedShelvesAsync(rewind, ct));
         await using var db = rewind.OpenDb();
         Assert.Equal(0, await db.ShelfMovies.CountAsync(ct));
     }
@@ -51,7 +52,9 @@ public sealed class MemberRosterTests
 
         var grandpa = await roster.AddAsync("Grandpa", "MEM-002", ct);
 
-        Assert.Equal<int?>([grandma.Member!.Id, grandpa.Member!.Id], await SavedShelvesAsync(rewind, ct));
+        Assert.NotNull(grandma.Member);
+        Assert.NotNull(grandpa.Member);
+        Assert.Equal<int?>([grandma.Member.Id, grandpa.Member.Id], await SavedShelvesAsync(rewind, ct));
     }
 
     [Fact]
@@ -217,7 +220,8 @@ public sealed class MemberRosterTests
 
         Assert.True(leaving.IsCancellationRequested);
         Assert.Equal(MemberChangeStatus.Saved, change.Status);
-        Assert.Equal<int?>([change.Member!.Id], await SavedShelvesAsync(rewind, ct));
+        Assert.NotNull(change.Member);
+        Assert.Equal<int?>([change.Member.Id], await SavedShelvesAsync(rewind, ct));
     }
 
     // NET-12, OBS-3: a card in use is a slip, found before the save, so the log has no error for it.
@@ -265,7 +269,8 @@ public sealed class MemberRosterTests
         var roster = new MemberRoster(rewind.DbFactory, log);
 
         var added = await roster.AddAsync("Granma", Card, ct);
-        await roster.RenameAsync(added.Member!.Id, "Grandma", ct);
+        Assert.NotNull(added.Member);
+        await roster.RenameAsync(added.Member.Id, "Grandma", ct);
         await roster.SetActiveAsync(added.Member.Id, isActive: false, ct);
         await roster.SetActiveAsync(added.Member.Id, isActive: true, ct);
 
