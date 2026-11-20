@@ -408,40 +408,68 @@ body {
   font-weight: bold;
 }
 
-/* The picker: a list tall enough for a poster on each row, which scrolls under its header. */
-.tmdb-picker-list {
-  height: 500px;
+/* Rewind's lists: the picker's, Which movie?'s and Ask the Clerk's. Each is a 98.css interactive table
+   as wide as its sunken panel, which scrolls under the table's header. */
+.tmdb-picker-list,
+.which-movie-list,
+.search-results-list {
   scroll-padding-top: 17px; /* 98.css's header height, so the row the arrow keys reach shows in full */
 }
 
-.tmdb-picker-list table {
+.tmdb-picker-list table,
+.which-movie-list table,
+.search-results-list table {
   width: 100%;
 }
 
-.tmdb-picker-list td {
+/* UI-2: the row with the focus gets Windows 98's dotted outline, not the browser's modern ring. */
+.tmdb-picker-list tr:focus,
+.which-movie-list tr:focus,
+.search-results-list tr:focus {
+  outline: 1px dotted #fff;
+  outline-offset: -2px;
+}
+
+/* 98.css keeps a list's text on one line. A long title wraps instead. */
+.tmdb-picker-title span,
+.which-movie-list td:first-child,
+.search-results-title span {
+  white-space: normal;
+}
+
+/* The picker's and Ask the Clerk's rows: a poster beside each title, as a Windows 98 list shows an
+   icon beside each name, or an empty box its size, so the titles line up. */
+.tmdb-picker-list td,
+.search-results-list td {
   padding-top: 2px;
   padding-bottom: 2px;
   vertical-align: top;
 }
 
-.tmdb-picker-title {
+.tmdb-picker-title,
+.search-results-title {
   display: flex;
   align-items: flex-start;
   gap: 6px;
 }
 
 .tmdb-picker-title img,
-.tmdb-picker-no-poster {
+.tmdb-picker-no-poster,
+.search-results-title img,
+.search-results-no-thumb {
   flex: none;
   width: 46px;
   height: 69px;
 }
 
-/* 98.css keeps a list's text on one line. Titles and stories wrap instead, and a story stops
-   after four lines. */
+/* The picker: a list tall enough for a poster on each row. A title leaves the width to its story,
+   which wraps too, and stops after four lines. */
+.tmdb-picker-list {
+  height: 500px;
+}
+
 .tmdb-picker-title span {
   max-width: 240px;
-  white-space: normal;
 }
 
 .tmdb-picker-story {
@@ -455,13 +483,6 @@ body {
   -webkit-line-clamp: 4;
 }
 
-/* UI-2: the row with the focus gets Windows 98's dotted outline, not the browser's modern ring. */
-.tmdb-picker-list tr:focus,
-.which-movie-list tr:focus {
-  outline: 1px dotted #fff;
-  outline-offset: -2px;
-}
-
 .tmdb-picker-buttons,
 .which-movie-buttons,
 .who-watched-buttons {
@@ -469,20 +490,26 @@ body {
   margin-top: 8px;
 }
 
-/* Which movie?: a case's titles and years, short enough to leave the bill in sight (UI-8), which
-   scrolls under its header for a long box set. */
+/* Which movie?: a case's titles and years, short enough to leave the bill in sight (UI-8). */
 .which-movie-list {
   max-height: 200px;
-  scroll-padding-top: 17px; /* 98.css's header height, as for the picker above */
 }
 
-.which-movie-list table {
+/* Ask the Clerk's list: about four rows, short enough to sit under the search without the screen
+   scrolling at 960 by 540, a 1080p monitor at zoom 2 (UI-8). The title takes the width the year, the
+   rating and the status don't need, so those stay put from one search to the next, as a Windows 98
+   list's columns do. */
+.search-results-list {
+  height: 300px;
+}
+
+.search-results-list th:first-child {
   width: 100%;
 }
 
-/* 98.css keeps a list's text on one line. A long title wraps instead. */
-.which-movie-list td:first-child {
-  white-space: normal;
+/* A title with no space in it breaks anywhere, rather than widen the list past the screen (UI-8). */
+.search-results-title span {
+  overflow-wrap: anywhere;
 }
 
 /* Who watched?: each person's name beside their list, lined up as the hand-entry form's labels and
