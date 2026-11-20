@@ -186,8 +186,8 @@ public sealed class MemberRosterTests
         Assert.Equal("Mom", mom.Name);
     }
 
-    // The same lost race: the index refuses Grandma, and her shelf goes with her, since the two are one save. Mom
-    // was saved straight to the database, with no shelf.
+    // The same lost race: the card's index refuses Grandma, so her shelf, which needs her key, is never saved
+    // either. Mom was saved straight to the database, with no shelf.
     [Fact]
     public async Task AddAsync_CardTakenDuringTheSave_SavesNoShelf()
     {

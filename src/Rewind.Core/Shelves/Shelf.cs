@@ -83,5 +83,6 @@ public sealed class Shelf
     /// The last day a season can start or end on in a month from <see cref="FirstMonth"/> to <see cref="LastMonth"/>:
     /// the month's last day, and 29 for February, since a season has no year.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">The month is before <see cref="FirstMonth"/> or after <see cref="LastMonth"/>.</exception>
     public static int LastDayOf(int month) => DateTime.DaysInMonth(ALeapYear, month);
 }

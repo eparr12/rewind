@@ -93,8 +93,8 @@ public sealed class ShelfMovieTests
         await SqliteAssert.RefusesAsync(SqliteConstraint.ForeignKey, () => db.SaveChangesAsync(ct));
     }
 
-    // DATA-4: movies are never deleted, and a shelf keeps the movies on it. The movie is in no case, so only its row
-    // on the shelf can refuse the delete.
+    // DATA-4: a shelf keeps the movies on it, so a movie on a shelf can't be deleted. The movie is in no case, so only
+    // its row on the shelf can refuse the delete.
     [Fact]
     public async Task SaveChanges_DeletingAMovieOnAShelf_IsRefused()
     {
