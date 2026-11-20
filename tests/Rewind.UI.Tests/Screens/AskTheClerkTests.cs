@@ -402,6 +402,20 @@ public sealed class AskTheClerkTests : BunitContext
         Assert.Empty(cut.FindAll(".movie-hits-list"));
     }
 
+    // UI-6: what's happening comes first, even over what was wrong with the last search.
+    [Fact]
+    public async Task Submit_AfterARefusal_SaysItsSearching()
+    {
+        _catalog.Search = DidNotRun(SearchStatus.NotAYear);
+        var cut = Render<AskTheClerk>();
+        await SubmitAsync(cut);
+        _catalog.Search = new TaskCompletionSource<SearchResult>().Task;
+
+        _ = SubmitAsync(cut);
+
+        Assert.Equal("Searching...", Prompt(cut));
+    }
+
     // Fixed and searched, the line stops saying what was wrong.
     [Fact]
     public async Task Submit_RanAfterARefusal_SaysWhatItFound()
@@ -545,6 +559,21 @@ public sealed class AskTheClerkTests : BunitContext
         await Rows(cut)[1].KeyDownAsync(Escape);
 
         AssertFocusedLast(lookFor, focuses: 3);
+    }
+
+    // The cursor moves once: the screen redraws as the clerk types or picks, and a redraw never pulls the cursor back
+    // to the box from the list the clerk picked in.
+    [Fact]
+    public async Task Change_PickAfterEscOnTheList_LeavesTheCursorWhereTheClerkPutIt()
+    {
+        _catalog.Search = Found(Halloween, TradingPlaces);
+        var cut = Render<AskTheClerk>();
+        await SubmitAsync(cut);
+        await Rows(cut)[1].KeyDownAsync(Escape);
+
+        await cut.Find("#ask-the-clerk-genre").ChangeAsync(new ChangeEventArgs { Value = "Horror" });
+
+        JSInterop.VerifyFocusAsyncInvoke(3); // the box as the screen opened, the list's first row, then the box again
     }
 
     // And goes no further, as Which movie?'s Esc stops at its picker: the list sits outside the search, so the
@@ -765,9 +794,16 @@ public sealed class AskTheClerkTests : BunitContext
         await cut.Find("#ask-the-clerk-rating").ChangeAsync(new ChangeEventArgs { Value = rating });
     }
 
-    private static Task SubmitAsync(IRenderedComponent<AskTheClerk> cut) => cut.Find(".ask-the-clerk-search").SubmitAsync();
+    // Enter in the search. Nothing here opens a dialog, which would wait for someone to close it, and the test with it,
+    // so a dialog fails the test before it waits, as Return's SaveAsync does.
+    private Task SubmitAsync(IRenderedComponent<AskTheClerk> cut)
+    {
+        var search = cut.Find(".ask-the-clerk-search").SubmitAsync();
+        Assert.Null(_dialogs.Current?.Message);
+        return search;
+    }
 
-    private static async Task SearchForAsync(IRenderedComponent<AskTheClerk> cut, string text)
+    private async Task SearchForAsync(IRenderedComponent<AskTheClerk> cut, string text)
     {
         await cut.Find(LookForBox).InputAsync(text);
         await SubmitAsync(cut);
