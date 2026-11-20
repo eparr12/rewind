@@ -417,8 +417,7 @@ body {
 }
 
 .tmdb-picker-list table,
-.which-movie-list table,
-.search-results-list table {
+.which-movie-list table {
   width: 100%;
 }
 
@@ -497,8 +496,8 @@ body {
 
 /* Ask the Clerk's list: about four rows, short enough to sit under the search without the screen
    scrolling at 960 by 540, a 1080p monitor at zoom 2 (UI-8). The title takes the width the year, the
-   rating and the status don't need, so those stay put from one search to the next, as a Windows 98
-   list's columns do. */
+   rating and the status don't need, which makes the table as wide as its panel, as the other lists'
+   tables are, and keeps those columns put from one search to the next, as a Windows 98 list's are. */
 .search-results-list {
   height: 300px;
 }
