@@ -5,7 +5,7 @@
    box. Build Plan 4.1 picks nothing from the list, so Enter and a double-click do nothing. *@
 @if (Hits.Count > 0)
 {
-    <div class="sunken-panel search-results-list" @onkeydown="OnKeyDownAsync">
+    <div class="sunken-panel movie-hits-list" @onkeydown="OnKeyDownAsync">
         <table class="interactive">
             <thead>
                 <tr>
@@ -26,7 +26,7 @@
                         @ref="_rows[row]"
                         @onfocus="() => Highlight(row)">
                         <td>
-                            <div class="search-results-title">
+                            <div class="movie-hits-title">
                                 @* As a Windows 98 list shows an icon beside each name. *@
                                 @if (_thumbs[row] is { } thumb)
                                 {
@@ -34,7 +34,7 @@
                                 }
                                 else
                                 {
-                                    <span class="search-results-no-thumb"></span>
+                                    <span class="movie-hits-no-thumb"></span>
                                 }
                                 <span>@hit.Title</span>
                             </div>

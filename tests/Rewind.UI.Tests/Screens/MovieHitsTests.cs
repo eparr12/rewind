@@ -7,7 +7,7 @@ using Rewind.UI.Screens;
 
 namespace Rewind.UI.Tests.Screens;
 
-public sealed class SearchResultsTests : BunitContext
+public sealed class MovieHitsTests : BunitContext
 {
     private static readonly MovieHit Halloween = new(1, "Halloween", 1978, "R", OnShelf: true, Thumb: [0xFF, 0xD8, 0xFF, 0xE0]);
     private static readonly MovieHit HomeMovies = new(2, "Home movies", null, null, OnShelf: false, Thumb: null);
@@ -50,7 +50,7 @@ public sealed class SearchResultsTests : BunitContext
 
         var thumb = Assert.Single(cut.FindAll("img"));
         Assert.Equal("data:image/jpeg;base64,/9j/4A==", thumb.GetAttribute("src"));
-        Assert.Equal(thumb, Rows(cut)[0].QuerySelector(".search-results-title img"));
+        Assert.Equal(thumb, Rows(cut)[0].QuerySelector(".movie-hits-title img"));
     }
 
     // A hit without a thumbnail keeps its place, so the titles line up.
@@ -59,7 +59,7 @@ public sealed class SearchResultsTests : BunitContext
     {
         var cut = RenderList();
 
-        Assert.NotNull(Rows(cut)[1].QuerySelector(".search-results-title .search-results-no-thumb"));
+        Assert.NotNull(Rows(cut)[1].QuerySelector(".movie-hits-title .movie-hits-no-thumb"));
         Assert.Null(Rows(cut)[1].QuerySelector("img"));
     }
 
@@ -187,18 +187,18 @@ public sealed class SearchResultsTests : BunitContext
         Assert.False(Renderer.UnhandledException.IsCompleted);
     }
 
-    private IRenderedComponent<SearchResults> RenderList() => RenderList([Halloween, HomeMovies]);
+    private IRenderedComponent<MovieHits> RenderList() => RenderList([Halloween, HomeMovies]);
 
-    private IRenderedComponent<SearchResults> RenderList(IReadOnlyList<MovieHit> hits) =>
-        Render<SearchResults>(parameters => parameters
+    private IRenderedComponent<MovieHits> RenderList(IReadOnlyList<MovieHit> hits) =>
+        Render<MovieHits>(parameters => parameters
             .Add(p => p.Hits, hits)
             .Add(p => p.OnEscape, EventCallback.Factory.Create(this, () => _escapes++)));
 
-    private static IReadOnlyList<IElement> Rows(IRenderedComponent<SearchResults> cut) =>
-        cut.FindAll(".search-results-list tbody tr");
+    private static IReadOnlyList<IElement> Rows(IRenderedComponent<MovieHits> cut) =>
+        cut.FindAll(".movie-hits-list tbody tr");
 
-    private static IElement Highlighted(IRenderedComponent<SearchResults> cut) =>
-        cut.Find(".search-results-list tbody tr.highlighted");
+    private static IElement Highlighted(IRenderedComponent<MovieHits> cut) =>
+        cut.Find(".movie-hits-list tbody tr.highlighted");
 
     // The first cell holds the thumbnail, or its empty box, and the title, which is its only text.
     private static string Title(IElement row) => Cell(row, 0);

@@ -412,7 +412,7 @@ body {
    as wide as its sunken panel, which scrolls under the table's header. */
 .tmdb-picker-list,
 .which-movie-list,
-.search-results-list {
+.movie-hits-list {
   scroll-padding-top: 17px; /* 98.css's header height, so the row the arrow keys reach shows in full */
 }
 
@@ -424,7 +424,7 @@ body {
 /* UI-2: the row with the focus gets Windows 98's dotted outline, not the browser's modern ring. */
 .tmdb-picker-list tr:focus,
 .which-movie-list tr:focus,
-.search-results-list tr:focus {
+.movie-hits-list tr:focus {
   outline: 1px dotted #fff;
   outline-offset: -2px;
 }
@@ -432,21 +432,21 @@ body {
 /* 98.css keeps a list's text on one line. A long title wraps instead. */
 .tmdb-picker-title span,
 .which-movie-list td:first-child,
-.search-results-title span {
+.movie-hits-title span {
   white-space: normal;
 }
 
 /* The picker's and Ask the Clerk's rows: a poster beside each title, as a Windows 98 list shows an
    icon beside each name, or an empty box its size, so the titles line up. */
 .tmdb-picker-list td,
-.search-results-list td {
+.movie-hits-list td {
   padding-top: 2px;
   padding-bottom: 2px;
   vertical-align: top;
 }
 
 .tmdb-picker-title,
-.search-results-title {
+.movie-hits-title {
   display: flex;
   align-items: flex-start;
   gap: 6px;
@@ -454,8 +454,8 @@ body {
 
 .tmdb-picker-title img,
 .tmdb-picker-no-poster,
-.search-results-title img,
-.search-results-no-thumb {
+.movie-hits-title img,
+.movie-hits-no-thumb {
   flex: none;
   width: 46px;
   height: 69px;
@@ -498,16 +498,16 @@ body {
    scrolling at 960 by 540, a 1080p monitor at zoom 2 (UI-8). The title takes the width the year, the
    rating and the status don't need, which makes the table as wide as its panel, as the other lists'
    tables are, and keeps those columns put from one search to the next, as a Windows 98 list's are. */
-.search-results-list {
+.movie-hits-list {
   height: 300px;
 }
 
-.search-results-list th:first-child {
+.movie-hits-list th:first-child {
   width: 100%;
 }
 
 /* A title with no space in it breaks anywhere, rather than widen the list past the screen (UI-8). */
-.search-results-title span {
+.movie-hits-title span {
   overflow-wrap: anywhere;
 }
 
