@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Runtime.CompilerServices;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -136,8 +135,8 @@ public sealed partial class DisplayShelves(
         // In words, and formatted only for a line that's written (CA1873).
         if (logger.IsEnabled(LogLevel.Information))
         {
-            var newSeason = Describe(season);
-            var oldSeason = Describe(before.Season);
+            var newSeason = season.Describe();
+            var oldSeason = before.Season.Describe();
             LogSeasonChanged(logger, before.Name, newSeason, oldSeason);
         }
 
@@ -184,7 +183,7 @@ public sealed partial class DisplayShelves(
         await db.SaveChangesAsync(cancellationToken);
         if (logger.IsEnabled(LogLevel.Information))
         {
-            var described = Describe(season);
+            var described = season.Describe();
             LogAdded(logger, name, described);
         }
 
@@ -280,13 +279,6 @@ public sealed partial class DisplayShelves(
         var season = new Season(shelf.FromMonth!.Value, shelf.FromDay!.Value, shelf.ToMonth!.Value, shelf.ToDay!.Value);
         return new SeasonalShelfRow(shelf.Id, shelf.Name!, season, shelf.IsActive, season.Holds(tonight));
     }
-
-    // For the family reading the log, such as October 1 to October 31, alike on any PC.
-    private static string Describe(Season season) => string.Create(
-        CultureInfo.InvariantCulture,
-        $"{MonthName(season.FromMonth)} {season.FromDay} to {MonthName(season.ToMonth)} {season.ToDay}");
-
-    private static string MonthName(int month) => CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(month);
 
     private static SeasonalShelfChange Saved(SeasonalShelfRow shelf) => new(SeasonalShelfChangeStatus.Saved, shelf);
 

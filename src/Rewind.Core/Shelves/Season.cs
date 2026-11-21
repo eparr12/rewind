@@ -1,8 +1,11 @@
+using System.Globalization;
+
 namespace Rewind.Core.Shelves;
 
 /// <summary>
 /// When a seasonal shelf is in season: from a first day to a last, each a month and a day with no year, so it comes
-/// round every year (ADR-0015). Its numbers are a <see cref="Shelf"/>'s, which the database holds to real days.
+/// round every year (ADR-0015). Its numbers are a <see cref="Shelf"/>'s, which the database holds to real days. It
+/// writes itself in words, as the log and the screens show it.
 /// </summary>
 /// <param name="FromMonth">The first day's month, from 1 for January to 12 for December.</param>
 /// <param name="FromDay">The first day's day of its month.</param>
@@ -28,5 +31,27 @@ public sealed record Season(int FromMonth, int FromDay, int ToMonth, int ToDay)
         return first.CompareTo(last) <= 0
             ? first.CompareTo(date) <= 0 && date.CompareTo(last) <= 0
             : first.CompareTo(date) <= 0 || date.CompareTo(last) <= 0;
+    }
+
+    /// <summary>
+    /// Writes the season in words, such as October 1 to October 31, or December 1 to January 6 for one that runs over
+    /// New Year, with each month as <see cref="MonthName"/> writes it. It's the one writer of a season, so the log
+    /// and every screen that shows one read alike.
+    /// </summary>
+    public string Describe() =>
+        string.Create(CultureInfo.InvariantCulture, $"{MonthName(FromMonth)} {FromDay} to {MonthName(ToMonth)} {ToDay}");
+
+    /// <summary>
+    /// Writes a month's name, such as October for 10, from 1 for January to 12 for December. It's in English on any
+    /// PC, so the log reads alike wherever it was written. It's the one writer of a month's name, for the lists the
+    /// Store Manager picks a season's months from as well as for <see cref="Describe"/>.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">The month is before January or after December.</exception>
+    public static string MonthName(int month)
+    {
+        // GetMonthName takes a 13th month too, for the calendars that have one, and writes it as nothing.
+        ArgumentOutOfRangeException.ThrowIfLessThan(month, Shelf.FirstMonth);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(month, Shelf.LastMonth);
+        return CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(month);
     }
 }

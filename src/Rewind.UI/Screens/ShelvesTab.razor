@@ -1,0 +1,480 @@
+@inherits ScanningScreen
+@using System.Diagnostics
+@using System.Globalization
+@inject IDisplayShelves Shelves
+
+@* F5's Shelves tab (Build Plan 4.2): the seasonal shelves, each with a name and a season that runs from one day of
+   the year to another and comes round every year, such as Halloween from October 1 to October 31 (ADR-0015). Type a
+   new shelf's name, pick the month and type the day it runs from and to, and Enter adds it. Rename fixes a typo,
+   since a shelf for another time of year is a new shelf, and Change dates moves its season. A shelf that isn't
+   wanted is deactivated, never deleted (DATA-4), and keeps its movies. A shelf added here goes at the end of the
+   list, as on the Snacks tab. Each member's Staff Picks shelf comes with the member and goes by their name, so Core
+   lists none here. The tab is a ScanningScreen for its busy line, whose route takes a failure that comes after the
+   Store Manager has left to ErrorHub (UI-11), not for scans: a scan does nothing here. *@
+@if (_shelves is not { } shelves)
+{
+    <p class="shelves-prompt">@Line</p>
+}
+else
+{
+    @* A form, so Enter in either box adds the shelf, and keyboard.js has Enter in either list do the same (UI-3). *@
+    <form class="shelves-add" @onsubmit="AddAsync">
+        <div class="field-row">
+            <label for="shelves-name">New shelf's name:</label>
+            @* Shelf.MaxNameLength is Core's backstop; the box stops there first. *@
+            <input id="shelves-name" type="text" autocomplete="off" spellcheck="false" maxlength="@Shelf.MaxNameLength"
+                   disabled="@Locked" @ref="_nameBox" @bind="_name" @bind:event="oninput" />
+        </div>
+        <div class="field-row">
+            <label for="shelves-from-month">From:</label>
+            <select id="shelves-from-month" disabled="@Locked" @bind="_season.FromMonth">@MonthChoices</select>
+            <input id="shelves-from-day" class="shelves-day" type="text" autocomplete="off" aria-label="From day"
+                   maxlength="@DayLength" disabled="@Locked" @ref="_fromDayBox" @bind="_season.FromDay" @bind:event="oninput" />
+        </div>
+        <div class="field-row">
+            <label for="shelves-to-month">To:</label>
+            <select id="shelves-to-month" disabled="@Locked" @bind="_season.ToMonth">@MonthChoices</select>
+            <input id="shelves-to-day" class="shelves-day" type="text" autocomplete="off" aria-label="To day"
+                   maxlength="@DayLength" disabled="@Locked" @ref="_toDayBox" @bind="_season.ToDay" @bind:event="oninput" />
+        </div>
+        <button type="submit" disabled="@Locked">Add</button>
+    </form>
+    <p class="shelves-prompt">@Line</p>
+
+    @if (shelves.Count == 0)
+    {
+        <p>No seasonal shelves yet.</p>
+    }
+    else
+    {
+        <div class="sunken-panel shelves-list">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Season</th>
+                        <th>Active</th>
+                        <th>In season</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var shelf in shelves)
+                    {
+                        <tr @key="shelf.Id">
+                            <td>
+                                @if (IsEditing(shelf, Field.Name))
+                                {
+                                    <input class="shelves-rename" type="text" autocomplete="off" spellcheck="false"
+                                           aria-label="@($"{shelf.Name}'s name")" maxlength="@Shelf.MaxNameLength" disabled="@Busy"
+                                           @ref="_editNameBox" @bind="_editName" @bind:event="oninput" @onkeydown="OnEditKeyDownAsync" />
+                                }
+                                else
+                                {
+                                    @shelf.Name
+                                }
+                            </td>
+                            <td>
+                                @if (IsEditing(shelf, Field.Dates))
+                                {
+                                    <div class="field-row shelves-redate">
+                                        <select class="shelves-redate-from-month" aria-label="@($"{shelf.Name}'s From month")" disabled="@Busy"
+                                                @ref="_editFromMonthList" @bind="_editSeason.FromMonth" @onkeydown="OnEditKeyDownAsync">@MonthChoices</select>
+                                        <input class="shelves-day shelves-redate-from-day" type="text" autocomplete="off"
+                                               aria-label="@($"{shelf.Name}'s From day")" maxlength="@DayLength" disabled="@Busy"
+                                               @ref="_editFromDayBox" @bind="_editSeason.FromDay" @bind:event="oninput" @onkeydown="OnEditKeyDownAsync" />
+                                        <span>to</span>
+                                        <select class="shelves-redate-to-month" aria-label="@($"{shelf.Name}'s To month")" disabled="@Busy"
+                                                @bind="_editSeason.ToMonth" @onkeydown="OnEditKeyDownAsync">@MonthChoices</select>
+                                        <input class="shelves-day shelves-redate-to-day" type="text" autocomplete="off"
+                                               aria-label="@($"{shelf.Name}'s To day")" maxlength="@DayLength" disabled="@Busy"
+                                               @ref="_editToDayBox" @bind="_editSeason.ToDay" @bind:event="oninput" @onkeydown="OnEditKeyDownAsync" />
+                                    </div>
+                                }
+                                else
+                                {
+                                    @shelf.Season.Describe()
+                                }
+                            </td>
+                            <td>@YesOrNo(shelf.IsActive)</td>
+                            <td>@YesOrNo(shelf.InSeason)</td>
+                            <td class="shelves-buttons">
+                                @if (_editing?.ShelfId == shelf.Id)
+                                {
+                                    <button disabled="@Busy" @onclick="SaveEditAsync">Save</button>
+                                    <button disabled="@Busy" @onclick="CancelEdit">Cancel</button>
+                                }
+                                else
+                                {
+                                    <button disabled="@Locked" @onclick="() => StartRename(shelf)">Rename</button>
+                                    <button disabled="@Locked" @onclick="() => StartRedate(shelf)">Change dates</button>
+                                    <button disabled="@Locked" @onclick="() => SetActiveAsync(shelf)">@(shelf.IsActive ? "Deactivate" : "Reactivate")</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private const string Reading = "Reading the shelves...";
+    private const string Saving = "Saving the shelf...";
+
+    private const string Prompt =
+        "Type the new shelf's name, pick its months and type its days, such as October 1 to October 31, then press Enter.";
+
+    // A day of the month is one or two digits.
+    private const int DayLength = 2;
+
+    // The months a season can start and end in, January to December, as Core numbers them. Core throws for any other
+    // (ADR-0015), so each list offers these and no other, and always has one of them picked.
+    private static readonly int[] Months = [.. Enumerable.Range(Shelf.FirstMonth, Shelf.LastMonth - Shelf.FirstMonth + 1)];
+
+    // Each of the four month lists' choices: the month's number, which Core takes, under its name as Season writes it,
+    // so the lists read as the log does.
+    private static readonly RenderFragment MonthChoices =
+        @<text>
+            @foreach (var month in Months)
+            {
+                <option value="@month">@Season.MonthName(month)</option>
+            }
+        </text>;
+
+    private ElementReference _nameBox;
+    private ElementReference _fromDayBox;
+    private ElementReference _toDayBox;
+
+    // The boxes and the first list of the shelf whose name or season is being fixed. Only one row's are drawn at a time.
+    private ElementReference _editNameBox;
+    private ElementReference _editFromMonthList;
+    private ElementReference _editFromDayBox;
+    private ElementReference _editToDayBox;
+
+    // The seasonal shelves, in Core's order when the tab opened, then each shelf added since; null while they're read.
+    private IReadOnlyList<SeasonalShelfRow>? _shelves;
+
+    // The new shelf as typed and picked so far.
+    private string _name = "";
+    private SeasonBoxes _season = new();
+
+    // What the last change came to, until the next one. It takes the prompt's place.
+    private string? _notice;
+
+    // The shelf whose name or season is being fixed, and what its boxes and lists hold so far; null when none is.
+    private Edit? _editing;
+    private string _editName = "";
+    private SeasonBoxes _editSeason = new();
+
+    // The box or list to focus once the tab has drawn, or null for none.
+    private Box? _focus = Box.Name;
+
+    // While a name or a season is being fixed, or while Core answers, the form and the other buttons wait.
+    private bool Locked => Busy || _editing is not null;
+
+    // UI-6: one line always says what's happening or what to do. While a shelf is being fixed, the form the prompt
+    // points to waits, so the line says how to finish.
+    private string Line => Doing ?? _notice ?? (_editing?.Field switch
+    {
+        Field.Name => "Fix the name, then press Enter. Esc leaves it as it was.",
+        Field.Dates => "Pick the months and type the days, then press Enter. Esc leaves them as they were.",
+        _ => Prompt,
+    });
+
+    // The read waits in the busy line, as every save here does, so one that fails after the Store Manager has left goes
+    // to ErrorHub, rather than closing the screen they went to (#97). Leaving cancels it, and that goes nowhere.
+    protected override async Task OnInitializedAsync() =>
+        _shelves = await WhileBusyAsync(Reading, Shelves.ListSeasonalAsync, Closing);
+
+    // UI-3: the name box has the focus once the shelves are read and after each change, so the Store Manager can type
+    // the next shelf. A refused box has it, to fix what was typed, and a shelf's own box or first list has it while its
+    // name or season is being fixed. Only once the tab has drawn, so an answer that comes after the Store Manager left
+    // moves nothing.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_shelves is null || _focus is not { } box)
+        {
+            return; // the boxes aren't drawn until the shelves are read
+        }
+
+        _focus = null;
+        var element = box switch
+        {
+            Box.Name => _nameBox,
+            Box.FromDay => _fromDayBox,
+            Box.ToDay => _toDayBox,
+            Box.EditName => _editNameBox,
+            Box.EditFromMonth => _editFromMonthList,
+            Box.EditFromDay => _editFromDayBox,
+            Box.EditToDay => _editToDayBox,
+            _ => throw new UnreachableException($"The Shelves tab has no box {box}."),
+        };
+        await element.FocusAsync();
+    }
+
+    // A scan means nothing here, and the status bar says what it was.
+    protected override Task OnScanAsync(Scan scan) => Task.CompletedTask;
+
+    // ARCH-5: one call to Core, which cleans the name and reads the days, in the order the boxes are filled in. The
+    // shelf it saved goes at the end of the list from its answer, so nothing is read again after the save (NET-7).
+    private async Task AddAsync()
+    {
+        if (Locked || _shelves is not { } shelves)
+        {
+            return;
+        }
+
+        var change = await WhileBusyAsync(
+            Saving,
+            token => Shelves.AddAsync(_name, _season.FromMonth, _season.FromDay, _season.ToMonth, _season.ToDay, token),
+            Closing);
+        switch (change)
+        {
+            case null:
+                return; // the Store Manager left the tab before Core answered
+            case { Status: SeasonalShelfChangeStatus.Saved, Shelf: { } added }:
+                _shelves = [.. shelves, added];
+                _notice = $"Added {added.Name}, {added.Season.Describe()}.";
+                _name = "";
+                _season = new();
+                _focus = Box.Name;
+                return;
+            case { Status: SeasonalShelfChangeStatus.NoName }:
+                _notice = "No name yet. Type it, then press Enter.";
+                _focus = Box.Name;
+                return;
+            case { Status: SeasonalShelfChangeStatus.NotAFromDay }:
+                _notice = NotADay("From", _season.FromMonth);
+                _focus = Box.FromDay;
+                return;
+            case { Status: SeasonalShelfChangeStatus.NotAToDay }:
+                _notice = NotADay("To", _season.ToMonth);
+                _focus = Box.ToDay;
+                return;
+            case { Status: SeasonalShelfChangeStatus.NameInUse, Shelf: { } owner }:
+                _notice = NameInUse(owner);
+                _focus = Box.Name;
+                return;
+            default:
+                // OBS-5: Core answers one of these, so any other answer is a bug.
+                throw new UnreachableException($"Adding a seasonal shelf came back {change.Status}.");
+        }
+    }
+
+    // One thing at a time: not while another shelf is being fixed, or while Core answers.
+    private void StartRename(SeasonalShelfRow shelf)
+    {
+        if (Locked)
+        {
+            return;
+        }
+
+        _editing = new Edit(shelf.Id, Field.Name);
+        _editName = shelf.Name;
+        _notice = null;
+        _focus = Box.EditName;
+    }
+
+    // As for a rename. The lists and boxes start at the season as saved.
+    private void StartRedate(SeasonalShelfRow shelf)
+    {
+        if (Locked)
+        {
+            return;
+        }
+
+        _editing = new Edit(shelf.Id, Field.Dates);
+        _editSeason = SeasonBoxes.Of(shelf.Season);
+        _notice = null;
+        _focus = Box.EditFromMonth;
+    }
+
+    // Not while Core saves: its answer is on its way, and would land on a shelf that was left as it was.
+    private void CancelEdit()
+    {
+        if (Busy)
+        {
+            return;
+        }
+
+        _editing = null;
+        _notice = null;
+        _focus = Box.Name;
+    }
+
+    // UI-3: in a shelf's boxes and lists, Enter saves and Esc leaves the shelf as it was.
+    private async Task OnEditKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SaveEditAsync();
+        }
+        else if (e.Key == "Escape")
+        {
+            CancelEdit();
+        }
+    }
+
+    // ARCH-5: one call to Core, for the name or the season, whichever is being fixed. A second Enter while Core saves is
+    // ignored, since the first one's answer is on its way.
+    private async Task SaveEditAsync()
+    {
+        if (Busy || _editing is not { } edit || _shelves is not { } shelves)
+        {
+            return;
+        }
+
+        if (edit.Field == Field.Name)
+        {
+            await SaveNameAsync(edit.ShelfId, shelves);
+        }
+        else
+        {
+            await SaveSeasonAsync(edit.ShelfId, shelves);
+        }
+    }
+
+    // Core cleans the name as it cleans a new shelf's.
+    private async Task SaveNameAsync(int shelfId, IReadOnlyList<SeasonalShelfRow> shelves)
+    {
+        var change = await WhileBusyAsync(Saving, token => Shelves.RenameAsync(shelfId, _editName, token), Closing);
+        switch (change)
+        {
+            case null:
+                return; // the Store Manager left the tab before Core answered
+            case { Status: SeasonalShelfChangeStatus.Saved, Shelf: { } renamed }:
+                Finish(shelves, renamed, $"Saved. The shelf is called {renamed.Name}.");
+                return;
+            case { Status: SeasonalShelfChangeStatus.NoName }:
+                _notice = "A shelf needs a name.";
+                _focus = Box.EditName;
+                return;
+            case { Status: SeasonalShelfChangeStatus.NameInUse, Shelf: { } owner }:
+                _notice = NameInUse(owner);
+                _focus = Box.EditName;
+                return;
+            default:
+                throw new UnreachableException($"Renaming a seasonal shelf came back {change.Status}.");
+        }
+    }
+
+    // Core reads the days as it reads a new shelf's, and answers with whether the shelf is in season now.
+    private async Task SaveSeasonAsync(int shelfId, IReadOnlyList<SeasonalShelfRow> shelves)
+    {
+        var change = await WhileBusyAsync(
+            Saving,
+            token => Shelves.SetSeasonAsync(shelfId, _editSeason.FromMonth, _editSeason.FromDay, _editSeason.ToMonth, _editSeason.ToDay, token),
+            Closing);
+        switch (change)
+        {
+            case null:
+                return; // the Store Manager left the tab before Core answered
+            case { Status: SeasonalShelfChangeStatus.Saved, Shelf: { } redated }:
+                Finish(shelves, redated, $"Saved. {redated.Name} runs {redated.Season.Describe()}.");
+                return;
+            case { Status: SeasonalShelfChangeStatus.NotAFromDay }:
+                _notice = NotADay("From", _editSeason.FromMonth);
+                _focus = Box.EditFromDay;
+                return;
+            case { Status: SeasonalShelfChangeStatus.NotAToDay }:
+                _notice = NotADay("To", _editSeason.ToMonth);
+                _focus = Box.EditToDay;
+                return;
+            default:
+                throw new UnreachableException($"Changing a seasonal shelf's dates came back {change.Status}.");
+        }
+    }
+
+    // The shelf as saved takes its old row's place, and the form is the Store Manager's again.
+    private void Finish(IReadOnlyList<SeasonalShelfRow> shelves, SeasonalShelfRow changed, string notice)
+    {
+        _shelves = Replace(shelves, changed);
+        _editing = null;
+        _notice = notice;
+        _focus = Box.Name;
+    }
+
+    // DATA-4: a deactivated shelf stays in the list, with a button to bring it back, and keeps its movies (ADR-0015).
+    private async Task SetActiveAsync(SeasonalShelfRow shelf)
+    {
+        if (Locked || _shelves is not { } shelves)
+        {
+            return;
+        }
+
+        var change = await WhileBusyAsync(Saving, token => Shelves.SetActiveAsync(shelf.Id, !shelf.IsActive, token), Closing);
+        switch (change)
+        {
+            case null:
+                return; // the Store Manager left the tab before Core answered
+            case { Status: SeasonalShelfChangeStatus.Saved, Shelf: { } changed }:
+                _shelves = Replace(shelves, changed);
+                _notice = changed.IsActive
+                    ? $"Saved. {changed.Name} is active again."
+                    : $"Saved. {changed.Name} is deactivated, and keeps its movies.";
+                return;
+            default:
+                throw new UnreachableException($"Changing whether a seasonal shelf is active came back {change.Status}.");
+        }
+    }
+
+    private bool IsEditing(SeasonalShelfRow shelf, Field field) => _editing == new Edit(shelf.Id, field);
+
+    private static string YesOrNo(bool yes) => yes ? "Yes" : "No";
+
+    private static IReadOnlyList<SeasonalShelfRow> Replace(IReadOnlyList<SeasonalShelfRow> shelves, SeasonalShelfRow changed) =>
+        [.. shelves.Select(shelf => shelf.Id == changed.Id ? changed : shelf)];
+
+    // Which of the two days to fix, and the days its month has, from the constants Core holds the days to. What was
+    // typed stays in its box, to fix.
+    private static string NotADay(string end, int month) =>
+        $"The {end} day isn't a day of {Season.MonthName(month)}. Type a day from {Shelf.FirstDay} to {Shelf.LastDayOf(month)}.";
+
+    // A name belongs to one shelf, active or not, whatever its letter case (DATA-11), so a deactivated shelf is
+    // reactivated rather than added again.
+    private static string NameInUse(SeasonalShelfRow owner) => owner.IsActive
+        ? $"There's a shelf called {owner.Name} already. Type a name no shelf has yet."
+        : $"There's a shelf called {owner.Name} already, and it's deactivated. Reactivate {owner.Name} instead, or type a name no shelf has yet.";
+
+    // A season's months as picked, each always one of the twelve, and its days as typed, which Core reads (SEC-5).
+    private sealed class SeasonBoxes
+    {
+        public int FromMonth { get; set; } = Shelf.FirstMonth;
+
+        public string FromDay { get; set; } = "";
+
+        public int ToMonth { get; set; } = Shelf.FirstMonth;
+
+        public string ToDay { get; set; } = "";
+
+        // A saved season, as the boxes show it to fix.
+        public static SeasonBoxes Of(Season season) => new()
+        {
+            FromMonth = season.FromMonth,
+            FromDay = season.FromDay.ToString(CultureInfo.InvariantCulture),
+            ToMonth = season.ToMonth,
+            ToDay = season.ToDay.ToString(CultureInfo.InvariantCulture),
+        };
+    }
+
+    private sealed record Edit(int ShelfId, Field Field);
+
+    private enum Field
+    {
+        Name,
+        Dates,
+    }
+
+    private enum Box
+    {
+        Name,
+        FromDay,
+        ToDay,
+        EditName,
+        EditFromMonth,
+        EditFromDay,
+        EditToDay,
+    }
+}

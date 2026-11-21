@@ -7,10 +7,11 @@ using Rewind.UI.Errors;
 namespace Rewind.UI.Screens;
 
 /// <summary>
-/// A screen that takes scans (UI-4), such as Checkout or Intake (ADR-0011). It listens from the moment it
+/// A screen that takes scans (UI-4), such as Checkout or Intake (ADR-0011), or a tab that takes none but
+/// wants what the busy line does with a failure, such as F5's Shelves tab. It listens from the moment it
 /// opens until the clerk leaves, and the screen itself says only what a scan means to it, in
-/// <see cref="OnScanAsync"/>. Once the clerk has left, a failure in a scan's work, or in a call that waits in
-/// <see cref="WhileBusyAsync"/>, goes to ErrorHub rather than to the screen they went to.
+/// <see cref="OnScanAsync"/>, which can be nothing. Once the clerk has left, a failure in a scan's work, or in
+/// a call that waits in <see cref="WhileBusyAsync"/>, goes to ErrorHub rather than to the screen they went to.
 /// </summary>
 /// <remarks>
 /// UI-11: a scan can arrive on the scanner's thread, so it moves onto the renderer's first. An exception in

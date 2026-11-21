@@ -158,7 +158,7 @@ To try it in a Debug build on `C:\RewindDev`, press F5, then **Close Out Registe
 
 ## Store Manager
 
-The Store Manager screen (F5) holds the grown-up jobs: printing store labels, member cards and the concession menu, keeping the family's members, setting the prices, and keeping the concession bar's snacks. The clerk handbook leaves them out, since it's written for the kids (DOC-6), who use F5 at closing to close out the register and shut Rewind down (see [Close Out](#close-out)).
+The Store Manager screen (F5) holds the grown-up jobs: printing store labels, member cards and the concession menu, keeping the family's members, setting the prices, keeping the concession bar's snacks, and keeping the seasonal shelves. The clerk handbook leaves them out, since it's written for the kids (DOC-6), who use F5 at closing to close out the register and shut Rewind down (see [Close Out](#close-out)).
 
 ### Printing
 
@@ -187,6 +187,20 @@ On the **Snacks** tab, type a new snack's name and its price in dollars, then pr
 **Rename** fixes a typo, and **Change price** sets a new price, which counts from the next sale on (DATA-10). The laminated menu still shows the old price, so the line then says to print the menu again from the **Printing** tab. **Deactivate** a snack that's no longer sold, and **Reactivate** brings it back: Rewind never deletes one (DATA-4). A different snack is a new one, with a code of its own. Rewind's log names each snack added or changed, with its code.
 
 Rewind starts with no snacks. Add the starting menu: Popcorn at 1.00, Fountain pop or SodaStream at 0.75, and Candy at 0.50.
+
+### Shelves
+
+On the **Shelves** tab, type a new seasonal shelf's name. Beside **From**, pick the month it starts in and type the day, and beside **To**, the month and day it ends. Then press **Add** or Enter. A shelf is in season from its first day to its last, both included, every year, so Halloween shows up every October without anyone touching it. A day is a number from 1 to its month's last, and February has 29, since a season has no year: in a year without February 29, a season that ends on it ends on February 28. The line under **Add** says which day to fix when one isn't a day of its month.
+
+A season can run over New Year, such as December 26 to January 6: its last day just comes before its first in the year.
+
+The list says whether each shelf is **In season** tonight. A movie night runs past midnight, so tonight is the day the movie night opened, at its first member card, and the Halloween shelf stays in season until Halloween night's Close Out, not just until midnight. Before the night's first member card, after its Close Out, and once a night nobody closed out is more than 16 hours old, tonight is the register's date ([ADR-0015](docs/adr/0015-staff-picks-and-seasonal-shelves-share-one-table.md)).
+
+**Rename** fixes a typo: a shelf for another time of year is a new shelf, since a shelf keeps its movies. **Change dates** moves a shelf's season. **Deactivate** a shelf that isn't wanted, and **Reactivate** brings it back. A deactivated shelf keeps its movies and its name, and Rewind never deletes a shelf (DATA-4). No two shelves share a name, whatever its letter case from A to Z, so a deactivated shelf is reactivated rather than added again. Rewind's log names each shelf added or changed, with the dates of a new shelf and of each change of dates.
+
+Rewind starts with no seasonal shelves. Start with Halloween, from October 1 to October 31, and Christmas, from December 1 to December 25.
+
+Each member's Staff Picks shelf comes with the member, from the moment they're added on the **Members** tab, and goes by their name, so it isn't listed here.
 
 ## Screen size
 
