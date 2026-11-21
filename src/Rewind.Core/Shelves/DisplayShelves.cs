@@ -255,8 +255,8 @@ public sealed partial class DisplayShelves(
     private static int? ReadDay(int month, string typed) =>
         TypedNumbers.TryReadWholeNumber(typed, Shelf.FirstDay, Shelf.LastDayOf(month), out var day) ? day : null;
 
-    // Seasonal shelves are never deleted (DATA-4), so an Id from the Store Manager's list is always one. A Staff Picks
-    // shelf's never is: it goes by its member (ADR-0015).
+    // Seasonal shelves are never deleted (DATA-4), so an Id from the Store Manager's list is always a seasonal shelf's.
+    // A Staff Picks shelf's Id is never in that list, since the shelf goes by its member (ADR-0015).
     private static async Task<Shelf> FindAsync(RewindDb db, int shelfId, CancellationToken cancellationToken) =>
         await db.Shelves.SingleOrDefaultAsync(s => s.Id == shelfId && s.MemberId == null, cancellationToken)
         ?? throw new InvalidOperationException(
