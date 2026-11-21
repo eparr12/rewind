@@ -111,7 +111,6 @@ body {
 .members-list {
   width: fit-content;
   max-height: 360px; /* a family fits; a longer list scrolls inside the tab */
-  overflow-y: auto;
 }
 
 .members-list td {
@@ -152,7 +151,6 @@ body {
 .snacks-list {
   width: fit-content;
   max-height: 300px; /* a dozen snacks; a longer list scrolls inside the tab */
-  overflow-y: auto;
 }
 
 .snacks-list td {
@@ -177,8 +175,7 @@ body {
 
 .shelves-list {
   width: fit-content;
-  max-height: 300px; /* a dozen shelves; a longer list scrolls inside the tab */
-  overflow-y: auto;
+  max-height: 300px; /* a dozen shelves; past that, the list scrolls, as a 98.css sunken panel does */
 }
 
 .shelves-list td {
