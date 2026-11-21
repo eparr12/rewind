@@ -15,6 +15,7 @@ using Rewind.Core.Members;
 using Rewind.Core.Metadata;
 using Rewind.Core.MovieNights;
 using Rewind.Core.Returns;
+using Rewind.Core.Shelves;
 using Rewind.Core.StoreManager;
 
 namespace Rewind.Core;
@@ -27,10 +28,10 @@ public static class RewindCoreServices
     /// <summary>
     /// Adds Rewind's folders, the database, its backups, with the last one for the status bar, and the startup that
     /// prepares it, the sheets of store labels and member cards, whose numbers the database keeps, the members, the
-    /// prices, the concession bar's snacks, the business days, the late-fee draws, the checkout counter, the return
-    /// desk, the movies' posters, the catalog search, the phone catalog's writer, the copy to the backup drive with the
-    /// PC's drives it looks among, and Close Out, which runs them. Call this before adding any other hosted service:
-    /// hosted services start in the order they're added, and everything else needs the database.
+    /// prices, the concession bar's snacks, the seasonal shelves, the business days, the late-fee draws, the checkout
+    /// counter, the return desk, the movies' posters, the catalog search, the phone catalog's writer, the copy to the
+    /// backup drive with the PC's drives it looks among, and Close Out, which runs them. Call this before adding any
+    /// other hosted service: hosted services start in the order they're added, and everything else needs the database.
     /// </summary>
     public static IServiceCollection AddRewindCore(this IServiceCollection services, IConfiguration configuration)
     {
@@ -60,6 +61,7 @@ public static class RewindCoreServices
         services.AddSingleton<IMemberRoster, MemberRoster>();
         services.AddSingleton<IStorePrices, StorePrices>();
         services.AddSingleton<IConcessionBar, ConcessionBar>();
+        services.AddSingleton<IDisplayShelves, DisplayShelves>();
         services.AddSingleton<IBusinessDays, BusinessDays>();
         services.AddSingleton<ILateFeeDraws, LateFeeDraws>();
         services.AddSingleton<ICheckoutCounter, CheckoutCounter>();
