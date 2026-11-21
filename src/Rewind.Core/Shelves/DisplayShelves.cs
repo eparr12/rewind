@@ -290,6 +290,8 @@ public sealed partial class DisplayShelves(
 
     private static SeasonalShelfChange Saved(SeasonalShelfRow shelf) => new(SeasonalShelfChangeStatus.Saved, shelf);
 
+    // No line in the log (OBS-3), unlike a member card or a snack code that's another's: nothing changed, and the tab
+    // says which shelf has the name, so the log would hold nothing to find later.
     private static SeasonalShelfChange NameInUse(SeasonalShelfRow owner) => new(SeasonalShelfChangeStatus.NameInUse, owner);
 
     private static SeasonalShelfChange Refused(SeasonalShelfChangeStatus status) => new(status, null);

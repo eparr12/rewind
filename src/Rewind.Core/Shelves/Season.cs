@@ -1,8 +1,8 @@
 namespace Rewind.Core.Shelves;
 
 /// <summary>
-/// When a seasonal shelf is out: from a first day to a last, each a month and a day with no year, so it comes round
-/// every year (ADR-0015). Its numbers are a <see cref="Shelf"/>'s, which the database holds to real days.
+/// When a seasonal shelf is in season: from a first day to a last, each a month and a day with no year, so it comes
+/// round every year (ADR-0015). Its numbers are a <see cref="Shelf"/>'s, which the database holds to real days.
 /// </summary>
 /// <param name="FromMonth">The first day's month, from 1 for January to 12 for December.</param>
 /// <param name="FromDay">The first day's day of its month.</param>
