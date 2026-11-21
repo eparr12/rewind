@@ -1073,6 +1073,21 @@ public sealed class ShelvesTabTests : BunitContext
         Assert.True(_shelves.LastToken.IsCancellationRequested);
     }
 
+    // The cancellation leaving causes goes nowhere: it isn't a failure, so ErrorHub isn't told.
+    [Fact]
+    public async Task Dispose_WhileReading_RaisesNothingOnceCancelled()
+    {
+        var reading = new TaskCompletionSource<IReadOnlyList<SeasonalShelfRow>>();
+        _shelves.Listing = reading.Task;
+        _ = Render<ShelvesTab>();
+        await DisposeComponentsAsync();
+
+        await Renderer.Dispatcher.InvokeAsync(() => reading.SetCanceled(_shelves.LastToken)); // as EF Core ends a cancelled read
+
+        Assert.False(Renderer.UnhandledException.IsCompleted);
+        Assert.False(_crashed);
+    }
+
     // And a save. The cancellation leaving causes goes nowhere: WhileBusyAsync catches it.
     [Fact]
     public async Task Dispose_WhileSaving_CancelsTheSaveAndRaisesNothing()

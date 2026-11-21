@@ -129,8 +129,8 @@ else
     // A day of the month is one or two digits.
     private const int DayLength = 2;
 
-    // The months a season can start and end in, January to December, as Core numbers them. Core throws for any other
-    // (ADR-0015), so each list offers these and no other, and always has one of them picked.
+    // The months a season can start and end in, January to December, as Core numbers them. IDisplayShelves throws for
+    // any other, so each list offers these and no other, and always has one of them picked.
     private static readonly int[] Months = [.. Enumerable.Range(Shelf.FirstMonth, Shelf.LastMonth - Shelf.FirstMonth + 1)];
 
     // Each of the four month lists' choices: the month's number, which Core takes, under its name as Season writes it,
@@ -188,10 +188,11 @@ else
     protected override async Task OnInitializedAsync() =>
         _shelves = await WhileBusyAsync(Reading, Shelves.ListSeasonalAsync, Closing);
 
-    // UI-3: the name box has the focus once the shelves are read and after each change, so the Store Manager can type
-    // the next shelf. A refused box has it, to fix what was typed, and a shelf's own box or first list has it while its
-    // name or season is being fixed. Only once the tab has drawn, so an answer that comes after the Store Manager left
-    // moves nothing.
+    // UI-3: the name box has the focus once the shelves are read, after an add, and once a shelf being fixed is saved or
+    // left as it was, so the Store Manager can type the next shelf. A refused box has it, to fix what was typed, and a
+    // shelf's own box or first list has it while its name or season is being fixed. A deactivation or a reactivation
+    // leaves it where it was, as the Snacks tab's does. Only once the tab has drawn, so an answer that comes after the
+    // Store Manager left moves nothing.
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (_shelves is null || _focus is not { } box)
@@ -432,8 +433,8 @@ else
     private static string NotADay(string end, int month) =>
         $"The {end} day isn't a day of {Season.MonthName(month)}. Type a day from {Shelf.FirstDay} to {Shelf.LastDayOf(month)}.";
 
-    // A name belongs to one shelf, active or not, whatever its letter case (DATA-11), so a deactivated shelf is
-    // reactivated rather than added again.
+    // A name belongs to one shelf, active or not, whatever its letter case from A to Z (DATA-11), so a deactivated shelf
+    // is reactivated rather than added again.
     private static string NameInUse(SeasonalShelfRow owner) => owner.IsActive
         ? $"There's a shelf called {owner.Name} already. Type a name no shelf has yet."
         : $"There's a shelf called {owner.Name} already, and it's deactivated. Reactivate {owner.Name} instead, or type a name no shelf has yet.";
