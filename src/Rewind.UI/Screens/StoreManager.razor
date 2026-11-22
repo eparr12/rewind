@@ -15,10 +15,10 @@
    WebView2's print window prints it, and stays there, to print again if it jammed, until Done. Leaving the
    screen drops the sheet. The menu prints the same way, but spends nothing, so it has only Done: printing
    it again is pressing Print the menu again. Members keeps the family's members, Prices the rental price
-   and the late fee, and Snacks the concession bar's snacks and drinks (Build Plan 3.1). Under the tabs,
-   Close Out Register closes the night, backs up, writes the phone catalog and copies the backups to the
-   backup drive, then shows a checklist of what that came to (Build Plan 3.5, ADR-0013), and Shut Down
-   closes Rewind. *@
+   and the late fee, and Snacks the concession bar's snacks and drinks (Build Plan 3.1). Shelves keeps the
+   seasonal shelves (Build Plan 4.2). Under the tabs, Close Out Register closes the night, backs up, writes
+   the phone catalog and copies the backups to the backup drive, then shows a checklist of what that came
+   to (Build Plan 3.5, ADR-0013), and Shut Down closes Rewind. *@
 @if (_sheet is { } sheet)
 {
     @* tabindex="-1": a click on the sheet keeps the keyboard here, so Esc still works. *@
@@ -67,6 +67,10 @@ else
             else if (_tab == Tab.Snacks)
             {
                 <SnacksTab />
+            }
+            else if (_tab == Tab.Shelves)
+            {
+                <ShelvesTab />
             }
             else
             {
@@ -151,7 +155,7 @@ else
         DialogIcon.Info);
 
     // F5's tabs, in their order on screen. Printing opens first, as F5 did before it had tabs.
-    private static readonly Tab[] Tabs = [Tab.Printing, Tab.Members, Tab.Prices, Tab.Snacks];
+    private static readonly Tab[] Tabs = [Tab.Printing, Tab.Members, Tab.Prices, Tab.Snacks, Tab.Shelves];
 
     // Cancelled when the clerk leaves the screen, so a read or a sheet still waiting on the database stops.
     // That raises nothing, so nothing here catches it: ComponentBase ignores a task that was cancelled,
@@ -491,6 +495,7 @@ else
         Tab.Members => "Members",
         Tab.Prices => "Prices",
         Tab.Snacks => "Snacks",
+        Tab.Shelves => "Shelves",
         _ => throw new UnreachableException($"F5 has no tab {tab}."),
     };
 
@@ -500,5 +505,6 @@ else
         Members,
         Prices,
         Snacks,
+        Shelves,
     }
 }

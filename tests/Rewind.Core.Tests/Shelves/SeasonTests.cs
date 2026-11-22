@@ -1,3 +1,4 @@
+using System.Globalization;
 using Rewind.Core.Shelves;
 
 namespace Rewind.Core.Tests.Shelves;
@@ -85,5 +86,66 @@ public sealed class SeasonTests
         var leapDayOn = new Season(2, 29, 3, 31);
 
         Assert.Equal(holds, leapDayOn.Holds(new DateOnly(year, month, day)));
+    }
+
+    // As the family says it, and as the log and F5's Shelves tab write it.
+    [Fact]
+    public void Describe_Halloween_WritesBothDaysInWords()
+    {
+        var halloween = new Season(10, 1, 10, 31);
+
+        Assert.Equal("October 1 to October 31", halloween.Describe());
+    }
+
+    // The first day first, though it comes later in the year than the last.
+    [Fact]
+    public void Describe_SeasonOverNewYear_WritesTheFirstDayFirst()
+    {
+        var christmas = new Season(12, 1, 1, 6);
+
+        Assert.Equal("December 1 to January 6", christmas.Describe());
+    }
+
+    // The log reads alike on any PC, so a season's months are in English on one set to French too.
+    [Fact]
+    public void Describe_PcInAnotherLanguage_WritesTheMonthsInEnglish()
+    {
+        var halloween = new Season(10, 1, 10, 31);
+        var culture = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+        string described;
+        try
+        {
+            described = halloween.Describe();
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = culture;
+        }
+
+        Assert.Equal("October 1 to October 31", described);
+    }
+
+    // The twelve the Shelves tab's lists offer, in order, as Core numbers them.
+    [Fact]
+    public void MonthName_EachMonth_IsItsName()
+    {
+        var names = Enumerable.Range(1, 12).Select(Season.MonthName);
+
+        Assert.Equal(
+            ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+            names);
+    }
+
+    // GetMonthName would write a 13th month as nothing, so the one writer of a month's name refuses it, as it does 0.
+    [Theory]
+    [InlineData(0)]
+    [InlineData(13)]
+    public void MonthName_NotAMonth_Throws(int month)
+    {
+        var name = () => Season.MonthName(month);
+
+        var bug = Assert.Throws<ArgumentOutOfRangeException>(name);
+        Assert.Equal("month", bug.ParamName);
     }
 }

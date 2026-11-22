@@ -19,6 +19,7 @@ using Rewind.Core.LateFees;
 using Rewind.Core.Members;
 using Rewind.Core.Metadata;
 using Rewind.Core.Returns;
+using Rewind.Core.Shelves;
 using Rewind.Core.Sounds;
 using Rewind.UI.Dialogs;
 using Rewind.UI.Errors;
@@ -44,6 +45,7 @@ public sealed class ShellTests : BunitContext
     private readonly FakeReturnDesk _desk = new();
     private readonly FakeCloseOutRegister _closeOut = new();
     private readonly FakeCatalogSearch _catalog = new();
+    private readonly FakeDisplayShelves _shelves = new();
     private readonly ListLogger<Shell> _shellLog = new();
     private readonly ListLogger<ErrorHub> _errorLog = new();
     private readonly CountingBoundaryLogger _boundaryLog = new();
@@ -74,6 +76,7 @@ public sealed class ShellTests : BunitContext
         Services.AddSingleton<IReturnDesk>(_desk);
         Services.AddSingleton<ICloseOutRegister>(_closeOut);
         Services.AddSingleton<ICatalogSearch>(_catalog);
+        Services.AddSingleton<IDisplayShelves>(_shelves);
         Services.AddSingleton(TimeProvider.System);
         Services.AddSingleton(Options.Create(new RewindPaths()));
 
@@ -868,7 +871,108 @@ public sealed class ShellTests : BunitContext
         Assert.Same(checkout, cut.FindComponent<Checkout>().Instance);
     }
 
+    // UI-11, OBS-5: #83's route, from F5's Shelves tab, whose saves all wait in its busy line. A shelf's save that fails
+    // after the Store Manager went to Checkout goes to ErrorHub, which logs it once and shows the error dialog, and the
+    // Checkout they went to stays open.
+    [Fact]
+    public async Task OnFunctionKey_F1WhileAShelfSaves_ReportsALateFailureToErrorHub()
+    {
+        var adding = new TaskCompletionSource<SeasonalShelfChange>();
+        _shelves.Adding = adding.Task;
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F5"));
+        await StoreManagerTab(cut, "Shelves").ClickAsync(new MouseEventArgs());
+        var submit = cut.Find(".shelves-add").SubmitAsync();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
+        var checkout = cut.FindComponent<Checkout>().Instance;
+
+        await cut.InvokeAsync(() => adding.SetException(new InvalidOperationException("The save failed.")));
+        await submit;
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(["Unhandled exception from ShelvesTab; reported to the shell"], _errorLog.Entries.Select(entry => entry.Message));
+        Assert.Equal(0, _boundaryLog.Count);
+        Assert.Equal(GoesBackToCheckout, _dialogs.Current?.Message);
+        await CloseDialogAsync(cut);
+        Assert.Same(checkout, cut.FindComponent<Checkout>().Instance);
+    }
+
+    // And from one of F5's tabs to another: F5 stays open behind the error dialog, on the Snacks tab the Store Manager
+    // went to. Through the shell's ErrorBoundary, F5 would close behind it (#97). OK then goes to Checkout, as it does
+    // after every error ErrorHub reports (OBS-5).
+    [Fact]
+    public async Task ClickAnotherTab_WhileAShelfSaves_ReportsALateFailureToErrorHub()
+    {
+        var adding = new TaskCompletionSource<SeasonalShelfChange>();
+        _shelves.Adding = adding.Task;
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F5"));
+        await StoreManagerTab(cut, "Shelves").ClickAsync(new MouseEventArgs());
+        var submit = cut.Find(".shelves-add").SubmitAsync();
+        await StoreManagerTab(cut, "Snacks").ClickAsync(new MouseEventArgs());
+        var storeManager = cut.FindComponent<StoreManager>().Instance;
+
+        await cut.InvokeAsync(() => adding.SetException(new InvalidOperationException("The save failed.")));
+        await submit;
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(["Unhandled exception from ShelvesTab; reported to the shell"], _errorLog.Entries.Select(entry => entry.Message));
+        Assert.Equal(0, _boundaryLog.Count);
+        Assert.Equal(GoesBackToCheckout, _dialogs.Current?.Message);
+        Assert.Same(storeManager, cut.FindComponent<StoreManager>().Instance);
+        Assert.True(cut.HasComponent<SnacksTab>());
+    }
+
+    // The shelves' read waits in the busy line too, unlike the other tabs' first reads (#97), so one that fails after
+    // the Store Manager went to Checkout takes #83's route, and Checkout stays open.
+    [Fact]
+    public async Task OnFunctionKey_F1WhileTheShelvesAreRead_ReportsALateFailureToErrorHub()
+    {
+        var reading = new TaskCompletionSource<IReadOnlyList<SeasonalShelfRow>>();
+        _shelves.Listing = reading.Task;
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F5"));
+        await StoreManagerTab(cut, "Shelves").ClickAsync(new MouseEventArgs());
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
+        var checkout = cut.FindComponent<Checkout>().Instance;
+
+        await cut.InvokeAsync(() => reading.SetException(new InvalidOperationException("The read failed.")));
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(["Unhandled exception from ShelvesTab; reported to the shell"], _errorLog.Entries.Select(entry => entry.Message));
+        Assert.Equal(0, _boundaryLog.Count);
+        Assert.Equal(GoesBackToCheckout, _dialogs.Current?.Message);
+        await CloseDialogAsync(cut);
+        Assert.Same(checkout, cut.FindComponent<Checkout>().Instance);
+    }
+
+    // And to another F5 tab, here Printing: F5 stays open behind the error dialog, as for a save.
+    [Fact]
+    public async Task ClickAnotherTab_WhileTheShelvesAreRead_ReportsALateFailureToErrorHub()
+    {
+        var reading = new TaskCompletionSource<IReadOnlyList<SeasonalShelfRow>>();
+        _shelves.Listing = reading.Task;
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F5"));
+        await StoreManagerTab(cut, "Shelves").ClickAsync(new MouseEventArgs());
+        await StoreManagerTab(cut, "Printing").ClickAsync(new MouseEventArgs());
+        var storeManager = cut.FindComponent<StoreManager>().Instance;
+
+        await cut.InvokeAsync(() => reading.SetException(new InvalidOperationException("The read failed.")));
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(["Unhandled exception from ShelvesTab; reported to the shell"], _errorLog.Entries.Select(entry => entry.Message));
+        Assert.Equal(0, _boundaryLog.Count);
+        Assert.Equal(GoesBackToCheckout, _dialogs.Current?.Message);
+        Assert.Same(storeManager, cut.FindComponent<StoreManager>().Instance);
+        Assert.Single(cut.FindAll(".labels-and-cards"));
+    }
+
     private IEnumerable<string> LoggedLines => _shellLog.Entries.Select(entry => entry.Message);
+
+    // One of F5's own tabs, which a click or Enter opens.
+    private static AngleSharp.Dom.IElement StoreManagerTab(IRenderedComponent<Shell> cut, string name) =>
+        cut.FindAll(".store-manager-tabs a").Single(tab => tab.TextContent == name);
 
     // Completes once the clerk answers F5's question, and the checklist if OK opened one.
     private static Task PressCloseOutAsync(IRenderedComponent<Shell> cut) =>
