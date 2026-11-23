@@ -3,14 +3,19 @@ using Rewind.Core.MovieNights;
 namespace Rewind.Core.Shelves;
 
 /// <summary>
-/// What the Store Manager asks of Core to keep the seasonal shelves, one call per action (ARCH-5): the list, and
-/// adding, renaming, re-dating, deactivating and reactivating a shelf. Nothing deletes a shelf (DATA-4), and no two
-/// share a name (DATA-11). A Staff Picks shelf isn't the Store Manager's: every member has one from the save that
-/// adds them, and it goes by its member (ADR-0015), so no call here lists or changes one. Each change that's saved is
-/// one line in the log, at Information (OBS-3), and a change that changes nothing saves nothing and logs nothing. Each
-/// call hands its token on, so one that's cancelled before its save throws (NET-7). <see cref="DisplayShelves"/>
-/// does it, for F5's Shelves tab.
+/// What F5's Shelves tab and F3 Ask the Clerk ask of Core about the shelves, one call per action (ARCH-5). Each
+/// change that's saved is logged at Information, a line for each shelf it changes (OBS-3), and a change that changes
+/// nothing saves nothing and logs nothing. Each call hands its token on, so one that's cancelled before its save
+/// throws (NET-7). <see cref="DisplayShelves"/> does it.
 /// </summary>
+/// <remarks>
+/// The Store Manager keeps the seasonal shelves: the list, and adding, renaming, re-dating, deactivating and
+/// reactivating a shelf. Nothing deletes a shelf (DATA-4), and no two seasonal shelves share a name (DATA-11). A Staff
+/// Picks shelf isn't the Store Manager's: every member has one from the save that adds them, and it goes by its member
+/// (ADR-0015), so none of those calls lists or changes one. Ask the Clerk lists tonight's shelves and a movie's, Staff
+/// Picks and seasonal alike, and puts a movie on shelves and takes it off them. Anyone at the register can put a movie
+/// on any shelf, so nothing asks whose shelf it is (ADR-0015).
+/// </remarks>
 public interface IDisplayShelves
 {
     /// <summary>
@@ -61,4 +66,44 @@ public interface IDisplayShelves
     /// </summary>
     /// <exception cref="InvalidOperationException">No seasonal shelf has the Id, such as a Staff Picks shelf's.</exception>
     Task<SeasonalShelfChange> SetActiveAsync(int shelfId, bool isActive, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The shelves to show tonight, for Ask the Clerk's list of shelves and, in Build Plan 4.3, the spinner's: each
+    /// active seasonal shelf whose season takes in tonight's day, by name, then each active member's Staff Picks shelf,
+    /// by the member's name, then card, as the Members tab lists the members. Names sort with their letter case folded
+    /// from A to Z. A shelf with nothing on it is there too. Tonight's day is the one
+    /// <see cref="ListSeasonalAsync"/> goes by, so the Halloween shelf is there until Halloween night's Close Out
+    /// (ADR-0015).
+    /// </summary>
+    Task<IReadOnlyList<ShelfRow>> ListTonightsAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Every shelf a movie can go on, for the form Ask the Clerk opens on it, each saying whether the movie sits on it:
+    /// each active seasonal shelf, in season or not, with its season, then each active member's Staff Picks shelf, in
+    /// <see cref="ListTonightsAsync"/>'s order. A shelf out of season is there, so a movie can go on the Christmas
+    /// shelf in October. A deactivated shelf isn't, and nor is a deactivated member's, though each keeps what's on it
+    /// (ADR-0015).
+    /// </summary>
+    /// <exception cref="InvalidOperationException">No movie has the Id.</exception>
+    Task<IReadOnlyList<MovieShelfRow>> ListMovieShelvesAsync(int movieId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Puts a movie on the shelves given, out of those <see cref="ListMovieShelvesAsync"/> gives, and takes it off the
+    /// rest of them, in one save (DATA-7). It answers with the movie's shelves as they are now, as that call would give
+    /// them. A shelf the movie sits on already, or one it's off and stays off, is left as it is, and an Id given twice
+    /// is one shelf. A shelf that call doesn't give keeps the movie if it's on it, so a movie on a deactivated shelf,
+    /// or on a deactivated member's, is there again once the shelf or the member is reactivated (ADR-0015). Each shelf
+    /// the movie goes on or comes off is a line in the log.
+    /// </summary>
+    /// <exception cref="ArgumentNullException">The shelves' Ids are null.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// No movie has the Id, or a shelf's Id isn't one <see cref="ListMovieShelvesAsync"/> gives, such as a deactivated
+    /// shelf's. Nothing is saved.
+    /// </exception>
+    /// <exception cref="Microsoft.EntityFrameworkCore.DbUpdateException">
+    /// Another save put the movie on one of these shelves, or took it off one, between this call's look and its save,
+    /// and nothing is saved. The form sends one save at a time, so only a bug does that (NET-12).
+    /// </exception>
+    Task<IReadOnlyList<MovieShelfRow>> SetMovieShelvesAsync(
+        int movieId, IReadOnlyCollection<int> shelfIds, CancellationToken cancellationToken);
 }

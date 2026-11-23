@@ -13,6 +13,25 @@ public sealed class ShelfTests
     // Every column a seasonal shelf has, for a member's shelf that would be both kinds.
     private const string NameAndSeason = "NameAndSeason";
 
+    [Fact]
+    public void StaffPicksName_MembersName_IsTheirStaffPicks() =>
+        Assert.Equal("Dad's Staff Picks", Shelf.StaffPicksName("Dad"));
+
+    // Always the name and 's, as StaffPicksName's summary says, whatever the name ends in.
+    [Fact]
+    public void StaffPicksName_NameEndingInAnS_StillTakesApostropheS() =>
+        Assert.Equal("Chris's Staff Picks", Shelf.StaffPicksName("Chris"));
+
+    [Fact]
+    public void StaffPicksName_NullName_IsRefused()
+    {
+        // NET-1: null on purpose, past the compiler's check, since this tests what StaffPicksName does with one.
+        Action name = () => Shelf.StaffPicksName(null!);
+
+        var refusal = Assert.Throws<ArgumentNullException>(name);
+        Assert.Equal("memberName", refusal.ParamName);
+    }
+
     // A member's shelf is named for its member, so it has no name or season of its own, and it's always active.
     [Fact]
     public async Task SaveChanges_MembersStaffPicks_IsSaved()

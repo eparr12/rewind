@@ -18,10 +18,10 @@ public interface ICatalogSearch
 
     /// <summary>
     /// Searches the listed movies for what the clerk typed and picked, as they typed and picked it. The text, the genre,
-    /// the year and the rating each narrow the search, alone or together, and nothing typed or picked lists the whole
-    /// catalog. A filter never matches an unknown (DATA-3): a movie with no year isn't from 1978, one with no rating
-    /// isn't rated R, and one with no genres has none of them. A year or a rating that isn't one comes back as that
-    /// status (NET-12), and the database isn't asked.
+    /// the year, the rating and the shelf each narrow the search, alone or together, and nothing typed or picked lists
+    /// the whole catalog. A filter never matches an unknown (DATA-3): a movie with no year isn't from 1978, one with no
+    /// rating isn't rated R, and one with no genres has none of them. A year or a rating that isn't one comes back as
+    /// that status (NET-12), and the database isn't asked.
     /// </summary>
     /// <remarks>
     /// The hits go by title, A to Z as the other lists sort, then by year, unknown first, then by Id, so the same search
@@ -40,9 +40,15 @@ public interface ICatalogSearch
     /// The year it came out, in digits, from 1888, the oldest film's, to next year, or null or blank for any year.
     /// </param>
     /// <param name="rating">One of <see cref="UsRatings.All"/>, in any letter case, or null or blank for any rating.</param>
+    /// <param name="shelfId">
+    /// The Id of a shelf, a member's Staff Picks or a seasonal one, as
+    /// <see cref="Shelves.IDisplayShelves.ListTonightsAsync"/> gives it, to find only the movies on that shelf, or null
+    /// for every movie, whether it sits on a shelf or not. An Id no shelf has finds nothing.
+    /// </param>
     /// <param name="cancellationToken">
     /// Cancels the search, such as when the clerk leaves the screen, and the search then throws (NET-7). A year or a
     /// rating that isn't one is answered first, before anything is read, so there's nothing to cancel.
     /// </param>
-    Task<SearchResult> SearchAsync(string? text, string? genre, string? year, string? rating, CancellationToken cancellationToken);
+    Task<SearchResult> SearchAsync(
+        string? text, string? genre, string? year, string? rating, int? shelfId, CancellationToken cancellationToken);
 }

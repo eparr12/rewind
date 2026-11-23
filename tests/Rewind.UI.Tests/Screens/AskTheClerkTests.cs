@@ -164,7 +164,7 @@ public sealed class AskTheClerkTests : BunitContext
 
         await form.SubmitAsync();
 
-        Assert.Equal([("curtis", "Horror", "1978", "R")], _catalog.Searches);
+        Assert.Equal([("curtis", "Horror", "1978", "R", null)], _catalog.Searches);
     }
 
     [Fact]
@@ -175,7 +175,7 @@ public sealed class AskTheClerkTests : BunitContext
 
         await cut.Find("button").ClickAsync(new MouseEventArgs());
 
-        Assert.Equal([("curtis", "Horror", "1978", "R")], _catalog.Searches);
+        Assert.Equal([("curtis", "Horror", "1978", "R", null)], _catalog.Searches);
     }
 
     // Any is blank, and Core reads a blank box as nothing picked, so nothing typed or picked lists the whole catalog.
@@ -186,7 +186,7 @@ public sealed class AskTheClerkTests : BunitContext
 
         await SubmitAsync(cut);
 
-        Assert.Equal([("", "", "", "")], _catalog.Searches);
+        Assert.Equal([("", "", "", "", null)], _catalog.Searches);
     }
 
     // SEC-5: the screen hands Core what was typed, spaces and all, and Core cleans it.
@@ -198,7 +198,7 @@ public sealed class AskTheClerkTests : BunitContext
 
         await SubmitAsync(cut);
 
-        Assert.Equal([(" Jamie Lee Curtis ", "", "1978 ", "")], _catalog.Searches);
+        Assert.Equal([(" Jamie Lee Curtis ", "", "1978 ", "", null)], _catalog.Searches);
     }
 
     // UI-6: the loading state.

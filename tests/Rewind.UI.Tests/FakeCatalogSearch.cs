@@ -4,12 +4,12 @@ namespace Rewind.UI.Tests;
 
 /// <summary>
 /// The catalog search as Ask the Clerk's tests set it up (ADR-0003): it answers with whatever the test gives it, which
-/// can be a task that hasn't finished, and keeps each search it's asked for, with the four boxes as the screen sent
-/// them.
+/// can be a task that hasn't finished, and keeps each search it's asked for, with the four boxes and the shelf as the
+/// screen sent them.
 /// </summary>
 internal sealed class FakeCatalogSearch : ICatalogSearch
 {
-    private readonly List<(string? Text, string? Genre, string? Year, string? Rating)> _searches = [];
+    private readonly List<(string? Text, string? Genre, string? Year, string? Rating, int? ShelfId)> _searches = [];
 
     /// <summary>What every read of the genres answers. No genres until a test says otherwise.</summary>
     public Task<IReadOnlyList<string>> Genres { get; set; } = Task.FromResult<IReadOnlyList<string>>([]);
@@ -21,7 +21,7 @@ internal sealed class FakeCatalogSearch : ICatalogSearch
     public int GenreReads { get; private set; }
 
     /// <summary>Each search the screen asked for, oldest first.</summary>
-    public IReadOnlyList<(string? Text, string? Genre, string? Year, string? Rating)> Searches => _searches;
+    public IReadOnlyList<(string? Text, string? Genre, string? Year, string? Rating, int? ShelfId)> Searches => _searches;
 
     /// <summary>The token the last call was given.</summary>
     public CancellationToken LastToken { get; private set; }
@@ -33,10 +33,11 @@ internal sealed class FakeCatalogSearch : ICatalogSearch
         return Genres;
     }
 
-    public Task<SearchResult> SearchAsync(string? text, string? genre, string? year, string? rating, CancellationToken cancellationToken)
+    public Task<SearchResult> SearchAsync(
+        string? text, string? genre, string? year, string? rating, int? shelfId, CancellationToken cancellationToken)
     {
         LastToken = cancellationToken;
-        _searches.Add((text, genre, year, rating));
+        _searches.Add((text, genre, year, rating, shelfId));
         return Search;
     }
 }

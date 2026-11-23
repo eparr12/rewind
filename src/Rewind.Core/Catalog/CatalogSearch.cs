@@ -2,13 +2,15 @@ using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using Rewind.Core.Data;
 using Rewind.Core.Metadata;
+using Rewind.Core.Shelves;
 
 namespace Rewind.Core.Catalog;
 
 /// <summary>
-/// Searches the catalog for F3 Ask the Clerk (Build Plan 4.1), and lists the genres the clerk can pick. Each call
-/// reads with a context of its own and keeps nothing after it (DATA-6), so one serves every screen. A search isn't a
-/// key event, so it logs nothing of its own (OBS-3), though <see cref="Posters"/> logs a thumbnail it can't read.
+/// Searches the catalog for F3 Ask the Clerk (Build Plan 4.1), or one shelf of it (Build Plan 4.2), and lists the
+/// genres the clerk can pick. Each call reads with a context of its own and keeps nothing after it (DATA-6), so one
+/// serves every screen. A search isn't a key event, so it logs nothing of its own (OBS-3), though
+/// <see cref="Posters"/> logs a thumbnail it can't read.
 /// </summary>
 public sealed class CatalogSearch(IDbContextFactory<RewindDb> dbFactory, Posters posters, TimeProvider time) : ICatalogSearch
 {
@@ -49,7 +51,8 @@ public sealed class CatalogSearch(IDbContextFactory<RewindDb> dbFactory, Posters
     }
 
     /// <inheritdoc />
-    public async Task<SearchResult> SearchAsync(string? text, string? genre, string? year, string? rating, CancellationToken cancellationToken)
+    public async Task<SearchResult> SearchAsync(
+        string? text, string? genre, string? year, string? rating, int? shelfId, CancellationToken cancellationToken)
     {
         // Each checked before the database is asked, as EnterByHand checks a movie typed in by hand.
         if (!TypedNumbers.TryReadYear(year, time, out var knownYear))
@@ -64,7 +67,8 @@ public sealed class CatalogSearch(IDbContextFactory<RewindDb> dbFactory, Posters
         }
 
         var pickedGenre = string.IsNullOrWhiteSpace(genre) ? null : genre;
-        var rows = await ReadRowsAsync(LikePatternFor(text), pickedGenre, knownYear, knownRating, cancellationToken);
+        var rows = await ReadRowsAsync(
+            LikePatternFor(text), pickedGenre, knownYear, knownRating, shelfId, cancellationToken);
         var hits = new List<MovieHit>(Math.Min(rows.Count, MaxHits));
         foreach (var row in rows.Take(MaxHits))
         {
@@ -91,10 +95,12 @@ public sealed class CatalogSearch(IDbContextFactory<RewindDb> dbFactory, Posters
     // DATA-12: untracked, straight into rows, in one statement, so the hits and whether each is on the shelf come from
     // one moment. One row past MaxHits says whether more matched. NOCASE for the titles, as the other lists sort, then
     // the year, since remakes share titles, then the Id, so two movies with one title and year always read the same.
-    private async Task<List<HitRow>> ReadRowsAsync(string? pattern, string? genre, int? year, string? rating, CancellationToken cancellationToken)
+    private async Task<List<HitRow>> ReadRowsAsync(
+        string? pattern, string? genre, int? year, string? rating, int? shelfId, CancellationToken cancellationToken)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
-        return await Filtered(db.Movies.AsNoTracking().Where(Listed), pattern, genre, year, rating)
+        var listed = db.Movies.AsNoTracking().Where(Listed);
+        return await Filtered(listed, db.ShelfMovies, pattern, genre, year, rating, shelfId)
             .OrderBy(m => EF.Functions.Collate(m.Title, NoCase))
             .ThenBy(m => m.Year)
             .ThenBy(m => m.Id)
@@ -105,7 +111,14 @@ public sealed class CatalogSearch(IDbContextFactory<RewindDb> dbFactory, Posters
 
     // Each filter the clerk asked for, and only those. SQL's = and LIKE never match a NULL, so a movie whose year,
     // rating or director is unknown never matches it, and one with no genres has none to match (DATA-3).
-    private static IQueryable<Movie> Filtered(IQueryable<Movie> movies, string? pattern, string? genre, int? year, string? rating)
+    private static IQueryable<Movie> Filtered(
+        IQueryable<Movie> movies,
+        IQueryable<ShelfMovie> onShelves,
+        string? pattern,
+        string? genre,
+        int? year,
+        string? rating,
+        int? shelfId)
     {
         if (pattern is not null)
         {
@@ -127,6 +140,13 @@ public sealed class CatalogSearch(IDbContextFactory<RewindDb> dbFactory, Posters
         if (rating is not null)
         {
             movies = movies.Where(m => m.Rating == rating);
+        }
+
+        // ADR-0015: a movie is on a shelf while ShelfMovies has its row. Looked at in a subquery, as the cases are, so
+        // it stays one statement, and an Id no shelf has finds nothing with no read of its own.
+        if (shelfId is { } shelf)
+        {
+            movies = movies.Where(m => onShelves.Any(sm => sm.ShelfId == shelf && sm.MovieId == m.Id));
         }
 
         return movies;

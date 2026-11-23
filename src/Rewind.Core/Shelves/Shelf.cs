@@ -39,7 +39,7 @@ public sealed class Shelf
     /// <summary>
     /// A seasonal shelf's name, such as Halloween, no longer than <see cref="MaxNameLength"/>. No two seasonal shelves
     /// share one, whatever its letter case, which SQLite folds for A to Z only (#100). Null for a member's shelf,
-    /// which is named for its member, so it follows a rename.
+    /// which is named for its member, as <see cref="StaffPicksName"/> writes it, so it follows a rename.
     /// </summary>
     public string? Name { get; set; }
 
@@ -85,4 +85,17 @@ public sealed class Shelf
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException">The month is before <see cref="FirstMonth"/> or after <see cref="LastMonth"/>.</exception>
     public static int LastDayOf(int month) => DateTime.DaysInMonth(ALeapYear, month);
+
+    /// <summary>
+    /// The name the screens and the log give a member's Staff Picks shelf, such as Dad's Staff Picks. The shelf has no
+    /// name of its own, so it's written from the member's name each time it's read, and a rename on F5 follows
+    /// (ADR-0015). It's always the name and 's, so Chris's shelf is Chris's Staff Picks. It's the one writer of that
+    /// name, so every screen that shows a member's shelf reads alike.
+    /// </summary>
+    public static string StaffPicksName(string memberName)
+    {
+        ArgumentNullException.ThrowIfNull(memberName);
+
+        return $"{memberName}'s Staff Picks";
+    }
 }

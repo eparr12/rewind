@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Rewind.Core.Catalog;
 using Rewind.Core.Data;
 using Rewind.Core.Metadata;
 using Rewind.Core.MovieNights;
@@ -8,9 +9,10 @@ using Rewind.Core.MovieNights;
 namespace Rewind.Core.Shelves;
 
 /// <summary>
-/// Keeps the seasonal shelves for the Store Manager (Build Plan 4.2): each with a name and a season, in season from its
-/// first day to its last by the movie night, deactivated when it isn't wanted, never deleted (DATA-4, ADR-0015). Reads
-/// are untracked and go straight into rows (DATA-12).
+/// Keeps the shelves (Build Plan 4.2). For the Store Manager, the seasonal shelves: each with a name and a season, in
+/// season from its first day to its last by the movie night, deactivated when it isn't wanted, never deleted (DATA-4,
+/// ADR-0015). For Ask the Clerk, a member's Staff Picks and the seasonal shelves alike: the shelves to show tonight,
+/// the ones a movie can go on, and putting it on them. Reads are untracked and go straight into rows (DATA-12).
 /// </summary>
 public sealed partial class DisplayShelves(
     IDbContextFactory<RewindDb> dbFactory,
@@ -18,6 +20,9 @@ public sealed partial class DisplayShelves(
     TimeProvider time,
     ILogger<DisplayShelves> logger) : IDisplayShelves
 {
+    // SQLite's collation that folds A to Z, as the Members tab sorts the members.
+    private const string NoCase = "NOCASE";
+
     /// <inheritdoc />
     public async Task<IReadOnlyList<SeasonalShelfRow>> ListSeasonalAsync(CancellationToken cancellationToken)
     {
@@ -163,6 +168,69 @@ public sealed partial class DisplayShelves(
         return Saved(saved);
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ShelfRow>> ListTonightsAsync(CancellationToken cancellationToken)
+    {
+        var tonight = await TonightAsync(cancellationToken);
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        var seasonal = await ActiveSeasonal(db).Select(s => Row(s, tonight)).ToListAsync(cancellationToken);
+        var staffPicks = await ActiveStaffPicks(db)
+            .Select(s => new ShelfRow(s.Id, Shelf.StaffPicksName(s.Member!.Name))) // NET-1: as ActiveStaffPicks says
+            .ToListAsync(cancellationToken);
+
+        // Season.Holds says which are in season, in code, as for the Store Manager's list, so the rule is in one place.
+        return
+        [
+            .. seasonal.Where(shelf => shelf.InSeason).Select(shelf => new ShelfRow(shelf.Id, shelf.Name)),
+            .. staffPicks,
+        ];
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<MovieShelfRow>> ListMovieShelvesAsync(int movieId, CancellationToken cancellationToken)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        return (await FindMovieAsync(db, movieId, cancellationToken)).Shelves;
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<MovieShelfRow>> SetMovieShelvesAsync(
+        int movieId, IReadOnlyCollection<int> shelfIds, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(shelfIds);
+
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+        var movie = await FindMovieAsync(db, movieId, cancellationToken);
+        var ticked = shelfIds.ToHashSet();
+        CheckShown(movie.Shelves, ticked);
+        var changed = movie.Shelves.Where(shelf => shelf.HasTheMovie != ticked.Contains(shelf.Id)).ToList();
+        if (changed.Count == 0)
+        {
+            return movie.Shelves; // as for a new season, no line for no change
+        }
+
+        // ADR-0015: ShelfMovies holds what's on each shelf now, so a movie taken off a shelf loses its row. Every row
+        // goes in this one SaveChanges (DATA-7). The look above found the movie's rows, so the key refuses one, or a
+        // row to delete is gone, only when another save gets in between. The form sends one save at a time, so that's
+        // a bug, and its exception goes up as it is (NET-12), with no catch like AddAsync's for a name in use.
+        foreach (var shelf in changed)
+        {
+            var row = new ShelfMovie { ShelfId = shelf.Id, MovieId = movieId };
+            if (shelf.HasTheMovie)
+            {
+                db.ShelfMovies.Remove(row);
+            }
+            else
+            {
+                db.ShelfMovies.Add(row);
+            }
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        LogEachChange(movie.Name, changed);
+        return [.. movie.Shelves.Select(shelf => shelf with { HasTheMovie = ticked.Contains(shelf.Id) })];
+    }
+
     private async Task<SeasonalShelfChange> SaveNewAsync(string name, Season season, DateOnly tonight, CancellationToken cancellationToken)
     {
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
@@ -271,14 +339,99 @@ public sealed partial class DisplayShelves(
             .Select(s => Row(s, tonight))
             .SingleOrDefaultAsync(cancellationToken);
 
+    // Each active seasonal shelf, by name, for Ask the Clerk. Name is a NOCASE column (ADR-0015), so the sort folds A
+    // to Z as the Store Manager's list does, and the Id after it ends the order on a key, though it never decides.
+    private static IQueryable<Shelf> ActiveSeasonal(RewindDb db) =>
+        db.Shelves
+            .AsNoTracking()
+            .Where(s => s.MemberId == null && s.IsActive)
+            .OrderBy(s => s.Name)
+            .ThenBy(s => s.Id);
+
+    // Each active member's Staff Picks shelf, by the member's name, then card, as MemberRoster lists the members for
+    // the Members tab, so a name typed in lower case sorts among the others. A deactivated member's shelf is hidden
+    // while they are (ADR-0015). NET-1: a seasonal shelf has no member, so its member's IsActive reads as NULL, which
+    // the Where leaves out. Every shelf read through here has its member.
+    private static IQueryable<Shelf> ActiveStaffPicks(RewindDb db) =>
+        db.Shelves
+            .AsNoTracking()
+            .Where(s => s.Member!.IsActive)
+            .OrderBy(s => EF.Functions.Collate(s.Member!.Name, NoCase))
+            .ThenBy(s => s.Member!.CardBarcode);
+
+    // The movie, as the log names it, and every shelf it can go on, in Ask the Clerk's order, each saying whether it
+    // sits there. Rewind never deletes a movie, so an Id from a search's hit is always a movie's, and any other is a
+    // bug, as MemberRoster refuses a member who isn't there.
+    private static async Task<MovieOnShelves> FindMovieAsync(RewindDb db, int movieId, CancellationToken cancellationToken)
+    {
+        var name = await db.Movies
+            .AsNoTracking()
+            .Where(m => m.Id == movieId)
+            .Select(m => Movie.TitleWithYear(m.Title, m.Year))
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException($"No movie has Id {movieId}, though Rewind never deletes one.");
+
+        // Each shelf's own subquery says whether the movie is on it, so a shelf with nothing on it is there too.
+        var seasonal = await ActiveSeasonal(db)
+            .Select(s => SeasonalRow(s, db.ShelfMovies.Any(sm => sm.ShelfId == s.Id && sm.MovieId == movieId)))
+            .ToListAsync(cancellationToken);
+        var staffPicks = await ActiveStaffPicks(db)
+            .Select(s => new MovieShelfRow(
+                s.Id,
+                Shelf.StaffPicksName(s.Member!.Name), // NET-1: as ActiveStaffPicks says
+                null,
+                db.ShelfMovies.Any(sm => sm.ShelfId == s.Id && sm.MovieId == movieId)))
+            .ToListAsync(cancellationToken);
+        return new MovieOnShelves(name, [.. seasonal, .. staffPicks]);
+    }
+
+    // The form shows only the shelves ListMovieShelvesAsync gives, so any other Id is a bug in it, refused before
+    // anything changes, as a Staff Picks shelf's Id is refused by the Store Manager's changes.
+    private static void CheckShown(IReadOnlyList<MovieShelfRow> shown, HashSet<int> ticked)
+    {
+        foreach (var shelfId in ticked)
+        {
+            if (!shown.Any(shelf => shelf.Id == shelfId))
+            {
+                throw new InvalidOperationException(
+                    $"No shelf a movie can go on has Id {shelfId}: Ask the Clerk shows only an active shelf, or an active member's, and shelves are never deleted.");
+            }
+        }
+    }
+
+    // OBS-3: what was on a shelf before is only in the log (ADR-0015), so each shelf the movie went on or came off is a
+    // line, in Ask the Clerk's order. Each shelf here is as it was before the save.
+    private void LogEachChange(string movie, List<MovieShelfRow> changed)
+    {
+        foreach (var shelf in changed)
+        {
+            if (shelf.HasTheMovie)
+            {
+                LogTookOff(logger, movie, shelf.Name);
+            }
+            else
+            {
+                LogPutOn(logger, movie, shelf.Name);
+            }
+        }
+    }
+
     // NET-1: CK_Shelves_Kind gives every shelf without a member a name and all four numbers of its season, and only
     // those shelves are read here. A read builds each row with this as it's read, so the list's rows and a change's
     // are made alike.
     private static SeasonalShelfRow Row(Shelf shelf, DateOnly tonight)
     {
-        var season = new Season(shelf.FromMonth!.Value, shelf.FromDay!.Value, shelf.ToMonth!.Value, shelf.ToDay!.Value);
+        var season = SeasonOf(shelf);
         return new SeasonalShelfRow(shelf.Id, shelf.Name!, season, shelf.IsActive, season.Holds(tonight));
     }
+
+    // A seasonal shelf as the form Ask the Clerk opens on a movie shows it. NET-1: as for Row.
+    private static MovieShelfRow SeasonalRow(Shelf shelf, bool hasTheMovie) =>
+        new(shelf.Id, shelf.Name!, SeasonOf(shelf), hasTheMovie);
+
+    // NET-1: as for Row.
+    private static Season SeasonOf(Shelf shelf) =>
+        new(shelf.FromMonth!.Value, shelf.FromDay!.Value, shelf.ToMonth!.Value, shelf.ToDay!.Value);
 
     private static SeasonalShelfChange Saved(SeasonalShelfRow shelf) => new(SeasonalShelfChangeStatus.Saved, shelf);
 
@@ -299,4 +452,14 @@ public sealed partial class DisplayShelves(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Seasonal shelf {Name} is {State}")]
     private static partial void LogActiveChanged(ILogger logger, string name, string state);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Put {Movie} on shelf {Shelf}")]
+    private static partial void LogPutOn(ILogger logger, string movie, string shelf);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Took {Movie} off shelf {Shelf}")]
+    private static partial void LogTookOff(ILogger logger, string movie, string shelf);
+
+    // A movie as the log names it, such as The Nightmare Before Christmas (1993), and its shelves as the form shows
+    // them.
+    private sealed record MovieOnShelves(string Name, IReadOnlyList<MovieShelfRow> Shelves);
 }
