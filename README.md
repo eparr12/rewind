@@ -102,15 +102,23 @@ To try it in a Debug build, carry on from Checkout's: open Return (F2), type `RV
 
 ## Ask the Clerk
 
-Ask the Clerk (F3) searches the catalog. The clerk types part of a title, part of an actor's or the director's name, or a year, or picks a genre or a rating, in any mix, and presses Enter. Each movie found shows its thumbnail, year and rating, and whether a case of it is **On the shelf** or **Checked out**. With nothing typed or picked, it lists the whole catalog. It only reads, so nothing it does is saved. Esc on the list goes back to the Look for box, which keeps what was typed, so typing adds to it. Esc twice starts a new search.
+Ask the Clerk (F3) searches the catalog. The clerk types part of a title, part of an actor's or the director's name, or a year, or picks a genre, a rating or one of tonight's shelves, in any mix, and presses Enter. Each movie found shows its thumbnail, year and rating, and whether a case of it is **On the shelf** or **Checked out**. With nothing typed or picked, it lists the whole catalog. Esc on the list goes back to the Look for box, which keeps what was typed, so typing adds to it. Esc twice starts a new search. A search only reads: the one thing F3 saves is a movie's shelves, below.
 
 It lists each movie that has a case that isn't retired, as the phone catalog does, once however many cases it's in, so a movie whose cases are all retired isn't there. A filter never matches what isn't known: a movie with no year isn't from 1978, and one with no rating isn't rated R. The list shows the first 50, A to Z by title, and when more match, the line above it says to type more.
 
 Letter case doesn't matter from A to Z, but accents do: `amelie` doesn't find *Amélie*, and neither does `AMÉLIE` ([#100](https://github.com/eparr12/rewind/issues/100)). Type a part without the accent instead, such as `lie`.
 
-Ask the Clerk takes no scans. A store label, a member card, a snack or a DVD's barcode brings a dialog that says to press F1 to check out, F2 to return a movie or F4 to add one, then scan again. An unknown barcode plays the error chord, as on every screen.
+The **Shelf** list holds tonight's shelves: each seasonal shelf that's in season tonight, by name, then each active member's Staff Picks, by the member's name. Tonight is the movie night's day, as on the Shelves tab (see [Shelves](#shelves)). The list is read as F3 opens, so a shelf that comes into season while F3 is open is there the next time it opens. Picking a shelf finds only the movies on it, and the other boxes narrow it as they do without one. When a shelf alone finds nothing, the line says nothing is on it yet, and how to put a movie there.
+
+Enter or a double-click on a movie opens its shelves in the list's place: a checkbox for each active seasonal shelf, with its dates, then each active member's Staff Picks, with the ones the movie is on ticked. A seasonal shelf is there in season or not, so a movie can go on a shelf before its season comes round, such as the Christmas shelf in October. A deactivated shelf, or a deactivated member's Staff Picks, isn't there, and keeps its movies until it's reactivated. Space ticks and unticks, Enter saves, and Esc cancels. Anyone at the register can put a movie on any shelf ([ADR-0015](docs/adr/0015-staff-picks-and-seasonal-shelves-share-one-table.md)), and Rewind's log names each shelf a movie goes on or comes off.
+
+After a save, the line names the shelves the movie is on now, and the cursor goes back to its row. The list isn't searched again, so it stays as the search left it, with the clerk's place in it, even when the movie has just come off the shelf that was searched. Press Enter in the search to see the shelf as it is now.
+
+Ask the Clerk takes no scans, with a movie's shelves open or not. A store label, a member card, a snack or a DVD's barcode brings a dialog that says to press F1 to check out, F2 to return a movie or F4 to add one, then scan again. An unknown barcode plays the error chord, as on every screen.
 
 To try it in a Debug build, carry on from Return's: open Ask the Clerk (F3), type `farley` and press Enter. The list shows Tommy Boy, found by Chris Farley's name in its cast, On the shelf. Check it out again at F1, then search again at F3: it says Checked out. Type `78` in the Year box and press Enter, and the line says the year is four digits or blank.
+
+Then put Tommy Boy on the member's Staff Picks: press Esc, type `farley` and press Enter, then press Enter on Tommy Boy. Its shelves open with nothing ticked: any seasonal shelves from the Shelves tab, then the member's Staff Picks, such as Dad's Staff Picks for a member named Dad. Press Tab to the Staff Picks if seasonal shelves come first, tick it with Space and press Enter. The line names the shelf, and the cursor is back on Tommy Boy. Press Esc twice, pick the Staff Picks in the Shelf list and press Enter: Tommy Boy is on it. Press Enter on it, untick the shelf with Space and press Enter: the line says its shelves are none, and Tommy Boy stays in the list until the next search.
 
 ## Close Out
 
@@ -175,6 +183,8 @@ Cut out the member cards, write each member's name on the line, and laminate the
 ### Members
 
 On the **Members** tab, type the new member's name, then scan their card: Rewind chimes and adds them. **Rename** fixes a typo, since someone new is a new member, with a card of their own. **Deactivate** someone who stops renting, and **Reactivate** brings them back. Rewind never deletes a member (DATA-4), and a card stays with its member for good, active or not (DATA-11), so it can't go to anyone else.
+
+Each member has a Staff Picks shelf, named for them, such as Dad's Staff Picks, which Ask the Clerk (F3) lists and puts movies on (see [Ask the Clerk](#ask-the-clerk)). A rename renames it. A deactivated member's shelf isn't shown on F3, and keeps its movies, so it's shown again with them once the member is reactivated.
 
 ### Prices
 

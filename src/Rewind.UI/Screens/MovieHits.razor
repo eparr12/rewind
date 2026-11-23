@@ -3,10 +3,11 @@
    case of it is on the shelf. It opens with the first row focused. The arrow keys, Home and End move between the
    rows (keyboard.js), and the highlight follows the focus. Enter or a double-click on a row picks its movie, for
    the screen to show the movie's shelves (Build Plan 4.2), and with nothing to pick for, both do nothing. Esc hands
-   the cursor back to the screen, for its search box. *@
+   the cursor back to the screen, for its search box. While the screen shows the shelves in its place, the list stays
+   in the page out of sight, so it's as it was once they close. *@
 @if (Hits.Count > 0)
 {
-    <div class="sunken-panel movie-hits-list" @onkeydown="OnKeyDownAsync">
+    <div class="sunken-panel movie-hits-list" hidden="@Hidden" @onkeydown="OnKeyDownAsync">
         <table class="interactive">
             <thead>
                 <tr>
@@ -75,6 +76,15 @@
     /// <summary>Called when the clerk presses Esc on the list, so the screen can put the cursor back in its search box.</summary>
     [Parameter]
     public EventCallback OnEscape { get; set; }
+
+    /// <summary>
+    /// Whether the list is out of sight, while the screen shows something in its place, such as the movie's shelves. It
+    /// stays in the page meanwhile, so it keeps its highlight and its place: shown again, its rows are where they were,
+    /// and <see cref="FocusHighlightedRowAsync"/> puts the focus back on the row the clerk was on. A new list would
+    /// start again at the top.
+    /// </summary>
+    [Parameter]
+    public bool Hidden { get; set; }
 
     /// <summary>
     /// Puts the focus back on the highlighted row, once the screen has closed what took it, such as the movie's

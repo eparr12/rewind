@@ -1,21 +1,27 @@
 @inherits ScanningScreen
 @using System.Diagnostics
+@using System.Globalization
 @using Microsoft.Extensions.Logging
 @inject ICatalogSearch Catalog
+@inject IDisplayShelves Shelves
 @inject ILogger<AskTheClerk> Logger
 
-@* F3 Ask the Clerk (Build Plan 4.1): the clerk types part of a title, a name from the cast or the director, or
-   a year, or picks a genre or a rating, or any of them together, and Enter searches the catalog. The movies it
-   found go in the list under the search, each saying whether a case of it is on the shelf. The list takes the
-   room left under the search, so a bigger screen shows more of it. Each Esc goes one step back, as Intake's does.
-   Esc on the list puts the cursor back in the Look for box, which keeps what was typed, with the cursor where it
-   was, after the text, so typing adds to it. A second Esc, in the search, clears it, to start a new search. Every
-   Enter in the search searches: a text box submits the form by itself, and keyboard.js has Enter in a list do the
-   same. The search and what it found live in these fields (ADR-0003), so leaving the screen loses them, and
-   nothing is saved. *@
+@* F3 Ask the Clerk (Build Plans 4.1 and 4.2): the clerk types part of a title, a name from the cast or the director,
+   or a year, or picks a genre, a rating or one of tonight's shelves, or any of them together, and Enter searches the
+   catalog. The movies it found go in the list under the search, each saying whether a case of it is on the shelf.
+   The list takes the room left under the search, so a bigger screen shows more of it. Enter or a double-click on a
+   movie opens its shelves in the list's place, to put it on shelves and take it off them, and once they close, the
+   list is back as the search left it, with the cursor on that movie's row. Each Esc goes one step back, as Intake's
+   does. Esc in the shelves closes them, with nothing saved. Esc on the list puts the cursor back in the Look for box,
+   which keeps what was typed, with the cursor where it was, after the text, so typing adds to it. A second Esc, in
+   the search, clears it, to start a new search. Every Enter in the search searches: a text box submits the form by itself, and
+   keyboard.js has Enter in a list do the same. The search, what it found and the open shelves live in these fields
+   (ADR-0003), so leaving the screen loses them, and only Save in the shelves saves anything. *@
 <div class="ask-the-clerk">
-    @* Esc is the form's: the list sits outside it, so Esc on the list never clears the search. *@
-    <form class="field-row ask-the-clerk-search" @onsubmit="SearchAsync" @onsubmit:preventDefault @onkeydown="OnSearchKeyDown">
+    @* Esc is the form's: the list sits outside it, so Esc on the list never clears the search. While a movie's
+       shelves are open, the search ignores the mouse and Tab, as the shell's screen does behind a dialog, so the
+       clerk finishes with the shelves first. *@
+    <form class="field-row ask-the-clerk-search" inert="@ShelvesOpen" @onsubmit="SearchAsync" @onsubmit:preventDefault @onkeydown="OnSearchKeyDown">
         <label for="ask-the-clerk-text">Look for:</label>
         <input id="ask-the-clerk-text" type="text" autocomplete="off" spellcheck="false"
                maxlength="@TmdbClient.MaxNameLength" @ref="_textBox" @bind="_text" @bind:event="oninput" />
@@ -40,14 +46,30 @@
                 <option value="@rating">@rating</option>
             }
         </select>
+        <label for="ask-the-clerk-shelf">Shelf:</label>
+        <select id="ask-the-clerk-shelf" @bind="_shelf">
+            <option value="">Any</option>
+            @foreach (var shelf in _tonightsShelves)
+            {
+                <option value="@Choice(shelf)">@shelf.Name</option>
+            }
+        </select>
         <button type="submit" class="default">Search</button>
     </form>
     <p class="ask-the-clerk-prompt">@Prompt</p>
     @if (_found is { } found)
     {
         @* Keyed by search: the list sets itself up once, as it opens, so each search gets a new one, which takes
-           the focus. *@
-        <MovieHits @key="_searchesRun" Hits="found.Hits" OnEscape="BackToTheBox" />
+           the focus. While a movie's shelves are open, it stays in the page out of sight, keeping its highlight and
+           its place, so the cursor can go back to the movie's row. *@
+        <MovieHits @key="_searchesRun" @ref="_list" Hits="found.Hits" Hidden="ShelvesOpen" OnPick="OpenShelvesAsync" OnEscape="BackToTheBox" />
+    }
+    @if (_openShelves is { } open)
+    {
+        @* Keyed by opening, which has a record of its own: the form ticks the shelves the movie sits on once, as it
+           opens. *@
+        <MovieShelves @key="open" Title="@open.Movie.Title" Year="open.Movie.Year" Shelves="open.Shelves"
+                      OnSave="SaveShelvesAsync" OnCancel="CancelShelves" />
     }
 </div>
 
@@ -55,7 +77,12 @@
     // A year is four digits, as in the hand-entry form.
     private const int YearLength = 4;
 
-    private const string BeforeASearch = "Type part of a title or a name, type a year, or pick a genre or a rating, then press Enter.";
+    private const string BeforeASearch = "Type part of a title or a name, type a year, or pick a genre, a rating or a shelf, then press Enter.";
+
+    private const string TickTheShelves = "Tick or untick a shelf with Space, then press Enter to save, or Esc to cancel.";
+
+    // The form says itself that there are no shelves, with OK alone, which Enter presses.
+    private const string NoShelvesToTick = "Press Enter to go back to the list.";
 
     // Ask the Clerk only looks movies up, so each barcode belongs on another screen.
     private static readonly Dialog TakesNoScans = new(
@@ -70,14 +97,21 @@
     // leaves it where it is.
     private ElementReference? _cursorTo;
 
-    // The four boxes, just as the clerk typed and picked them. Any is blank, which Core reads as nothing picked.
+    // Whether the cursor goes back to the list's highlighted row once the screen has drawn: the row of the movie whose
+    // shelves just closed.
+    private bool _cursorToTheRow;
+
+    // The four boxes and the Shelf list, just as the clerk typed and picked them. Any is blank, which Core reads as
+    // nothing picked, and a shelf is its Id, as its choice in the list holds it.
     private string _text = "";
     private string _genre = "";
     private string _year = "";
     private string _rating = "";
+    private string _shelf = "";
 
-    // The genres for the list, in Core's order, read once, as the screen opens.
+    // The genres and tonight's shelves for the lists, in Core's order, each read once, as the screen opens.
     private IReadOnlyList<string> _genres = [];
+    private IReadOnlyList<ShelfRow> _tonightsShelves = [];
 
     // What the last search that ran found, until the next search or Esc in the search. Null before the first.
     private SearchResult? _found;
@@ -85,12 +119,27 @@
     // Whether that search had nothing typed or picked, and so asked for the whole catalog.
     private bool _askedForEverything;
 
+    // The shelf that search asked for, when it asked for nothing else, so the line can say nothing is on it yet. Null
+    // when it asked for no shelf, or for something else too.
+    private ShelfRow? _shelfAlone;
+
     // Counts the searches that ran, so each one's list has a key of its own.
     private int _searchesRun;
 
-    // What a search that didn't run said to fix, such as the year. It takes the prompt's place until the next
-    // search, or Esc.
+    // The list the last search that ran found, for the cursor to go back to once a movie's shelves close.
+    private MovieHits? _list;
+
+    // The movie whose shelves are open in the list's place, with every shelf it can go on, as Core read them. Null
+    // while they're closed.
+    private OpenShelves? _openShelves;
+
+    // What the line says in place of what the last search found, until the next search, Esc or the next movie's
+    // shelves: what to fix, for a search that didn't run, such as the year, or the shelves a movie is on, once
+    // they're saved.
     private string? _notice;
+
+    // Whether a movie's shelves are open, which puts the list out of sight and the search out of reach.
+    private bool ShelvesOpen => _openShelves is not null;
 
     // One line that always says what's happening or what to do next (UI-6).
     private string Prompt
@@ -102,6 +151,11 @@
                 return busy;
             }
 
+            if (_openShelves is { } open)
+            {
+                return open.Shelves.Count == 0 ? NoShelvesToTick : TickTheShelves;
+            }
+
             if (_notice is { } notice)
             {
                 return notice;
@@ -111,6 +165,8 @@
             {
                 null => BeforeASearch,
                 { Hits.Count: 0 } when _askedForEverything => "The store has no movies yet. Press F4 to add one.",
+                { Hits.Count: 0 } when _shelfAlone is { } shelf =>
+                    $"Nothing is on {shelf.Name} yet. To put a movie there, press Esc, search for it, then press Enter on it.",
                 { Hits.Count: 0 } => "Nothing in the store matches. Check the spelling, then press Enter.",
                 { MoreMatched: true } found => $"The first {Movies(found.Hits.Count)}. {OnTheShelf(found.Hits)} Type more to narrow it down.",
                 var found => $"{Movies(found.Hits.Count)}. {OnTheShelf(found.Hits)}",
@@ -118,25 +174,37 @@
         }
     }
 
-    // Whether nothing is typed or picked. Core reads a box of only spaces as blank, so the screen does too.
-    private bool NothingAsked =>
+    // Whether nothing is typed or picked in the four boxes. Core reads a box of only spaces as blank, so the screen
+    // does too.
+    private bool BoxesBlank =>
         string.IsNullOrWhiteSpace(_text)
         && string.IsNullOrWhiteSpace(_genre)
         && string.IsNullOrWhiteSpace(_year)
         && string.IsNullOrWhiteSpace(_rating);
 
-    // The genres wait in the busy line, as a search does, so a read that fails after the clerk has left goes to
-    // ErrorHub, rather than closing the screen they went to (#97).
+    // The shelf picked in the Shelf list, or null for Any.
+    private ShelfRow? PickedShelf => _shelf == "" ? null : _tonightsShelves.Single(shelf => Choice(shelf) == _shelf);
+
+    // The genres and tonight's shelves wait in the busy line, as a search does, so a read that fails after the clerk
+    // has left goes to ErrorHub, rather than closing the screen they went to (#97). The shelves are read once, as the
+    // screen opens, so a shelf that comes into season while the screen is open is in the list the next time F3 opens.
     protected override async Task OnInitializedAsync()
     {
-        if (await WhileBusyAsync("Reading the genres...", Catalog.GenresAsync, Closing) is { } genres)
+        if (await WhileBusyAsync("Reading the genres...", Catalog.GenresAsync, Closing) is not { } genres)
         {
-            _genres = genres;
+            return; // the clerk left the screen before Core answered
+        }
+
+        _genres = genres;
+        if (await WhileBusyAsync("Reading the shelves...", Shelves.ListTonightsAsync, Closing) is { } shelves)
+        {
+            _tonightsShelves = shelves;
         }
     }
 
     // UI-3: the cursor starts in the Look for box, so the clerk can just type, and goes where a search or Esc sends
-    // it. Only once the screen has drawn, so an answer that comes after the clerk left moves nothing.
+    // it, or back to the movie's row once its shelves close. Only once the screen has drawn, so an answer that comes
+    // after the clerk left moves nothing.
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         var box = firstRender ? _textBox : _cursorTo;
@@ -145,10 +213,17 @@
         {
             await toFocus.FocusAsync();
         }
+
+        var toTheRow = _cursorToTheRow ? _list : null;
+        _cursorToTheRow = false;
+        if (toTheRow is { } list)
+        {
+            await list.FocusHighlightedRowAsync();
+        }
     }
 
-    // A scan has no place here, so each kind gets the same dialog, saying where it goes. An unknown barcode has had
-    // its chord from ScannerHub (HW-5).
+    // A scan has no place here, so each kind gets the same dialog, saying where it goes, with the shelves open or not.
+    // An unknown barcode has had its chord from ScannerHub (HW-5).
     protected override async Task OnScanAsync(Scan scan)
     {
         if (scan.Kind == ScanKind.Unknown)
@@ -167,10 +242,10 @@
         await ShowAsync(TakesNoScans);
     }
 
-    // Enter in any box or list, or the Search button: one call to Core for each search (ARCH-5), with the four
-    // boxes as they are. The boxes only cap what fits (SEC-5), and Core reads what was typed. The screen has no
-    // list of shelves yet, so it sends no shelf, and every movie is searched, on a shelf or not. A second Enter while
-    // it searches is ignored, since the first one's answer is on its way.
+    // Enter in any box or list, or the Search button: one call to Core for each search (ARCH-5), with the four boxes
+    // and the Shelf list as they are. The boxes only cap what fits (SEC-5), and Core reads what was typed. Any in the
+    // Shelf list searches every movie, whether it sits on a shelf or not. A second Enter while it searches is ignored,
+    // since the first one's answer is on its way.
     private async Task SearchAsync()
     {
         if (Busy)
@@ -178,9 +253,10 @@
             return;
         }
 
-        var askedForEverything = NothingAsked;
+        var boxesBlank = BoxesBlank;
+        var shelf = PickedShelf;
         var result = await WhileBusyAsync(
-            "Searching...", token => Catalog.SearchAsync(_text, _genre, _year, _rating, shelfId: null, token), Closing);
+            "Searching...", token => Catalog.SearchAsync(_text, _genre, _year, _rating, shelf?.Id, token), Closing);
         switch (result)
         {
             case null:
@@ -188,7 +264,8 @@
             case { Status: SearchStatus.Searched }:
                 _notice = null;
                 _found = result;
-                _askedForEverything = askedForEverything;
+                _askedForEverything = boxesBlank && shelf is null;
+                _shelfAlone = boxesBlank ? shelf : null;
                 _searchesRun++;
                 return;
             case { Status: SearchStatus.NotAYear }:
@@ -211,8 +288,8 @@
         _notice = notice;
     }
 
-    // UI-3: Esc in the search clears it, with both lists back on Any and the hits gone, and the cursor goes back to
-    // the Look for box. Not while Core answers: the search's answer would land on a search that had been cleared.
+    // UI-3: Esc in the search clears it, with the three lists back on Any and the hits gone, and the cursor goes back
+    // to the Look for box. Not while Core answers: the search's answer would land on a search that had been cleared.
     private void OnSearchKeyDown(KeyboardEventArgs e)
     {
         if (e.Key != "Escape" || Busy)
@@ -224,6 +301,7 @@
         _genre = "";
         _year = "";
         _rating = "";
+        _shelf = "";
         _found = null;
         _notice = null;
         _cursorTo = _textBox;
@@ -234,6 +312,84 @@
     // in the search, starts over.
     private void BackToTheBox() => _cursorTo = _textBox;
 
+    // Enter or a double-click on a movie in the list: one call to Core for every shelf the movie can go on (ARCH-5),
+    // then the Shelves form in the list's place. A second Enter while Core answers is ignored, since the first one's
+    // answer is on its way.
+    private async Task OpenShelvesAsync(MovieHit movie)
+    {
+        if (Busy)
+        {
+            return;
+        }
+
+        var shelves = await WhileBusyAsync(
+            "Reading the movie's shelves...", token => Shelves.ListMovieShelvesAsync(movie.MovieId, token), Closing);
+        if (shelves is null)
+        {
+            return; // the clerk left the screen before Core answered
+        }
+
+        _notice = null; // once the shelves close, the line says what the search found again, or where they put it
+        _openShelves = new(movie, shelves);
+    }
+
+    // Save, with every shelf that's ticked, changed or not: one call to Core (ARCH-5), which saves only what changed.
+    // Enter in a checkbox presses Save, so one that comes while the first is saving is ignored, and one answer goes to
+    // Core. The list isn't searched again, so it's as the search left it, even for a movie just taken off the shelf
+    // that was searched, and the line says which shelves the movie is on now.
+    private async Task SaveShelvesAsync(IReadOnlyList<int> shelfIds)
+    {
+        if (Busy || _openShelves is not { } open)
+        {
+            return;
+        }
+
+        var saved = await WhileBusyAsync(
+            "Saving the movie's shelves...", token => Shelves.SetMovieShelvesAsync(open.Movie.MovieId, shelfIds, token), Closing);
+        if (saved is null)
+        {
+            return; // the clerk left the screen before Core answered
+        }
+
+        _notice = ShelvesOf(open.Movie, saved);
+        CloseShelves();
+    }
+
+    // Cancel, Esc, or OK when there are no shelves, with nothing saved. Not while Core saves: the shelves it's saving
+    // are the ones that count, so the form closes once they're saved, and the line names them.
+    private void CancelShelves()
+    {
+        if (!Busy)
+        {
+            CloseShelves();
+        }
+    }
+
+    // The list is back as the search left it, and the cursor goes back to the movie's row.
+    private void CloseShelves()
+    {
+        _openShelves = null;
+        _cursorToTheRow = true;
+    }
+
+    // A shelf's choice in the Shelf list: its Id, in digits.
+    private static string Choice(ShelfRow shelf) => shelf.Id.ToString(CultureInfo.InvariantCulture);
+
+    // Such as "Shelves for The Nightmare Before Christmas (1993): Christmas, Halloween and Dad's Staff Picks.", in
+    // Core's order, or "Shelves for Tommy Boy (1995): none.", as the form names its group box. It doesn't say the movie
+    // is on them: the list says On the shelf for a case of it in the store.
+    private static string ShelvesOf(MovieHit movie, IReadOnlyList<MovieShelfRow> shelves)
+    {
+        List<string> on = [.. shelves.Where(shelf => shelf.HasTheMovie).Select(shelf => shelf.Name)];
+        var names = on.Count switch
+        {
+            0 => "none",
+            1 => on[0],
+            _ => $"{string.Join(", ", on[..^1])} and {on[^1]}",
+        };
+        return $"Shelves for {MovieTitle.WithYear(movie.Title, movie.Year)}: {names}.";
+    }
+
     // Such as "1 movie" or "3 movies".
     private static string Movies(int count) => count == 1 ? "1 movie" : $"{count} movies";
 
@@ -243,4 +399,7 @@
         var onShelf = hits.Count(hit => hit.OnShelf);
         return onShelf == 1 ? "1 is on the shelf." : $"{onShelf} are on the shelf.";
     }
+
+    // The movie whose shelves are open, and every shelf it can go on, from which the form ticks the ones it sits on.
+    private sealed record OpenShelves(MovieHit Movie, IReadOnlyList<MovieShelfRow> Shelves);
 }

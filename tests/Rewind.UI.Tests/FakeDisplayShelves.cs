@@ -59,6 +59,9 @@ internal sealed class FakeDisplayShelves : IDisplayShelves
     /// </summary>
     public IReadOnlyList<string> Calls => _calls;
 
+    /// <summary>How many times tonight's shelves were read.</summary>
+    public int TonightsReads { get; private set; }
+
     /// <summary>The token each call was given, the reads' included, oldest first.</summary>
     public IReadOnlyList<CancellationToken> Tokens => _tokens;
 
@@ -104,6 +107,7 @@ internal sealed class FakeDisplayShelves : IDisplayShelves
     public Task<IReadOnlyList<ShelfRow>> ListTonightsAsync(CancellationToken cancellationToken)
     {
         _tokens.Add(cancellationToken);
+        TonightsReads++;
         return ListingTonights;
     }
 

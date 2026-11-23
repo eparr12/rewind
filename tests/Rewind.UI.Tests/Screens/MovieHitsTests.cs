@@ -233,6 +233,47 @@ public sealed class MovieHitsTests : BunitContext
         Assert.Empty(JSInterop.Invocations);
     }
 
+    // In sight unless the screen says otherwise.
+    [Fact]
+    public void Render_Hits_IsInSight()
+    {
+        var cut = RenderList();
+
+        Assert.False(cut.Find(".movie-hits-list").HasAttribute("hidden"));
+    }
+
+    // While the screen shows the movie's shelves in its place, the list is out of sight but still in the page, with its
+    // rows and its highlight, and it takes no focus, which the shelves have.
+    [Fact]
+    public async Task Render_Hidden_StaysInThePageOutOfSight()
+    {
+        var cut = RenderList([Halloween, HomeMovies, Scream]);
+        await Rows(cut)[1].FocusAsync(new FocusEventArgs());
+
+        cut.Render(parameters => parameters.Add(p => p.Hidden, true));
+
+        Assert.True(cut.Find(".movie-hits-list").HasAttribute("hidden"));
+        Assert.Equal(3, Rows(cut).Count);
+        Assert.Equal("Home movies", Title(Highlighted(cut)));
+        JSInterop.VerifyFocusAsyncInvoke(); // the first row's, as the list opened, and no other
+    }
+
+    // Shown again, it's as it was: the same rows, the highlight where the clerk left it, and no focus taken until the
+    // screen puts it back.
+    [Fact]
+    public async Task Render_ShownAgain_KeepsTheHighlight()
+    {
+        var cut = RenderList([Halloween, HomeMovies, Scream]);
+        await Rows(cut)[1].FocusAsync(new FocusEventArgs());
+        cut.Render(parameters => parameters.Add(p => p.Hidden, true));
+
+        cut.Render(parameters => parameters.Add(p => p.Hidden, false));
+
+        Assert.False(cut.Find(".movie-hits-list").HasAttribute("hidden"));
+        Assert.Equal("Home movies", Title(Highlighted(cut)));
+        JSInterop.VerifyFocusAsyncInvoke(); // the first row's, as the list opened, and no other
+    }
+
     // UI-10: a title from TMDB renders as text, so markup in it shows as typed and draws nothing.
     [Fact]
     public void Render_TitleWithMarkup_ShowsItAsTyped()

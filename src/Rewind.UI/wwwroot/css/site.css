@@ -537,10 +537,11 @@ body {
   overflow-wrap: anywhere;
 }
 
-/* F3 Ask the Clerk (Build Plan 4.1): the search, a line saying what it found or what to do, then the
-   list, which takes the room left under them, so a bigger screen shows more rows. The list scrolls inside
-   its panel, and the screen never does (UI-8). Only Ask the Clerk's window body is as tall as the shell's
-   panel: every other screen's is as tall as what it holds, so the panel scrolls to its last line. */
+/* F3 Ask the Clerk (Build Plans 4.1 and 4.2): the search, a line saying what it found or what to do, then
+   the list, which takes the room left under them, so a bigger screen shows more rows. A movie's shelves
+   open in the list's place, which is room enough for them at zoom 2. The list scrolls inside its panel,
+   and the screen never does (UI-8). Only Ask the Clerk's window body is as tall as the shell's panel:
+   every other screen's is as tall as what it holds, so the panel scrolls to its last line. */
 .shell-panel:has(> .window-body > .ask-the-clerk) > .window-body {
   height: calc(100% - 16px); /* 98.css's 8px margins */
 }
@@ -562,6 +563,14 @@ body {
 
 #ask-the-clerk-year {
   width: 48px; /* four digits, as the hand-entry form's year */
+}
+
+/* The Shelf list is as wide as its longest name, up to a width that keeps Search on the row at zoom 2
+   on a 1920 by 1080 screen, beside the longest genre, Science Fiction (UI-8). A member's Staff Picks
+   with a name of 30 wide letters would make it 454 px, and push Search past the screen's edge. A name
+   too long for it is cut off where the list shows its pick. */
+#ask-the-clerk-shelf {
+  max-width: 160px;
 }
 
 /* Who watched?: each person's name beside their list, lined up as the hand-entry form's labels and

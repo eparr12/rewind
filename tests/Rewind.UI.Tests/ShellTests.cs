@@ -871,6 +871,129 @@ public sealed class ShellTests : BunitContext
         Assert.Same(checkout, cut.FindComponent<Checkout>().Instance);
     }
 
+    // UI-6, OBS-5: Ask the Clerk reads tonight's shelves as it opens too, so a read that fails does as the genres' does:
+    // the error dialog, then Checkout.
+    [Fact]
+    public async Task OnFunctionKey_AskTheClerkCantReadTonightsShelves_ShowsErrorDialogThenCheckout()
+    {
+        _shelves.ListingTonights = Task.FromException<IReadOnlyList<ShelfRow>>(new InvalidOperationException("The read failed."));
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F3"));
+
+        Assert.Equal(GoesBackToCheckout, _dialogs.Current?.Message);
+        Assert.Equal(1, _boundaryLog.Count);
+        Assert.Empty(_errorLog.Entries);
+        await CloseDialogAsync(cut);
+        Assert.True(cut.HasComponent<Checkout>());
+    }
+
+    // The shelves' read waits in the busy line, as the genres' does, so one that fails after the clerk went on to
+    // Checkout takes #83's route, and Checkout stays open.
+    [Fact]
+    public async Task OnFunctionKey_F1WhileAskTheClerkReadsTonightsShelves_ReportsALateFailureToErrorHub()
+    {
+        var shelves = new TaskCompletionSource<IReadOnlyList<ShelfRow>>();
+        _shelves.ListingTonights = shelves.Task;
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F3"));
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
+        var checkout = cut.FindComponent<Checkout>().Instance;
+
+        await cut.InvokeAsync(() => shelves.SetException(new InvalidOperationException("The read failed.")));
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(["Unhandled exception from AskTheClerk; reported to the shell"], _errorLog.Entries.Select(entry => entry.Message));
+        Assert.Equal(0, _boundaryLog.Count);
+        Assert.Equal(GoesBackToCheckout, _dialogs.Current?.Message);
+        await CloseDialogAsync(cut);
+        Assert.Same(checkout, cut.FindComponent<Checkout>().Instance);
+    }
+
+    // UI-6: a read of a movie's shelves that fails while F3 is open goes to the screen's ErrorBoundary: the error
+    // dialog, then Checkout.
+    [Fact]
+    public async Task KeyDownEnter_AskTheClerksReadOfAMoviesShelvesFails_ShowsErrorDialogThenCheckout()
+    {
+        _shelves.ListingMovieShelves = Task.FromException<IReadOnlyList<MovieShelfRow>>(new InvalidOperationException("The read failed."));
+        var cut = await RenderAskTheClerkWithAMovieAsync();
+
+        var pick = PressEnterOnTheMovie(cut);
+
+        Assert.Equal(GoesBackToCheckout, _dialogs.Current?.Message);
+        Assert.Equal(1, _boundaryLog.Count);
+        Assert.Empty(_errorLog.Entries);
+        await CloseDialogAsync(cut);
+        await pick;
+        Assert.True(cut.HasComponent<Checkout>());
+    }
+
+    // UI-11, OBS-5: #83's route, for the read of a movie's shelves. One that fails after the clerk went to Checkout
+    // goes to ErrorHub, which logs it once and shows the error dialog, and Checkout stays open.
+    [Fact]
+    public async Task OnFunctionKey_F1WhileAskTheClerkReadsAMoviesShelves_ReportsALateFailureToErrorHub()
+    {
+        var reading = new TaskCompletionSource<IReadOnlyList<MovieShelfRow>>();
+        _shelves.ListingMovieShelves = reading.Task;
+        var cut = await RenderAskTheClerkWithAMovieAsync();
+        var pick = PressEnterOnTheMovie(cut);
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
+        var checkout = cut.FindComponent<Checkout>().Instance;
+
+        await cut.InvokeAsync(() => reading.SetException(new InvalidOperationException("The read failed.")));
+        await pick;
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(["Unhandled exception from AskTheClerk; reported to the shell"], _errorLog.Entries.Select(entry => entry.Message));
+        Assert.Equal(0, _boundaryLog.Count);
+        Assert.Equal(GoesBackToCheckout, _dialogs.Current?.Message);
+        await CloseDialogAsync(cut);
+        Assert.Same(checkout, cut.FindComponent<Checkout>().Instance);
+    }
+
+    // UI-6: a save of a movie's shelves that fails while F3 is open goes to the screen's ErrorBoundary too.
+    [Fact]
+    public async Task ClickSave_AskTheClerksSaveOfAMoviesShelvesFails_ShowsErrorDialogThenCheckout()
+    {
+        _shelves.ListingMovieShelves = Task.FromResult<IReadOnlyList<MovieShelfRow>>([new(2, "Dad's Staff Picks", Season: null, HasTheMovie: false)]);
+        _shelves.SettingMovieShelves = Task.FromException<IReadOnlyList<MovieShelfRow>>(new InvalidOperationException("The save failed."));
+        var cut = await RenderAskTheClerkWithAMovieAsync();
+        await PressEnterOnTheMovie(cut);
+
+        var save = PressSaveOnTheShelves(cut);
+
+        Assert.Equal(GoesBackToCheckout, _dialogs.Current?.Message);
+        Assert.Equal(1, _boundaryLog.Count);
+        Assert.Empty(_errorLog.Entries);
+        await CloseDialogAsync(cut);
+        await save;
+        Assert.True(cut.HasComponent<Checkout>());
+    }
+
+    // UI-11, OBS-5: #83's route, for the save of a movie's shelves. One that fails after the clerk went to Checkout
+    // goes to ErrorHub, which logs it once and shows the error dialog, and Checkout stays open.
+    [Fact]
+    public async Task OnFunctionKey_F1WhileAskTheClerkSavesAMoviesShelves_ReportsALateFailureToErrorHub()
+    {
+        var saving = new TaskCompletionSource<IReadOnlyList<MovieShelfRow>>();
+        _shelves.ListingMovieShelves = Task.FromResult<IReadOnlyList<MovieShelfRow>>([new(2, "Dad's Staff Picks", Season: null, HasTheMovie: false)]);
+        _shelves.SettingMovieShelves = saving.Task;
+        var cut = await RenderAskTheClerkWithAMovieAsync();
+        await PressEnterOnTheMovie(cut);
+        var save = PressSaveOnTheShelves(cut);
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F1"));
+        var checkout = cut.FindComponent<Checkout>().Instance;
+
+        await cut.InvokeAsync(() => saving.SetException(new InvalidOperationException("The save failed.")));
+        await save;
+        await cut.InvokeAsync(() => { });
+
+        Assert.Equal(["Unhandled exception from AskTheClerk; reported to the shell"], _errorLog.Entries.Select(entry => entry.Message));
+        Assert.Equal(0, _boundaryLog.Count);
+        Assert.Equal(GoesBackToCheckout, _dialogs.Current?.Message);
+        await CloseDialogAsync(cut);
+        Assert.Same(checkout, cut.FindComponent<Checkout>().Instance);
+    }
+
     // UI-11, OBS-5: #83's route, from F5's Shelves tab, whose saves all wait in its busy line. A shelf's save that fails
     // after the Store Manager went to Checkout goes to ErrorHub, which logs it once and shows the error dialog, and the
     // Checkout they went to stays open.
@@ -985,6 +1108,25 @@ public sealed class ShellTests : BunitContext
         .. cut.FindAll(".dialog-checklist label").Select(label =>
             new ChecklistLine(label.TextContent, cut.Find($"#{label.GetAttribute("for")}").HasAttribute("checked"))),
     ];
+
+    // The shell on F3, with a search that found The Nightmare Before Christmas.
+    private async Task<IRenderedComponent<Shell>> RenderAskTheClerkWithAMovieAsync()
+    {
+        _catalog.Search = Task.FromResult(new SearchResult(
+            SearchStatus.Searched, [new MovieHit(5, "The Nightmare Before Christmas", 1993, "PG", OnShelf: true, Thumb: null)], MoreMatched: false));
+        var cut = Render<Shell>();
+        await cut.InvokeAsync(() => cut.Instance.OnFunctionKey("F3"));
+        await cut.Find(".ask-the-clerk-search").SubmitAsync();
+        return cut;
+    }
+
+    // Enter on the movie's row, which opens its shelves once Core has read them.
+    private static Task PressEnterOnTheMovie(IRenderedComponent<Shell> cut) =>
+        cut.Find(".movie-hits-list tbody tr").KeyDownAsync(new KeyboardEventArgs { Key = "Enter" });
+
+    // Save in the movie's shelves.
+    private static Task PressSaveOnTheShelves(IRenderedComponent<Shell> cut) =>
+        cut.FindAll(".movie-shelves button").Single(button => button.TextContent == "Save").ClickAsync(new MouseEventArgs());
 
     // The shell with one case on an open sale, scanned as the scanner would scan it.
     private async Task<IRenderedComponent<Shell>> RenderWithASaleAsync()
