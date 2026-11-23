@@ -1,0 +1,122 @@
+@* A movie's shelves (Build Plan 4.2): Ask the Clerk opens it on a movie from its list, to put the movie on shelves
+   and take it off them, in a 98.css group box named for the movie. Each shelf the movie can go on has a checkbox, in
+   Core's order. A seasonal shelf shows its season after its name, since the form lists it in season or not, and a
+   member's Staff Picks, which has no season, shows its name alone. It opens with the shelves the movie sits on ticked
+   and the first checkbox focused. Space ticks and unticks, and Tab moves on, as in a Windows 98 dialog. Enter in a
+   checkbox presses Save, the default button: WebView2 submits a form on Enter in a checkbox, as in a text box, by
+   pressing its first submit button. Save hands the screen every shelf that's ticked, changed or not, and Core works
+   out what changed. Cancel and Esc close it with nothing to save. With no shelves at all, it says where shelves
+   come from, and OK, which has the focus, closes it, as Esc does. Esc stops here, as Who watched?'s does, so the
+   screen around the form never hears it. That only stops Blazor's handlers, so keyboard.js still hears F1 to F5.
+   The form asks Core nothing: the screen reads the shelves and saves the ticks. *@
+<fieldset class="movie-shelves" @onkeydown="OnKeyDownAsync" @onkeydown:stopPropagation="true">
+    <legend>Shelves for @MovieTitle.WithYear(Title, Year)</legend>
+    @if (Shelves.Count == 0)
+    {
+        <p>No shelves yet. The Store Manager adds members and seasonal shelves at F5.</p>
+        <div class="field-row movie-shelves-buttons">
+            <button class="default" @ref="_okButton" @onclick="OnCancel">OK</button>
+        </div>
+    }
+    else
+    {
+        <form @onsubmit="SaveAsync" @onsubmit:preventDefault>
+            <div class="sunken-panel movie-shelves-list">
+                @for (var i = 0; i < Shelves.Count; i++)
+                {
+                    var row = i;
+                    var shelf = Shelves[row];
+                    @* 98.css draws the box on the label after it. *@
+                    <div class="field-row">
+                        <input type="checkbox" id="@CheckboxId(shelf)" @ref="_checkboxes[row]" @bind="_ticked[row]" />
+                        <label for="@CheckboxId(shelf)">@Words(shelf)</label>
+                    </div>
+                }
+            </div>
+            <div class="field-row movie-shelves-buttons">
+                <button type="submit" class="default">Save</button>
+                <button type="button" @onclick="OnCancel">Cancel</button>
+            </div>
+        </form>
+    }
+</fieldset>
+
+@code {
+    private ElementReference[] _checkboxes = [];
+    private bool[] _ticked = [];
+    private ElementReference _okButton;
+
+    /// <summary>The movie's title, which names the group box.</summary>
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = "";
+
+    /// <summary>
+    /// The year the movie came out, which follows its title in the group box's name, since remakes share titles. Null
+    /// when it isn't known, and the name is then the title alone (DATA-3).
+    /// </summary>
+    [Parameter]
+    public int? Year { get; set; }
+
+    /// <summary>
+    /// Every shelf the movie can go on, from <see cref="IDisplayShelves.ListMovieShelvesAsync"/>, each with a checkbox
+    /// in the order given. The screen shows a new form for each movie, so the form ticks the shelves the movie sits on
+    /// once, as it opens, and a redraw keeps what the clerk ticked. Given none, it says where shelves come from, with
+    /// OK alone.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<MovieShelfRow> Shelves { get; set; } = [];
+
+    /// <summary>
+    /// Called with the Ids of the shelves that are ticked, in the order given, when the clerk saves, for
+    /// <see cref="IDisplayShelves.SetMovieShelvesAsync"/>. Every ticked shelf is there, changed or not, since Core
+    /// works out what changed, and none ticked is an empty list, which takes the movie off every shelf shown.
+    /// </summary>
+    [Parameter]
+    public EventCallback<IReadOnlyList<int>> OnSave { get; set; }
+
+    /// <summary>
+    /// Called when the clerk closes the form with nothing to save, by Cancel or Esc, or by OK when there are no shelves.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    protected override void OnInitialized()
+    {
+        _checkboxes = new ElementReference[Shelves.Count];
+        _ticked = [.. Shelves.Select(shelf => shelf.HasTheMovie)];
+    }
+
+    // UI-3: the clerk can tick the first shelf at once. With no shelves there's no checkbox, so OK, the default
+    // button, has the focus, as in a Windows 98 dialog.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await (_checkboxes.Length > 0 ? _checkboxes[0] : _okButton).FocusAsync();
+        }
+    }
+
+    private static string CheckboxId(MovieShelfRow shelf) => $"movie-shelves-{shelf.Id}";
+
+    // The form lists each seasonal shelf in season or not, so each says when it shows up, as Season writes it for
+    // F5's Shelves tab and the log.
+    private static string Words(MovieShelfRow shelf) =>
+        shelf.Season is { } season ? $"{shelf.Name} ({season.Describe()})" : shelf.Name;
+
+    // Every ticked shelf goes, changed or not: Core compares them with the shelves the movie sits on, and saves
+    // nothing when they're the same.
+    private Task SaveAsync()
+    {
+        List<int> ticked = [.. Shelves.Zip(_ticked).Where(pair => pair.Second).Select(pair => pair.First.Id)];
+        return OnSave.InvokeAsync(ticked);
+    }
+
+    // UI-3: Esc closes the form with nothing to save, from any checkbox or button.
+    private async Task OnKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            await OnCancel.InvokeAsync();
+        }
+    }
+}

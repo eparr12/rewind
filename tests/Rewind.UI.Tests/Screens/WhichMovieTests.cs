@@ -1,7 +1,6 @@
 using AngleSharp.Dom;
 using Bunit;
 using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.AspNetCore.Components.Web;
 using Rewind.Core.Checkout;
 using Rewind.UI.Screens;
@@ -120,7 +119,7 @@ public sealed class WhichMovieTests : BunitContext
     public async Task KeyDownEscape_InTheSale_GoesNoFurtherThanThePicker()
     {
         var keysAtTheSale = new List<string>();
-        var cut = Render<SaleAround>(parameters => parameters
+        var cut = Render<ScreenAround>(parameters => parameters
             .Add(p => p.OnKeyDown, EventCallback.Factory.Create<KeyboardEventArgs>(this, e => keysAtTheSale.Add(e.Key)))
             .AddChildContent<WhichMovie>(picker => picker
                 .Add(p => p.Movies, [Halloween, HomeMovies])
@@ -157,22 +156,4 @@ public sealed class WhichMovieTests : BunitContext
 
     private static IElement Button(IRenderedComponent<WhichMovie> cut, string text) =>
         cut.FindAll("button").Single(button => button.TextContent == text);
-
-    // Stands in for Checkout around the picker, with an Esc of its own.
-    private sealed class SaleAround : ComponentBase
-    {
-        [Parameter]
-        public EventCallback<KeyboardEventArgs> OnKeyDown { get; set; }
-
-        [Parameter]
-        public RenderFragment? ChildContent { get; set; }
-
-        protected override void BuildRenderTree(RenderTreeBuilder builder)
-        {
-            builder.OpenElement(0, "div");
-            builder.AddAttribute(1, "onkeydown", OnKeyDown);
-            builder.AddContent(2, ChildContent);
-            builder.CloseElement();
-        }
-    }
 }
