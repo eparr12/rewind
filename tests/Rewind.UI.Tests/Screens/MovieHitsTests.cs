@@ -11,7 +11,9 @@ public sealed class MovieHitsTests : BunitContext
 {
     private static readonly MovieHit Halloween = new(1, "Halloween", 1978, "R", OnShelf: true, Thumb: [0xFF, 0xD8, 0xFF, 0xE0]);
     private static readonly MovieHit HomeMovies = new(2, "Home movies", null, null, OnShelf: false, Thumb: null);
+    private static readonly MovieHit Scream = new(3, "Scream", 1996, "R", OnShelf: true, Thumb: null);
 
+    private readonly List<MovieHit> _picked = [];
     private int _escapes;
 
     // DATA-3: an unknown year or rating is an empty cell, never 0 or NR.
@@ -130,11 +132,35 @@ public sealed class MovieHitsTests : BunitContext
         Assert.Equal(1, _escapes);
     }
 
-    // There's nothing to pick in 4.1.
+    // UI-3: Enter on a row picks its movie, for the screen to show its shelves. The key goes down on a row, so the hit is
+    // that row's.
     [Fact]
-    public async Task KeyDownEnter_OnARow_DoesNothing()
+    public async Task KeyDownEnter_OnARow_PicksItsHit()
     {
         var cut = RenderList();
+
+        await Rows(cut)[1].KeyDownAsync(new KeyboardEventArgs { Key = "Enter" });
+
+        Assert.Equal([HomeMovies], _picked);
+        Assert.Equal(0, _escapes);
+    }
+
+    [Fact]
+    public async Task DoubleClick_ARow_PicksItsHit()
+    {
+        var cut = RenderList();
+
+        await Rows(cut)[1].DoubleClickAsync(new MouseEventArgs());
+
+        Assert.Equal([HomeMovies], _picked);
+        Assert.Equal(0, _escapes);
+    }
+
+    // With no callback there's nothing to pick for, so Enter does nothing, as in Build Plan 4.1.
+    [Fact]
+    public async Task KeyDownEnter_NothingToPickFor_DoesNothing()
+    {
+        var cut = RenderList([Halloween, HomeMovies], pickable: false);
 
         await Rows(cut)[0].KeyDownAsync(new KeyboardEventArgs { Key = "Enter" });
 
@@ -142,13 +168,13 @@ public sealed class MovieHitsTests : BunitContext
         Assert.Equal("Halloween", Title(Highlighted(cut)));
     }
 
-    // Nothing hears a double-click, since there's nothing to pick in 4.1.
+    // The row hears a double-click, and with no callback there's nothing to pick for, so it does nothing with it.
     [Fact]
-    public async Task DoubleClick_ARow_DoesNothing()
+    public async Task DoubleClick_NothingToPickFor_DoesNothing()
     {
-        var cut = RenderList();
+        var cut = RenderList([Halloween, HomeMovies], pickable: false);
 
-        await Assert.ThrowsAsync<MissingEventHandlerException>(() => Rows(cut)[1].DoubleClickAsync(new MouseEventArgs()));
+        await Rows(cut)[1].DoubleClickAsync(new MouseEventArgs());
 
         Assert.Equal(0, _escapes);
         Assert.Equal("Halloween", Title(Highlighted(cut)));
@@ -161,8 +187,35 @@ public sealed class MovieHitsTests : BunitContext
 
         await Rows(cut)[0].KeyDownAsync(new KeyboardEventArgs { Key = "a" });
 
+        Assert.Empty(_picked);
         Assert.Equal(0, _escapes);
         Assert.Equal("Halloween", Title(Highlighted(cut)));
+    }
+
+    // UI-3: the movie's shelves take the focus from the list, and the screen puts it back on the row the clerk was on,
+    // here the middle one of three.
+    [Fact]
+    public async Task FocusHighlightedRowAsync_MiddleRowHighlighted_FocusesItAgain()
+    {
+        var cut = RenderList([Halloween, HomeMovies, Scream]);
+        var middleRow = Rows(cut)[1].GetAttribute("blazor:elementreference"); // bUnit writes it on the first render only
+        await Rows(cut)[1].FocusAsync(new FocusEventArgs());
+
+        await cut.InvokeAsync(cut.Instance.FocusHighlightedRowAsync);
+
+        var focused = Assert.IsType<ElementReference>(JSInterop.VerifyFocusAsyncInvoke(calledTimes: 2)[^1].Arguments[0]);
+        Assert.Equal(middleRow, focused.Id);
+    }
+
+    // With no hits there's no row, and the focus stays where it is.
+    [Fact]
+    public async Task FocusHighlightedRowAsync_NoHits_FocusesNothing()
+    {
+        var cut = RenderList([]);
+
+        await cut.InvokeAsync(cut.Instance.FocusHighlightedRowAsync);
+
+        Assert.Empty(JSInterop.Invocations);
     }
 
     // UI-10: a title from TMDB renders as text, so markup in it shows as typed and draws nothing.
@@ -189,10 +242,18 @@ public sealed class MovieHitsTests : BunitContext
 
     private IRenderedComponent<MovieHits> RenderList() => RenderList([Halloween, HomeMovies]);
 
-    private IRenderedComponent<MovieHits> RenderList(IReadOnlyList<MovieHit> hits) =>
-        Render<MovieHits>(parameters => parameters
-            .Add(p => p.Hits, hits)
-            .Add(p => p.OnEscape, EventCallback.Factory.Create(this, () => _escapes++)));
+    // Pickable unless a test says otherwise, as the screen that shows a movie's shelves has it.
+    private IRenderedComponent<MovieHits> RenderList(IReadOnlyList<MovieHit> hits, bool pickable = true) =>
+        Render<MovieHits>(parameters =>
+        {
+            parameters
+                .Add(p => p.Hits, hits)
+                .Add(p => p.OnEscape, EventCallback.Factory.Create(this, () => _escapes++));
+            if (pickable)
+            {
+                parameters.Add(p => p.OnPick, EventCallback.Factory.Create<MovieHit>(this, _picked.Add));
+            }
+        });
 
     private static IReadOnlyList<IElement> Rows(IRenderedComponent<MovieHits> cut) =>
         cut.FindAll(".movie-hits-list tbody tr");

@@ -514,7 +514,8 @@ body {
 
 .tmdb-picker-buttons,
 .which-movie-buttons,
-.who-watched-buttons {
+.who-watched-buttons,
+.movie-shelves-buttons {
   justify-content: flex-end;
   margin-top: 8px;
 }
@@ -580,6 +581,34 @@ body {
   gap: 6px 8px;
   max-height: 200px; /* seven people at 98.css's 21 px a list; an eighth scrolls */
   padding: 6px 8px;
+}
+
+/* A movie's shelves: a checkbox for each shelf, one under another, with Save and Cancel under them
+   on the right, as in a Windows 98 dialog. The group box hugs the form, as Who watched?'s does. Every
+   member's Staff Picks and a dozen seasonal shelves scroll inside the panel, so the buttons stay in
+   sight on a 1024 by 768 screen, and at zoom 2 (UI-8). */
+.movie-shelves {
+  width: fit-content;
+}
+
+/* A title with no space in it breaks anywhere, as in Ask the Clerk's list, rather than widen the box
+   past the screen (UI-8). */
+.movie-shelves legend {
+  overflow-wrap: anywhere;
+}
+
+.movie-shelves-list {
+  max-height: 200px; /* ten shelves at 98.css's 19 px a row; an eleventh scrolls */
+  padding: 6px 8px;
+}
+
+/* 98.css takes each checkbox out of the page with position: fixed, and draws the box on its label, so
+   a panel that scrolls never follows the focus to a box below its fold. Back in the page, and as tall
+   as its row, the box, which has no width, scrolls with the panel, so Tab brings each shelf's whole row
+   into view (UI-3). */
+.movie-shelves-list input[type="checkbox"] {
+  position: static;
+  align-self: stretch;
 }
 
 /* F1 Checkout: what to do, the member, the bill and its total, then the snacks and the cash, or the

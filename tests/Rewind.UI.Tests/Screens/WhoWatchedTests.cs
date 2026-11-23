@@ -1,7 +1,6 @@
 using AngleSharp.Dom;
 using Bunit;
 using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.AspNetCore.Components.Web;
 using Rewind.Core.Members;
 using Rewind.Core.Returns;
@@ -388,22 +387,4 @@ public sealed class WhoWatchedTests : BunitContext
 
     private static IElement Button(IRenderedComponent<WhoWatched> cut, string text) =>
         cut.FindAll("button").Single(button => button.TextContent == text);
-
-    // Stands in for the Return screen around the form, with an Esc of its own.
-    private sealed class ScreenAround : ComponentBase
-    {
-        [Parameter]
-        public EventCallback<KeyboardEventArgs> OnKeyDown { get; set; }
-
-        [Parameter]
-        public RenderFragment? ChildContent { get; set; }
-
-        protected override void BuildRenderTree(RenderTreeBuilder builder)
-        {
-            builder.OpenElement(0, "div");
-            builder.AddAttribute(1, "onkeydown", OnKeyDown);
-            builder.AddContent(2, ChildContent);
-            builder.CloseElement();
-        }
-    }
 }

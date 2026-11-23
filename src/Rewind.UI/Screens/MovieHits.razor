@@ -1,8 +1,9 @@
 @* Ask the Clerk's list (Build Plan 4.1): the movies a search found, in a 98.css list. Each row shows the movie's
    thumbnail beside its title, as the picker shows each match's poster, then its year, its rating and whether a
    case of it is on the shelf. It opens with the first row focused. The arrow keys, Home and End move between the
-   rows (keyboard.js), and the highlight follows the focus. Esc hands the cursor back to the screen, for its search
-   box. Build Plan 4.1 picks nothing from the list, so Enter and a double-click do nothing. *@
+   rows (keyboard.js), and the highlight follows the focus. Enter or a double-click on a row picks its movie, for
+   the screen to show the movie's shelves (Build Plan 4.2), and with nothing to pick for, both do nothing. Esc hands
+   the cursor back to the screen, for its search box. *@
 @if (Hits.Count > 0)
 {
     <div class="sunken-panel movie-hits-list" @onkeydown="OnKeyDownAsync">
@@ -24,7 +25,9 @@
                         tabindex="@(row == _highlighted ? 0 : -1)"
                         aria-selected="@(row == _highlighted ? "true" : "false")"
                         @ref="_rows[row]"
-                        @onfocus="() => Highlight(row)">
+                        @onfocus="() => Highlight(row)"
+                        @ondblclick="() => PickAsync(row)"
+                        @onkeydown="e => OnRowKeyDownAsync(e, row)">
                         <td>
                             <div class="movie-hits-title">
                                 @* As a Windows 98 list shows an icon beside each name. *@
@@ -62,9 +65,29 @@
     [Parameter, EditorRequired]
     public IReadOnlyList<MovieHit> Hits { get; set; } = [];
 
+    /// <summary>
+    /// Called with a row's hit when the clerk presses Enter on the row or double-clicks it, so the screen can show the
+    /// movie's shelves. Without it, both do nothing.
+    /// </summary>
+    [Parameter]
+    public EventCallback<MovieHit> OnPick { get; set; }
+
     /// <summary>Called when the clerk presses Esc on the list, so the screen can put the cursor back in its search box.</summary>
     [Parameter]
     public EventCallback OnEscape { get; set; }
+
+    /// <summary>
+    /// Puts the focus back on the highlighted row, once the screen has closed what took it, such as the movie's
+    /// shelves, so the arrow keys and Enter go on from the row the clerk picked. With no hits there's no row, and the
+    /// focus stays where it is.
+    /// </summary>
+    public async Task FocusHighlightedRowAsync()
+    {
+        if (_rows.Length > 0)
+        {
+            await _rows[_highlighted].FocusAsync();
+        }
+    }
 
     // Each thumbnail's src is made once, as the list opens, not on every render: each is a thumbnail's bytes in
     // base64, and the highlight moves with every arrow key.
@@ -86,7 +109,18 @@
     // The highlight follows the focus, which a click or keyboard.js's arrow keys move.
     private void Highlight(int row) => _highlighted = row;
 
-    // UI-3: Esc hands the cursor back to the screen. Every other key is left alone, since there's nothing to pick.
+    private Task PickAsync(int row) => OnPick.InvokeAsync(Hits[row]);
+
+    // UI-3: Enter on a row picks it, as a double-click does.
+    private async Task OnRowKeyDownAsync(KeyboardEventArgs e, int row)
+    {
+        if (e.Key == "Enter")
+        {
+            await PickAsync(row);
+        }
+    }
+
+    // UI-3: Esc hands the cursor back to the screen, from any row.
     private async Task OnKeyDownAsync(KeyboardEventArgs e)
     {
         if (e.Key == "Escape")
