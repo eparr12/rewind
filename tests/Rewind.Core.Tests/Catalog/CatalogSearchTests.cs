@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Rewind.Core.Catalog;
 using Rewind.Core.Data;
 using Rewind.Core.Metadata;
+using Rewind.Core.Shelves;
 
 namespace Rewind.Core.Tests.Catalog;
 
@@ -16,6 +17,9 @@ public sealed class CatalogSearchTests
     private const int HalloweenId = 948;
     private const int JawsId = 578;
     private const int TrueLiesId = 36955;
+
+    // An Id no shelf has: each test has a shelf or two.
+    private const int NoSuchShelf = 999;
 
     // The same length, so only their bytes tell them apart.
     private static readonly byte[] HalloweenThumb = [0xFF, 0xD8, 0xFF, 0xE0, 0x01, 0x54];
@@ -35,7 +39,7 @@ public sealed class CatalogSearchTests
             new Case { StoreLabel = "RV-00002", Status = CaseStatus.CheckedOut, Movies = { TrueLies() } },
             new Case { StoreLabel = "RV-00003", Movies = { Jaws() } });
 
-        var found = await SearchFor(rewind).SearchAsync("Jamie Lee Curtis", null, null, null, ct);
+        var found = await SearchFor(rewind).SearchAsync("Jamie Lee Curtis", null, null, null, null, ct);
 
         Assert.Equal(SearchStatus.Searched, found.Status);
         Assert.Equal([("Halloween", true), ("True Lies", false)], found.Hits.Select(hit => (hit.Title, hit.OnShelf)));
@@ -51,7 +55,7 @@ public sealed class CatalogSearchTests
         var halloween = Halloween();
         await AddInOrderAsync(rewind, ct, new Case { StoreLabel = "RV-00001", Movies = { Jaws() } }, new Case { StoreLabel = "RV-00002", Movies = { halloween } });
 
-        var found = await SearchFor(rewind).SearchAsync("Halloween", null, null, null, ct);
+        var found = await SearchFor(rewind).SearchAsync("Halloween", null, null, null, null, ct);
 
         Assert.Equal(new MovieHit(halloween.Id, "Halloween", 1978, "R", OnShelf: true, Thumb: null), Assert.Single(found.Hits));
     }
@@ -69,7 +73,7 @@ public sealed class CatalogSearchTests
         await rewind.StartAsync(ct);
         await AddInOrderAsync(rewind, ct, new Case { StoreLabel = "RV-00001", Movies = { Jaws(), Halloween(), TrueLies() } });
 
-        var found = await SearchFor(rewind).SearchAsync(text, null, null, null, ct);
+        var found = await SearchFor(rewind).SearchAsync(text, null, null, null, null, ct);
 
         Assert.Equal(["Halloween (1978)"], TitlesOf(found));
     }
@@ -90,7 +94,7 @@ public sealed class CatalogSearchTests
         halloween.Genres.Add(horror);
         await AddInOrderAsync(rewind, ct, new Case { StoreLabel = "RV-00001", Movies = { TrueLies(), Jaws(), halloween } });
 
-        var found = await SearchFor(rewind).SearchAsync(blank, blank, blank, blank, ct);
+        var found = await SearchFor(rewind).SearchAsync(blank, blank, blank, blank, null, ct);
 
         Assert.Equal(["Halloween (1978)", "Jaws (1975)", "True Lies (1994)"], TitlesOf(found));
     }
@@ -104,7 +108,7 @@ public sealed class CatalogSearchTests
         await rewind.StartAsync(ct);
         await AddInOrderAsync(rewind, ct, new Case { StoreLabel = "RV-00001", Movies = { Jaws(), Halloween(), TrueLies() } });
 
-        var found = await SearchFor(rewind).SearchAsync("Jamie\nLee", null, null, null, ct);
+        var found = await SearchFor(rewind).SearchAsync("Jamie\nLee", null, null, null, null, ct);
 
         Assert.Equal(["Halloween (1978)", "True Lies (1994)"], TitlesOf(found));
     }
@@ -119,7 +123,7 @@ public sealed class CatalogSearchTests
         var longest = new string('A', TmdbClient.MaxNameLength);
         await AddInOrderAsync(rewind, ct, new Case { StoreLabel = "RV-00001", Movies = { new Movie { Title = longest } } });
 
-        var found = await SearchFor(rewind).SearchAsync(longest + " and more", null, null, null, ct);
+        var found = await SearchFor(rewind).SearchAsync(longest + " and more", null, null, null, null, ct);
 
         Assert.Equal([longest], found.Hits.Select(hit => hit.Title));
     }
@@ -151,7 +155,7 @@ public sealed class CatalogSearchTests
                 },
             });
 
-        var found = await SearchFor(rewind).SearchAsync(text, null, null, null, ct);
+        var found = await SearchFor(rewind).SearchAsync(text, null, null, null, null, ct);
 
         Assert.Equal([title], found.Hits.Select(hit => hit.Title));
     }
@@ -169,7 +173,7 @@ public sealed class CatalogSearchTests
         await rewind.StartAsync(ct);
         await AddInOrderAsync(rewind, ct, new Case { StoreLabel = "RV-00001", Movies = { new Movie { Title = "Amélie", Year = 2001 } } });
 
-        var found = await SearchFor(rewind).SearchAsync(text, null, null, null, ct);
+        var found = await SearchFor(rewind).SearchAsync(text, null, null, null, null, ct);
 
         string[] expected = isFound ? ["Amélie (2001)"] : [];
         Assert.Equal(expected, TitlesOf(found));
@@ -187,7 +191,7 @@ public sealed class CatalogSearchTests
         await rewind.StartAsync(ct);
         await AddHalloweenNightAsync(rewind, ct);
 
-        var found = await SearchFor(rewind).SearchAsync(null, genre, year, rating, ct);
+        var found = await SearchFor(rewind).SearchAsync(null, genre, year, rating, null, ct);
 
         Assert.Equal(expected, TitlesOf(found));
     }
@@ -204,7 +208,7 @@ public sealed class CatalogSearchTests
         await rewind.StartAsync(ct);
         await AddHalloweenNightAsync(rewind, ct);
 
-        var found = await SearchFor(rewind).SearchAsync("Halloween", genre, year, rating, ct);
+        var found = await SearchFor(rewind).SearchAsync("Halloween", genre, year, rating, null, ct);
 
         Assert.Equal(expected, TitlesOf(found));
     }
@@ -219,7 +223,7 @@ public sealed class CatalogSearchTests
         await rewind.StartAsync(ct);
         await AddHalloweenNightAsync(rewind, ct);
 
-        var found = await SearchFor(rewind).SearchAsync("Halloween", "Horror", "2018", "R", ct);
+        var found = await SearchFor(rewind).SearchAsync("Halloween", "Horror", "2018", "R", null, ct);
 
         Assert.Equal(["Halloween (2018)"], TitlesOf(found));
     }
@@ -239,7 +243,7 @@ public sealed class CatalogSearchTests
         halloween.Genres.Add(new Genre { TmdbId = 27, Name = "Horror" });
         await AddInOrderAsync(rewind, ct, new Case { StoreLabel = "RV-00001", Movies = { new Movie { Title = "Home Movies" }, halloween } });
 
-        var found = await SearchFor(rewind).SearchAsync(null, genre, year, rating, ct);
+        var found = await SearchFor(rewind).SearchAsync(null, genre, year, rating, null, ct);
 
         Assert.Equal(["Halloween (1978)"], TitlesOf(found));
     }
@@ -255,7 +259,7 @@ public sealed class CatalogSearchTests
         await using var rewind = new TempRewind();
 
         var found = await SearchFor(rewind, new NoDatabase("The catalog search"))
-            .SearchAsync("Halloween", null, year, null, TestContext.Current.CancellationToken);
+            .SearchAsync("Halloween", null, year, null, null, TestContext.Current.CancellationToken);
 
         Assert.Equal((SearchStatus.NotAYear, 0, false), (found.Status, found.Hits.Count, found.MoreMatched));
     }
@@ -270,7 +274,7 @@ public sealed class CatalogSearchTests
         await using var rewind = new TempRewind();
 
         var found = await SearchFor(rewind, new NoDatabase("The catalog search"))
-            .SearchAsync("Halloween", null, null, rating, TestContext.Current.CancellationToken);
+            .SearchAsync("Halloween", null, null, rating, null, TestContext.Current.CancellationToken);
 
         Assert.Equal((SearchStatus.NotARating, 0, false), (found.Status, found.Hits.Count, found.MoreMatched));
     }
@@ -288,7 +292,7 @@ public sealed class CatalogSearchTests
             new Case { StoreLabel = "RV-00001", Status = CaseStatus.Retired, Movies = { Jaws() } },
             new Case { StoreLabel = "RV-00002", Movies = { Halloween() } });
 
-        var found = await SearchFor(rewind).SearchAsync(null, null, null, null, ct);
+        var found = await SearchFor(rewind).SearchAsync(null, null, null, null, null, ct);
 
         Assert.Equal(["Halloween (1978)"], TitlesOf(found));
     }
@@ -301,7 +305,7 @@ public sealed class CatalogSearchTests
         await rewind.StartAsync(ct);
         await AddInOrderAsync(rewind, ct, Jaws(), new Case { StoreLabel = "RV-00001", Movies = { Halloween() } });
 
-        var found = await SearchFor(rewind).SearchAsync(null, null, null, null, ct);
+        var found = await SearchFor(rewind).SearchAsync(null, null, null, null, null, ct);
 
         Assert.Equal(["Halloween (1978)"], TitlesOf(found));
     }
@@ -319,7 +323,7 @@ public sealed class CatalogSearchTests
             new Case { StoreLabel = "RV-00001", Status = CaseStatus.Retired, Movies = { jaws } },
             new Case { StoreLabel = "RV-00002", Movies = { jaws } });
 
-        var found = await SearchFor(rewind).SearchAsync("Jaws", null, null, null, ct);
+        var found = await SearchFor(rewind).SearchAsync("Jaws", null, null, null, null, ct);
 
         Assert.True(Assert.Single(found.Hits).OnShelf);
     }
@@ -338,7 +342,7 @@ public sealed class CatalogSearchTests
             new Case { StoreLabel = "RV-00001", Movies = { jaws } },
             new Case { StoreLabel = "RV-00002", Status = CaseStatus.CheckedOut, Movies = { jaws } });
 
-        var found = await SearchFor(rewind).SearchAsync("Jaws", null, null, null, ct);
+        var found = await SearchFor(rewind).SearchAsync("Jaws", null, null, null, null, ct);
 
         Assert.Equal(["Jaws (1975)"], TitlesOf(found));
     }
@@ -352,7 +356,7 @@ public sealed class CatalogSearchTests
         await rewind.StartAsync(ct);
         await AddInOrderAsync(rewind, ct, new Case { StoreLabel = "RV-00001", Movies = { TrueLies() } });
 
-        var found = await SearchFor(rewind).SearchAsync("Arnold", null, null, null, ct);
+        var found = await SearchFor(rewind).SearchAsync("Arnold", null, null, null, null, ct);
 
         Assert.Equal(["True Lies (1994)"], TitlesOf(found));
     }
@@ -365,7 +369,7 @@ public sealed class CatalogSearchTests
         await rewind.StartAsync(ct);
         var inOrder = await AddSixToSortAsync(rewind, ct);
 
-        var found = await SearchFor(rewind).SearchAsync(null, null, null, null, ct);
+        var found = await SearchFor(rewind).SearchAsync(null, null, null, null, null, ct);
 
         Assert.Equal(inOrder, found.Hits.Select(hit => hit.MovieId));
     }
@@ -383,7 +387,7 @@ public sealed class CatalogSearchTests
         await rewind.StartAsync(ct);
         var inOrder = await AddSixToSortAsync(rewind, ct);
 
-        var found = await SearchFor(rewind, rewind.ContextsWith(new BackwardsReads(), pooled: false)).SearchAsync(null, null, null, null, ct);
+        var found = await SearchFor(rewind, rewind.ContextsWith(new BackwardsReads(), pooled: false)).SearchAsync(null, null, null, null, null, ct);
 
         Assert.Equal(inOrder, found.Hits.Select(hit => hit.MovieId));
     }
@@ -397,7 +401,7 @@ public sealed class CatalogSearchTests
         await rewind.StartAsync(ct);
         await AddNumberedAsync(rewind, CatalogSearch.MaxHits + 1, ct);
 
-        var found = await SearchFor(rewind).SearchAsync(null, null, null, null, ct);
+        var found = await SearchFor(rewind).SearchAsync(null, null, null, null, null, ct);
 
         Assert.Equal(NumberedTitles(CatalogSearch.MaxHits), found.Hits.Select(hit => hit.Title));
         Assert.True(found.MoreMatched);
@@ -411,7 +415,7 @@ public sealed class CatalogSearchTests
         await rewind.StartAsync(ct);
         await AddNumberedAsync(rewind, CatalogSearch.MaxHits, ct);
 
-        var found = await SearchFor(rewind).SearchAsync(null, null, null, null, ct);
+        var found = await SearchFor(rewind).SearchAsync(null, null, null, null, null, ct);
 
         Assert.Equal(NumberedTitles(CatalogSearch.MaxHits), found.Hits.Select(hit => hit.Title));
         Assert.False(found.MoreMatched);
@@ -428,7 +432,7 @@ public sealed class CatalogSearchTests
         await SaveAsync(rewind.Paths.Thumbs, HalloweenId, HalloweenThumb, ct);
         await SaveAsync(rewind.Paths.Posters, HalloweenId, HalloweenPoster, ct);
 
-        var found = await SearchFor(rewind).SearchAsync("Halloween", null, null, null, ct);
+        var found = await SearchFor(rewind).SearchAsync("Halloween", null, null, null, null, ct);
 
         Assert.Equal(HalloweenThumb, Assert.Single(found.Hits).Thumb);
     }
@@ -442,7 +446,7 @@ public sealed class CatalogSearchTests
         await rewind.StartAsync(ct);
         await AddInOrderAsync(rewind, ct, new Case { StoreLabel = "RV-00001", Movies = { Halloween() } });
 
-        var found = await SearchFor(rewind).SearchAsync("Halloween", null, null, null, ct);
+        var found = await SearchFor(rewind).SearchAsync("Halloween", null, null, null, null, ct);
 
         Assert.Null(Assert.Single(found.Hits).Thumb);
     }
@@ -459,7 +463,7 @@ public sealed class CatalogSearchTests
         Directory.CreateDirectory(Path.Combine(rewind.Paths.Thumbs, $"{HalloweenId}.jpg"));
         var log = new ListLogger<Posters>();
 
-        var found = await SearchFor(rewind, postersLog: log).SearchAsync("Halloween", null, null, null, ct);
+        var found = await SearchFor(rewind, postersLog: log).SearchAsync("Halloween", null, null, null, null, ct);
 
         Assert.Null(Assert.Single(found.Hits).Thumb);
         Assert.Equal(LogLevel.Warning, Assert.Single(log.Entries).Level);
@@ -474,7 +478,7 @@ public sealed class CatalogSearchTests
         await rewind.StartAsync(ct);
         await AddInOrderAsync(rewind, ct, new Case { StoreLabel = "RV-00001", Movies = { new Movie { Title = "Home Movies" } } });
 
-        var found = await SearchFor(rewind).SearchAsync("Home Movies", null, null, null, ct);
+        var found = await SearchFor(rewind).SearchAsync("Home Movies", null, null, null, null, ct);
 
         Assert.Null(Assert.Single(found.Hits).Thumb);
     }
@@ -488,7 +492,7 @@ public sealed class CatalogSearchTests
         using var cancelled = new CancellationTokenSource();
         await cancelled.CancelAsync();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => SearchFor(rewind).SearchAsync("Halloween", null, null, null, cancelled.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => SearchFor(rewind).SearchAsync("Halloween", null, null, null, null, cancelled.Token));
     }
 
     // NET-7: cancelled once the database has answered, so the thumbnail's read is what hears it.
@@ -503,7 +507,7 @@ public sealed class CatalogSearchTests
         using var cancel = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => SearchFor(rewind, rewind.ContextsWith(new CancelAfterTheRead(cancel))).SearchAsync("Halloween", null, null, null, cancel.Token));
+            () => SearchFor(rewind, rewind.ContextsWith(new CancelAfterTheRead(cancel))).SearchAsync("Halloween", null, null, null, null, cancel.Token));
 
         Assert.True(cancel.IsCancellationRequested); // the interceptor fired
     }
@@ -519,7 +523,7 @@ public sealed class CatalogSearchTests
         await rewind.StartAsync(ct);
         await AddHalloweenNightAsync(rewind, ct);
 
-        var failure = await Record.ExceptionAsync(() => SearchFor(rewind, EveryWarningThrows(rewind)).SearchAsync("Halloween", "Horror", "2018", "R", ct));
+        var failure = await Record.ExceptionAsync(() => SearchFor(rewind, EveryWarningThrows(rewind)).SearchAsync("Halloween", "Horror", "2018", "R", null, ct));
 
         Assert.Null(failure);
     }
@@ -536,7 +540,162 @@ public sealed class CatalogSearchTests
         var log = new ListLoggerProvider();
         using var logged = new LoggedContexts(rewind, log);
 
-        await SearchFor(rewind, logged).SearchAsync("Halloween", "Horror", "2018", "R", ct);
+        await SearchFor(rewind, logged).SearchAsync("Halloween", "Horror", "2018", "R", null, ct);
+
+        Assert.Single(log.Entries, entry => entry.Message.StartsWith("Executed DbCommand", StringComparison.Ordinal));
+    }
+
+    // A Staff Picks or seasonal shelf alone narrows the whole catalog to the movies on it. Halloween (2018) is on
+    // another shelf, so a search that looked on every shelf, or on none, would find it too.
+    [Fact]
+    public async Task SearchAsync_ShelfAlone_FindsWhatsOnIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var spooky = await AddHalloweenNightOnShelvesAsync(rewind, ct);
+
+        var found = await SearchFor(rewind).SearchAsync(null, null, null, null, spooky, ct);
+
+        Assert.Equal(["Goosebumps 2: Haunted Halloween (2018)", "Halloween (1978)", "Halloween at the Hotel (2018)", "Hereditary (2018)"], TitlesOf(found));
+    }
+
+    // The text narrows what's on the shelf: Hereditary has no Halloween in its title. Halloween (2018) has, but it's on
+    // another shelf.
+    [Fact]
+    public async Task SearchAsync_ShelfAndText_FindsWhatsOnItAndMatches()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var spooky = await AddHalloweenNightOnShelvesAsync(rewind, ct);
+
+        var found = await SearchFor(rewind).SearchAsync("Halloween", null, null, null, spooky, ct);
+
+        Assert.Equal(["Goosebumps 2: Haunted Halloween (2018)", "Halloween (1978)", "Halloween at the Hotel (2018)"], TitlesOf(found));
+    }
+
+    // Each filter narrows what's on the shelf by one of its four, and Halloween (2018) matches each filter, but it's on
+    // another shelf.
+    [Theory]
+    [InlineData("Horror", null, null, new[] { "Goosebumps 2: Haunted Halloween (2018)", "Halloween (1978)", "Hereditary (2018)" })]
+    [InlineData(null, "2018", null, new[] { "Goosebumps 2: Haunted Halloween (2018)", "Halloween at the Hotel (2018)", "Hereditary (2018)" })]
+    [InlineData(null, null, "R", new[] { "Halloween (1978)", "Halloween at the Hotel (2018)", "Hereditary (2018)" })]
+    public async Task SearchAsync_ShelfAndOneFilter_FindsWhatsOnItAndMatches(string? genre, string? year, string? rating, string[] expected)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var spooky = await AddHalloweenNightOnShelvesAsync(rewind, ct);
+
+        var found = await SearchFor(rewind).SearchAsync(null, genre, year, rating, spooky, ct);
+
+        Assert.Equal(expected, TitlesOf(found));
+    }
+
+    // Build Plan 4.2's Done when, as a search: The Nightmare Before Christmas sits on both the Halloween and the
+    // Christmas shelves, so a search of either finds it, once, beside what's on that shelf alone.
+    [Theory]
+    [InlineData("Halloween", new[] { "Hocus Pocus (1993)", "The Nightmare Before Christmas (1993)" })]
+    [InlineData("Christmas", new[] { "Elf (2003)", "The Nightmare Before Christmas (1993)" })]
+    public async Task SearchAsync_MovieOnTwoShelves_IsFoundOnceOnEach(string shelf, string[] expected)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var nightmare = new Movie { Title = "The Nightmare Before Christmas", Year = 1993 };
+        var hocusPocus = new Movie { Title = "Hocus Pocus", Year = 1993 };
+        var elf = new Movie { Title = "Elf", Year = 2003 };
+        await AddInOrderAsync(rewind, ct, new Case { StoreLabel = "RV-00001", Movies = { nightmare, hocusPocus, elf } });
+        var halloween = await AddShelfAsync(rewind, "Halloween", ct, nightmare, hocusPocus);
+        var christmas = await AddShelfAsync(rewind, "Christmas", ct, nightmare, elf);
+
+        var found = await SearchFor(rewind).SearchAsync(null, null, null, null, shelf == "Halloween" ? halloween : christmas, ct);
+
+        Assert.Equal(expected, TitlesOf(found));
+    }
+
+    // ADR-0015: a movie whose cases are all retired stays on its shelves, and no list shows it, as the search lists
+    // only a movie with a case that isn't retired.
+    [Fact]
+    public async Task SearchAsync_ShelfWithAMovieWhoseOnlyCaseIsRetired_LeavesThatMovieOut()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var jaws = Jaws();
+        var halloween = Halloween();
+        await AddInOrderAsync(
+            rewind,
+            ct,
+            new Case { StoreLabel = "RV-00001", Status = CaseStatus.Retired, Movies = { jaws } },
+            new Case { StoreLabel = "RV-00002", Movies = { halloween } });
+        var scary = await AddShelfAsync(rewind, "Scary", ct, jaws, halloween);
+
+        var found = await SearchFor(rewind).SearchAsync(null, null, null, null, scary, ct);
+
+        Assert.Equal(["Halloween (1978)"], TitlesOf(found));
+    }
+
+    // A shelf is listed with nothing on it, such as a member's Staff Picks before their first pick, and a search of it
+    // finds nothing, though the catalog has a movie.
+    [Fact]
+    public async Task SearchAsync_ShelfWithNothingOnIt_FindsNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddInOrderAsync(rewind, ct, new Case { StoreLabel = "RV-00001", Movies = { Halloween() } });
+        var empty = await AddShelfAsync(rewind, "Empty", ct);
+
+        var found = await SearchFor(rewind).SearchAsync(null, null, null, null, empty, ct);
+
+        Assert.Equal((SearchStatus.Searched, 0, false), (found.Status, found.Hits.Count, found.MoreMatched));
+    }
+
+    // NET-12: no movie is on a shelf that isn't there, so an Id no shelf has is searched as any shelf is, and finds
+    // nothing, with no status and no read of its own. The catalog's one shelf has a movie on it.
+    [Fact]
+    public async Task SearchAsync_ShelfIdNoShelfHas_FindsNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var halloween = Halloween();
+        await AddInOrderAsync(rewind, ct, new Case { StoreLabel = "RV-00001", Movies = { halloween } });
+        await AddShelfAsync(rewind, "Scary", ct, halloween);
+
+        var found = await SearchFor(rewind).SearchAsync(null, null, null, null, NoSuchShelf, ct);
+
+        Assert.Equal((SearchStatus.Searched, 0, false), (found.Status, found.Hits.Count, found.MoreMatched));
+    }
+
+    // As for the search with no shelf: each EF Core warning throws here, in contexts that compile the read afresh.
+    [Fact]
+    public async Task SearchAsync_EveryFilterTextAndShelf_TripsNoEfCoreWarning()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var spooky = await AddHalloweenNightOnShelvesAsync(rewind, ct);
+
+        var failure = await Record.ExceptionAsync(() => SearchFor(rewind, EveryWarningThrows(rewind)).SearchAsync("Halloween", "Horror", "2018", "R", spooky, ct));
+
+        Assert.Null(failure);
+    }
+
+    // DATA-12: the shelf is one more subquery of the one statement, as the genre is, with no read of its own.
+    [Fact]
+    public async Task SearchAsync_EveryFilterTextAndShelf_AsksTheDatabaseOnce()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var spooky = await AddHalloweenNightOnShelvesAsync(rewind, ct);
+        var log = new ListLoggerProvider();
+        using var logged = new LoggedContexts(rewind, log);
+
+        await SearchFor(rewind, logged).SearchAsync("Halloween", "Horror", "2018", "R", spooky, ct);
 
         Assert.Single(log.Entries, entry => entry.Message.StartsWith("Executed DbCommand", StringComparison.Ordinal));
     }
@@ -736,6 +895,32 @@ public sealed class CatalogSearchTests
             yearUnknown,
             new Case { StoreLabel = "RV-00001", Movies = { jaws, homeMovies, remake, original, originalByHand, yearUnknown } });
         return [yearUnknown.Id, original.Id, originalByHand.Id, remake.Id, homeMovies.Id, jaws.Id];
+    }
+
+    // Halloween night's five movies, four of them on a Spooky shelf: all but Halloween (2018), which is on a Slashers
+    // shelf of its own. Returns the Spooky shelf's Id.
+    private static async Task<int> AddHalloweenNightOnShelvesAsync(TempRewind rewind, CancellationToken cancellationToken)
+    {
+        await AddHalloweenNightAsync(rewind, cancellationToken);
+        await using var db = rewind.OpenDb();
+        var movies = await db.Movies.AsNoTracking().ToListAsync(cancellationToken);
+        var remake = movies.Single(movie => movie.Title == "Halloween" && movie.Year == 2018);
+        var spooky = await AddShelfAsync(rewind, "Spooky", cancellationToken, [.. movies.Where(movie => movie != remake)]);
+        await AddShelfAsync(rewind, "Slashers", cancellationToken, remake);
+        return spooky;
+    }
+
+    // A seasonal shelf saved straight to the database, with the movies given on it, each saved already. Its season is
+    // October's, though the search never asks. Returns its Id.
+    private static async Task<int> AddShelfAsync(TempRewind rewind, string name, CancellationToken cancellationToken, params Movie[] movies)
+    {
+        await using var db = rewind.OpenDb();
+        var shelf = new Shelf { Name = name, FromMonth = 10, FromDay = 1, ToMonth = 10, ToDay = 31 };
+        db.Shelves.Add(shelf);
+        await db.SaveChangesAsync(cancellationToken);
+        db.ShelfMovies.AddRange(movies.Select(movie => new ShelfMovie { ShelfId = shelf.Id, MovieId = movie.Id }));
+        await db.SaveChangesAsync(cancellationToken);
+        return shelf.Id;
     }
 
     // A box set of Movie 01, Movie 02 and on, which sort as they're numbered.

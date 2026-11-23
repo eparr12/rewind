@@ -168,7 +168,8 @@
     }
 
     // Enter in any box or list, or the Search button: one call to Core for each search (ARCH-5), with the four
-    // boxes as they are. The boxes only cap what fits (SEC-5), and Core reads what was typed. A second Enter while
+    // boxes as they are. The boxes only cap what fits (SEC-5), and Core reads what was typed. The screen has no
+    // list of shelves yet, so it sends no shelf, and every movie is searched, on a shelf or not. A second Enter while
     // it searches is ignored, since the first one's answer is on its way.
     private async Task SearchAsync()
     {
@@ -178,7 +179,8 @@
         }
 
         var askedForEverything = NothingAsked;
-        var result = await WhileBusyAsync("Searching...", token => Catalog.SearchAsync(_text, _genre, _year, _rating, token), Closing);
+        var result = await WhileBusyAsync(
+            "Searching...", token => Catalog.SearchAsync(_text, _genre, _year, _rating, shelfId: null, token), Closing);
         switch (result)
         {
             case null:

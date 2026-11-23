@@ -4,11 +4,11 @@ using Rewind.Core.Shelves;
 namespace Rewind.UI.Tests;
 
 /// <summary>
-/// The seasonal shelves' Core service as the Shelves tab's tests set it up (ADR-0003). It holds shelves as Core would
+/// The shelves' Core service as the Shelves tab's tests set it up (ADR-0003). It holds seasonal shelves as Core would
 /// and saves each change as it was asked for, reading each day as a number, unless the test gives an answer of its
 /// own, such as a day that isn't one, which can be a task that hasn't finished. A shelf it saves is in season when its
 /// season holds <see cref="Tonight"/>. It records each change it's asked for, with the boxes as typed and the months as
-/// picked.
+/// picked. Ask the Clerk's three calls answer only what the test gives them, none until it does, and are recorded too.
 /// </summary>
 internal sealed class FakeDisplayShelves : IDisplayShelves
 {
@@ -40,12 +40,26 @@ internal sealed class FakeDisplayShelves : IDisplayShelves
     public Task<SeasonalShelfChange>? Activating { get; set; }
 
     /// <summary>
-    /// Each change asked for, oldest first, with what was typed in quotes and each month as its number, such as
-    /// "Add 'Halloween' 10 '1' 10 '31'".
+    /// What a read of tonight's shelves answers, such as a read that hasn't finished. None until a test says otherwise.
+    /// </summary>
+    public Task<IReadOnlyList<ShelfRow>> ListingTonights { get; set; } = Task.FromResult<IReadOnlyList<ShelfRow>>([]);
+
+    /// <summary>What a read of a movie's shelves answers. None until a test says otherwise.</summary>
+    public Task<IReadOnlyList<MovieShelfRow>> ListingMovieShelves { get; set; } = Task.FromResult<IReadOnlyList<MovieShelfRow>>([]);
+
+    /// <summary>
+    /// What a save of a movie's shelves answers, as Core gives them once saved. None until a test says otherwise.
+    /// </summary>
+    public Task<IReadOnlyList<MovieShelfRow>> SettingMovieShelves { get; set; } = Task.FromResult<IReadOnlyList<MovieShelfRow>>([]);
+
+    /// <summary>
+    /// Each change asked for, and each movie whose shelves were read, oldest first, with what was typed in quotes, each
+    /// month as its number and shelves' Ids in brackets, such as "Add 'Halloween' 10 '1' 10 '31'", "ListMovieShelves 7"
+    /// or "SetMovieShelves 7 [1, 3]".
     /// </summary>
     public IReadOnlyList<string> Calls => _calls;
 
-    /// <summary>The token each call was given, the read's included, oldest first.</summary>
+    /// <summary>The token each call was given, the reads' included, oldest first.</summary>
     public IReadOnlyList<CancellationToken> Tokens => _tokens;
 
     /// <summary>The token the last call was given.</summary>
@@ -85,6 +99,27 @@ internal sealed class FakeDisplayShelves : IDisplayShelves
         _tokens.Add(cancellationToken);
         _calls.Add($"SetActive {shelfId} {isActive}");
         return Activating ?? Saved(Find(shelfId) with { IsActive = isActive });
+    }
+
+    public Task<IReadOnlyList<ShelfRow>> ListTonightsAsync(CancellationToken cancellationToken)
+    {
+        _tokens.Add(cancellationToken);
+        return ListingTonights;
+    }
+
+    public Task<IReadOnlyList<MovieShelfRow>> ListMovieShelvesAsync(int movieId, CancellationToken cancellationToken)
+    {
+        _tokens.Add(cancellationToken);
+        _calls.Add($"ListMovieShelves {movieId}");
+        return ListingMovieShelves;
+    }
+
+    public Task<IReadOnlyList<MovieShelfRow>> SetMovieShelvesAsync(
+        int movieId, IReadOnlyCollection<int> shelfIds, CancellationToken cancellationToken)
+    {
+        _tokens.Add(cancellationToken);
+        _calls.Add($"SetMovieShelves {movieId} [{string.Join(", ", shelfIds)}]");
+        return SettingMovieShelves;
     }
 
     // Each day as a number, for the shelf the fake saves. Core reads a typed day more strictly, with a reader the tests

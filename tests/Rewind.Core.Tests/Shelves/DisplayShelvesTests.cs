@@ -2,10 +2,12 @@ using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Rewind.Core.Catalog;
 using Rewind.Core.Data;
 using Rewind.Core.Members;
+using Rewind.Core.Metadata;
 using Rewind.Core.MovieNights;
 using Rewind.Core.Shelves;
 
@@ -529,7 +531,7 @@ public sealed class DisplayShelvesTests
         var ct = TestContext.Current.CancellationToken;
         await using var rewind = new TempRewind();
         await rewind.StartAsync(ct);
-        var staffPicksId = await AddStaffPicksAsync(rewind, "Dad", "MEM-001", ct);
+        var staffPicksId = (await AddMemberAsync(rewind, "Dad", "MEM-001", ct)).ShelfId;
         var shelfId = staffPicks ? staffPicksId : 42;
         var before = await SavedShelvesAsync(rewind, ct);
 
@@ -947,6 +949,601 @@ public sealed class DisplayShelvesTests
         Assert.True(leaving.IsCancellationRequested);
     }
 
+    // Build Plan 4.2's Done when, in Core: The Nightmare Before Christmas, put on the Halloween shelf and the Christmas
+    // shelf, sits on both. Christmas is out of season on TempRewind's October 23, and takes the movie all the same. The
+    // movie's shelves say so, and a search of each shelf finds it.
+    [Fact]
+    public async Task SetMovieShelvesAsync_DoneWhen_PutsTheNightmareBeforeChristmasOnBothShelves()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, ct);
+        var christmasId = await AddShelfAsync(rewind, "Christmas", Christmas, ct);
+        var nightmare = await AddMovieAsync(rewind, "The Nightmare Before Christmas", 1993, ct, inCase: "RV-00001");
+        var shelves = Shelves(rewind);
+
+        var answer = await shelves.SetMovieShelvesAsync(nightmare, [halloweenId, christmasId], ct);
+
+        MovieShelfRow[] onBoth = [new(christmasId, "Christmas", Christmas, HasTheMovie: true), new(halloweenId, "Halloween", Halloween, HasTheMovie: true)];
+        Assert.Equal(onBoth, answer);
+        Assert.Equal(onBoth, await shelves.ListMovieShelvesAsync(nightmare, ct));
+        Assert.Equal([halloweenId, christmasId], await ShelvesOfAsync(rewind, nightmare, ct));
+        Assert.Equal([nightmare], await FoundOnAsync(rewind, halloweenId, ct));
+        Assert.Equal([nightmare], await FoundOnAsync(rewind, christmasId, ct));
+    }
+
+    // Build Plan 4.2's Done when, on the night: on October 23, tonight's shelves hold Halloween and not Christmas, and
+    // on December 10 the other way round. Each night opened at 10:15 PM on the register's clock, four hours behind UTC.
+    [Theory]
+    [InlineData(10, 23, "Halloween")]
+    [InlineData(12, 10, "Christmas")]
+    public async Task ListTonightsAsync_DoneWhen_HoldsTheShelfInSeasonAndNotTheOther(int month, int day, string inSeason)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        rewind.Time.SetUtcNow(new DateTimeOffset(2026, month, day, 22, 15, 0, TimeSpan.FromHours(-4)));
+        await AddShelfAsync(rewind, "Halloween", Halloween, ct);
+        await AddShelfAsync(rewind, "Christmas", Christmas, ct);
+        await OpenANightAsync(rewind, ct);
+
+        var tonight = await Shelves(rewind).ListTonightsAsync(ct);
+
+        Assert.Equal([inSeason], tonight.Select(shelf => shelf.Name));
+    }
+
+    // Only the seasonal shelves whose seasons take in tonight's day: on TempRewind's October 23, Halloween, and not
+    // Christmas or the season that starts tomorrow. Each comes with its Id.
+    [Fact]
+    public async Task ListTonightsAsync_SeasonalShelves_ListsTheOnesInSeason()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddShelfAsync(rewind, "Christmas", Christmas, ct);
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, ct);
+        await AddShelfAsync(rewind, "Day of the Dead", StartsTomorrow, ct);
+
+        var tonight = await Shelves(rewind).ListTonightsAsync(ct);
+
+        Assert.Equal([new ShelfRow(halloweenId, "Halloween")], tonight);
+    }
+
+    // ADR-0015: a deactivated shelf is hidden, though it's in season.
+    [Fact]
+    public async Task ListTonightsAsync_DeactivatedShelf_LeavesItOut()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        await AddShelfAsync(rewind, "Halloween", Halloween, ct, isActive: false);
+        var spookyId = await AddShelfAsync(rewind, "Spooky Season", Halloween, ct);
+
+        var tonight = await Shelves(rewind).ListTonightsAsync(ct);
+
+        Assert.Equal([new ShelfRow(spookyId, "Spooky Season")], tonight);
+    }
+
+    // ADR-0015: a member's shelf is hidden while they're deactivated.
+    [Fact]
+    public async Task ListTonightsAsync_DeactivatedMember_LeavesOutTheirStaffPicks()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var dad = await AddMemberAsync(rewind, "Dad", "MEM-001", ct);
+        var mom = await AddMemberAsync(rewind, "Mom", "MEM-002", ct);
+        await Roster(rewind).SetActiveAsync(mom.MemberId, isActive: false, ct);
+
+        var tonight = await Shelves(rewind).ListTonightsAsync(ct);
+
+        Assert.Equal([new ShelfRow(dad.ShelfId, "Dad's Staff Picks")], tonight);
+    }
+
+    // A shelf is listed whether or not anything is on it: Dad hasn't picked anything yet, and nor is anything on the
+    // Halloween shelf, while Mom has a pick.
+    [Fact]
+    public async Task ListTonightsAsync_MemberWithNoPicks_IsStillListed()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, ct);
+        var dad = await AddMemberAsync(rewind, "Dad", "MEM-001", ct);
+        var mom = await AddMemberAsync(rewind, "Mom", "MEM-002", ct);
+        await PutOnAsync(rewind, mom.ShelfId, await AddMovieAsync(rewind, "Hocus Pocus", 1993, ct), ct);
+
+        var tonight = await Shelves(rewind).ListTonightsAsync(ct);
+
+        Assert.Equal(
+            [new ShelfRow(halloweenId, "Halloween"), new ShelfRow(dad.ShelfId, "Dad's Staff Picks"), new ShelfRow(mom.ShelfId, "Mom's Staff Picks")],
+            tonight);
+    }
+
+    // ADR-0015: a member's shelf is named for them each time it's read, so a rename on F5 follows.
+    [Fact]
+    public async Task ListTonightsAsync_MemberRenamed_NamesTheirShelfForTheNewName()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var grandpa = await AddMemberAsync(rewind, "Grampa", "MEM-001", ct);
+        await Roster(rewind).RenameAsync(grandpa.MemberId, "Grandpa Joe", ct);
+
+        var tonight = await Shelves(rewind).ListTonightsAsync(ct);
+
+        Assert.Equal([new ShelfRow(grandpa.ShelfId, "Grandpa Joe's Staff Picks")], tonight);
+    }
+
+    // Seasonal shelves first, by name, then Staff Picks, by the member's name, then card, as the Members tab lists the
+    // members. Both fold letter case from A to Z, so a name typed in lower case sorts among the others.
+    [Fact]
+    public async Task ListTonightsAsync_SeveralShelves_ListsSeasonalByNameThenStaffPicksByMember()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var inOrder = await AddSevenToSortAsync(rewind, ct);
+
+        var tonight = await Shelves(rewind).ListTonightsAsync(ct);
+
+        Assert.Equal(inOrder, tonight);
+    }
+
+    // TEST-4: SQLite never promised the order it reads rows in, so these contexts read them backwards wherever a read
+    // has no ORDER BY. Neither the order the shelves were added in nor its reverse is the list's, so this fails if
+    // either read loses its sort. SQLite's ORDER BY gives tied rows in the order it reads them, Id order, either way,
+    // so no test can show the Id after a seasonal shelf's name left out: the names' index leaves no two names to tie.
+    [Fact]
+    public async Task ListTonightsAsync_ReadBackwards_ListsInTheSameOrder()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var inOrder = await AddSevenToSortAsync(rewind, ct);
+
+        var tonight = await Shelves(rewind, rewind.ContextsWith(new BackwardsReads(), pooled: false)).ListTonightsAsync(ct);
+
+        Assert.Equal(inOrder, tonight);
+    }
+
+    // ADR-0015: tonight's day is the movie night's, as for the Store Manager's list, so a night opened at 10:15 PM on
+    // Christmas Day still lists the Christmas shelf at 12:30 AM on December 26 on the register's clock.
+    [Fact]
+    public async Task ListTonightsAsync_PastMidnightOnANightOpenedOnItsLastDay_StillListsTheShelf()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        rewind.Time.SetUtcNow(ChristmasNight);
+        var christmasId = await AddShelfAsync(rewind, "Christmas", Christmas, ct);
+        await OpenANightAsync(rewind, ct);
+        rewind.Time.Advance(PastMidnight);
+
+        var tonight = await Shelves(rewind).ListTonightsAsync(ct);
+
+        Assert.Equal([new ShelfRow(christmasId, "Christmas")], tonight);
+    }
+
+    // Every active seasonal shelf, in season or not, so a movie can go on Christmas in October, with its season, then
+    // each active member's Staff Picks, which has none. A deactivated shelf isn't there, though it's in season, and nor
+    // is a deactivated member's (ADR-0015).
+    [Fact]
+    public async Task ListMovieShelvesAsync_SeveralShelves_GivesEveryActiveOneInSeasonOrNot()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, ct);
+        var christmasId = await AddShelfAsync(rewind, "Christmas", Christmas, ct);
+        await AddShelfAsync(rewind, "Spooky Season", Halloween, ct, isActive: false);
+        var dad = await AddMemberAsync(rewind, "Dad", "MEM-001", ct);
+        var mom = await AddMemberAsync(rewind, "Mom", "MEM-002", ct);
+        await Roster(rewind).SetActiveAsync(mom.MemberId, isActive: false, ct);
+        var movie = await AddMovieAsync(rewind, "The Nightmare Before Christmas", 1993, ct);
+
+        var shelves = await Shelves(rewind).ListMovieShelvesAsync(movie, ct);
+
+        Assert.Equal(
+            [
+                new MovieShelfRow(christmasId, "Christmas", Christmas, HasTheMovie: false),
+                new MovieShelfRow(halloweenId, "Halloween", Halloween, HasTheMovie: false),
+                new MovieShelfRow(dad.ShelfId, "Dad's Staff Picks", Season: null, HasTheMovie: false),
+            ],
+            shelves);
+    }
+
+    // Each shelf says whether this movie sits on it. Elf sits on the Christmas shelf and Dad's, which this movie
+    // doesn't, so a read that asked about any movie would tick those too.
+    [Fact]
+    public async Task ListMovieShelvesAsync_MovieOnSomeShelves_SaysWhichItSitsOn()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, ct);
+        var christmasId = await AddShelfAsync(rewind, "Christmas", Christmas, ct);
+        var dad = await AddMemberAsync(rewind, "Dad", "MEM-001", ct);
+        var mom = await AddMemberAsync(rewind, "Mom", "MEM-002", ct);
+        var nightmare = await AddMovieAsync(rewind, "The Nightmare Before Christmas", 1993, ct);
+        var elf = await AddMovieAsync(rewind, "Elf", 2003, ct);
+        await PutOnAsync(rewind, halloweenId, nightmare, ct);
+        await PutOnAsync(rewind, mom.ShelfId, nightmare, ct);
+        await PutOnAsync(rewind, christmasId, elf, ct);
+        await PutOnAsync(rewind, dad.ShelfId, elf, ct);
+
+        var shelves = await Shelves(rewind).ListMovieShelvesAsync(nightmare, ct);
+
+        Assert.Equal([false, true, false, true], shelves.Select(shelf => shelf.HasTheMovie));
+    }
+
+    // In tonight's order, as the form will show them: seasonal shelves by name, then Staff Picks by member, then card.
+    [Fact]
+    public async Task ListMovieShelvesAsync_SeveralShelves_ListsThemInTonightsOrder()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var inOrder = await AddSevenToSortAsync(rewind, ct);
+        var movie = await AddMovieAsync(rewind, "Hocus Pocus", 1993, ct);
+
+        var shelves = await Shelves(rewind).ListMovieShelvesAsync(movie, ct);
+
+        Assert.Equal(inOrder, shelves.Select(shelf => new ShelfRow(shelf.Id, shelf.Name)));
+    }
+
+    // On to one shelf and off another in one save (DATA-7), and the answer is the movie's shelves as they are now. It
+    // sits on Halloween and Dad's, and goes on Christmas, off Halloween, and stays on Dad's.
+    [Fact]
+    public async Task SetMovieShelvesAsync_OnToOneShelfAndOffAnother_SavesBothInOneSave()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, ct);
+        var christmasId = await AddShelfAsync(rewind, "Christmas", Christmas, ct);
+        var dad = await AddMemberAsync(rewind, "Dad", "MEM-001", ct);
+        var movie = await AddMovieAsync(rewind, "The Nightmare Before Christmas", 1993, ct);
+        await PutOnAsync(rewind, halloweenId, movie, ct);
+        await PutOnAsync(rewind, dad.ShelfId, movie, ct);
+        var saves = 0;
+        var counted = rewind.ContextsWith(new BeforeEachSave(_ =>
+        {
+            saves++;
+            return Task.CompletedTask;
+        }));
+
+        var answer = await Shelves(rewind, counted).SetMovieShelvesAsync(movie, [christmasId, dad.ShelfId], ct);
+
+        Assert.Equal(1, saves);
+        Assert.Equal([christmasId, dad.ShelfId], await ShelvesOfAsync(rewind, movie, ct));
+        Assert.Equal(
+            [
+                new MovieShelfRow(christmasId, "Christmas", Christmas, HasTheMovie: true),
+                new MovieShelfRow(halloweenId, "Halloween", Halloween, HasTheMovie: false),
+                new MovieShelfRow(dad.ShelfId, "Dad's Staff Picks", Season: null, HasTheMovie: true),
+            ],
+            answer);
+    }
+
+    // The shelves it sits on already, in another order, change nothing. Nothing is saved, since any save here throws,
+    // and nothing is logged. The answer is the movie's shelves as they are.
+    [Fact]
+    public async Task SetMovieShelvesAsync_SameShelvesAgain_SavesNothingAndLogsNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, ct);
+        var christmasId = await AddShelfAsync(rewind, "Christmas", Christmas, ct);
+        var dad = await AddMemberAsync(rewind, "Dad", "MEM-001", ct);
+        var movie = await AddMovieAsync(rewind, "The Nightmare Before Christmas", 1993, ct);
+        await PutOnAsync(rewind, halloweenId, movie, ct);
+        await PutOnAsync(rewind, dad.ShelfId, movie, ct);
+        var noSaves = rewind.ContextsWith(new BeforeEachSave(_ => throw new InvalidOperationException("A change that changes nothing was saved.")));
+        var log = new ListLogger<DisplayShelves>();
+
+        var answer = await Shelves(rewind, noSaves, log).SetMovieShelvesAsync(movie, [dad.ShelfId, halloweenId], ct);
+
+        Assert.Equal(
+            [
+                new MovieShelfRow(christmasId, "Christmas", Christmas, HasTheMovie: false),
+                new MovieShelfRow(halloweenId, "Halloween", Halloween, HasTheMovie: true),
+                new MovieShelfRow(dad.ShelfId, "Dad's Staff Picks", Season: null, HasTheMovie: true),
+            ],
+            answer);
+        Assert.Empty(log.Entries);
+    }
+
+    // An Id given twice is one shelf, as SetMovieShelvesAsync's summary says, so the movie goes on it once.
+    [Fact]
+    public async Task SetMovieShelvesAsync_IdGivenTwice_PutsTheMovieOnTheShelfOnce()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, ct);
+        var movie = await AddMovieAsync(rewind, "Hocus Pocus", 1993, ct);
+
+        await Shelves(rewind).SetMovieShelvesAsync(movie, [halloweenId, halloweenId], ct);
+
+        Assert.Equal([halloweenId], await ShelvesOfAsync(rewind, movie, ct));
+    }
+
+    // ADR-0015: a shelf the form doesn't show keeps what's on it. The movie sits on Halloween and on Mom's shelf, and
+    // since then Halloween and Mom have both been deactivated. Neither shelf's Id is given, and neither loses the movie.
+    [Fact]
+    public async Task SetMovieShelvesAsync_DeactivatedShelfAndMember_KeepTheMovie()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var (halloweenId, christmasId, mom, movie) = await PutOnTwoThenDeactivateBothAsync(rewind, ct);
+
+        await Shelves(rewind).SetMovieShelvesAsync(movie, [christmasId], ct);
+
+        Assert.Equal([halloweenId, christmasId, mom.ShelfId], await ShelvesOfAsync(rewind, movie, ct));
+    }
+
+    // ADR-0015: reactivated, the shelf and the member's shelf are each back with the movie on them, as the form shows
+    // them.
+    [Fact]
+    public async Task SetMovieShelvesAsync_DeactivatedShelfAndMemberReactivated_HaveTheMovieAgain()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var (halloweenId, christmasId, mom, movie) = await PutOnTwoThenDeactivateBothAsync(rewind, ct);
+        var shelves = Shelves(rewind);
+        await shelves.SetMovieShelvesAsync(movie, [christmasId], ct);
+        await shelves.SetActiveAsync(halloweenId, isActive: true, ct);
+        await Roster(rewind).SetActiveAsync(mom.MemberId, isActive: true, ct);
+
+        var shelvesNow = await shelves.ListMovieShelvesAsync(movie, ct);
+
+        Assert.Equal(
+            [
+                new MovieShelfRow(christmasId, "Christmas", Christmas, HasTheMovie: true),
+                new MovieShelfRow(halloweenId, "Halloween", Halloween, HasTheMovie: true),
+                new MovieShelfRow(mom.ShelfId, "Mom's Staff Picks", Season: null, HasTheMovie: true),
+            ],
+            shelvesNow);
+    }
+
+    // OBS-3: what was on a shelf is only in the log (ADR-0015), so each shelf the movie goes on or comes off is a line,
+    // in the form's order, at Information, the level the register logs at unless Log:MinimumLevel says otherwise. The
+    // movie has its year, since remakes share titles, and a member's shelf is named as the screens name it.
+    [Fact]
+    public async Task SetMovieShelvesAsync_EachShelfChanged_IsLoggedAtInformation()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, ct);
+        var christmasId = await AddShelfAsync(rewind, "Christmas", Christmas, ct);
+        var dad = await AddMemberAsync(rewind, "Dad", "MEM-001", ct);
+        var movie = await AddMovieAsync(rewind, "The Nightmare Before Christmas", 1993, ct);
+        await PutOnAsync(rewind, halloweenId, movie, ct);
+        var log = new ListLoggerProvider();
+        using var loggers = LoggerFactory.Create(logging => logging.SetMinimumLevel(LogLevel.Information).AddProvider(log));
+
+        await Shelves(rewind, logger: loggers.CreateLogger<DisplayShelves>()).SetMovieShelvesAsync(movie, [christmasId, dad.ShelfId], ct);
+
+        Assert.Equal(
+            [
+                (LogLevel.Information, "Put The Nightmare Before Christmas (1993) on shelf Christmas"),
+                (LogLevel.Information, "Took The Nightmare Before Christmas (1993) off shelf Halloween"),
+                (LogLevel.Information, "Put The Nightmare Before Christmas (1993) on shelf Dad's Staff Picks"),
+            ],
+            log.Entries.Select(entry => (entry.Level, entry.Message)));
+    }
+
+    // The form shows only the shelves ListMovieShelvesAsync gives, so any other Id is a bug, refused before anything
+    // changes: one no shelf has, a deactivated shelf's and a deactivated member's. Left to the save, the movie would
+    // come off Christmas. The message is checked as well as the type, as for the Store Manager's changes.
+    [Theory]
+    [InlineData("no shelf")]
+    [InlineData("deactivated shelf")]
+    [InlineData("deactivated member")]
+    public async Task SetMovieShelvesAsync_ShelfTheFormDoesNotShow_IsABug(string shelf)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, ct, isActive: false);
+        var christmasId = await AddShelfAsync(rewind, "Christmas", Christmas, ct);
+        var mom = await AddMemberAsync(rewind, "Mom", "MEM-001", ct);
+        await Roster(rewind).SetActiveAsync(mom.MemberId, isActive: false, ct);
+        var movie = await AddMovieAsync(rewind, "The Nightmare Before Christmas", 1993, ct);
+        await PutOnAsync(rewind, christmasId, movie, ct);
+        var shelfId = shelf switch
+        {
+            "no shelf" => 42,
+            "deactivated shelf" => halloweenId,
+            "deactivated member" => mom.ShelfId,
+            _ => throw new ArgumentOutOfRangeException(nameof(shelf), shelf, "No such shelf."),
+        };
+
+        var act = () => Shelves(rewind).SetMovieShelvesAsync(movie, [shelfId], ct);
+
+        var bug = await Assert.ThrowsAsync<InvalidOperationException>(act);
+        Assert.StartsWith($"No shelf a movie can go on has Id {shelfId}:", bug.Message, StringComparison.Ordinal);
+        Assert.Equal([christmasId], await ShelvesOfAsync(rewind, movie, ct));
+    }
+
+    // Rewind never deletes a movie, so an Id no movie has is a bug, for a movie's shelves and for putting it on them,
+    // as MemberRoster refuses a member who isn't there, and nothing changes. The message is checked as well as the
+    // type: left to the save, the shelves' foreign key would refuse the row with an exception of its own.
+    [Theory]
+    [InlineData("list")]
+    [InlineData("set")]
+    public async Task EachMovieCall_MovieThatIsntThere_IsABug(string call)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, ct);
+        var shelves = Shelves(rewind);
+        Func<Task> act = call switch
+        {
+            "list" => () => shelves.ListMovieShelvesAsync(42, ct),
+            "set" => () => shelves.SetMovieShelvesAsync(42, [halloweenId], ct),
+            _ => throw new ArgumentOutOfRangeException(nameof(call), call, "No such call."),
+        };
+
+        var bug = await Assert.ThrowsAsync<InvalidOperationException>(act);
+        Assert.StartsWith("No movie has Id 42,", bug.Message, StringComparison.Ordinal);
+        Assert.Empty(await MoviesOnAsync(rewind, halloweenId, ct));
+    }
+
+    [Fact]
+    public async Task SetMovieShelvesAsync_NullShelves_IsRefused()
+    {
+        // NET-1: null on purpose, past the compiler's check, since this tests what SetMovieShelvesAsync does with one.
+        var act = () => WithNoDatabase().SetMovieShelvesAsync(1, null!, TestContext.Current.CancellationToken);
+
+        var refusal = await Assert.ThrowsAsync<ArgumentNullException>(act);
+        Assert.Equal("shelfIds", refusal.ParamName);
+    }
+
+    // The look before the save leaves the shelves' key to refuse a row only when another save puts the movie on the
+    // same shelf in between. The form sends one save at a time, so that's a bug, and the refusal goes up as it is
+    // (NET-12), taking the rest of the save with it (DATA-7): the movie was to come off Christmas, and is still on it.
+    [Fact]
+    public async Task SetMovieShelvesAsync_PutOnTheShelfByAnotherSaveFirst_ThrowsAndSavesNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, ct);
+        var christmasId = await AddShelfAsync(rewind, "Christmas", Christmas, ct);
+        var movie = await AddMovieAsync(rewind, "The Nightmare Before Christmas", 1993, ct);
+        await PutOnAsync(rewind, christmasId, movie, ct);
+        var theirsFirst = rewind.ContextsWith(new BeforeEachSave(token => PutOnAsync(rewind, halloweenId, movie, token)));
+
+        var act = () => Shelves(rewind, theirsFirst).SetMovieShelvesAsync(movie, [halloweenId], ct);
+
+        await SqliteAssert.RefusesAsync(SqliteConstraint.PrimaryKey, act);
+        Assert.Equal([halloweenId, christmasId], await ShelvesOfAsync(rewind, movie, ct));
+    }
+
+    // The same for a row to delete: another save takes the movie off Christmas in between, so this save's delete finds
+    // no row, and EF Core throws, taking the rest of the save with it: the movie doesn't go on Halloween.
+    [Fact]
+    public async Task SetMovieShelvesAsync_TakenOffTheShelfByAnotherSaveFirst_ThrowsAndSavesNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, ct);
+        var christmasId = await AddShelfAsync(rewind, "Christmas", Christmas, ct);
+        var movie = await AddMovieAsync(rewind, "The Nightmare Before Christmas", 1993, ct);
+        await PutOnAsync(rewind, christmasId, movie, ct);
+        var theirsFirst = rewind.ContextsWith(new BeforeEachSave(token => TakeOffAsync(rewind, christmasId, movie, token)));
+
+        var act = () => Shelves(rewind, theirsFirst).SetMovieShelvesAsync(movie, [halloweenId], ct);
+
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(act);
+        Assert.Empty(await ShelvesOfAsync(rewind, movie, ct));
+    }
+
+    // NET-7: the save hands its token on, so a form that closes just then leaves the shelves as they were. Nothing
+    // changed, so nothing is logged either: each line is written once its save is in.
+    [Fact]
+    public async Task SetMovieShelvesAsync_CancelledJustBeforeTheSave_LeavesTheShelvesAsTheyWere()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, ct);
+        var christmasId = await AddShelfAsync(rewind, "Christmas", Christmas, ct);
+        var movie = await AddMovieAsync(rewind, "The Nightmare Before Christmas", 1993, ct);
+        await PutOnAsync(rewind, halloweenId, movie, ct);
+        using var leaving = new CancellationTokenSource();
+        var cancelFirst = rewind.ContextsWith(new BeforeEachSave(_ => leaving.CancelAsync()));
+        var log = new ListLogger<DisplayShelves>();
+
+        var act = () => Shelves(rewind, cancelFirst, log).SetMovieShelvesAsync(movie, [christmasId], leaving.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(act);
+        Assert.True(leaving.IsCancellationRequested);
+        Assert.Equal([halloweenId], await ShelvesOfAsync(rewind, movie, ct));
+        Assert.Empty(log.Entries);
+    }
+
+    // NET-7: once the save is in, nothing waits on the token, so a form that closes just then still gets the answer.
+    [Fact]
+    public async Task SetMovieShelvesAsync_CancelledOnceSaved_StillAnswers()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, ct);
+        var movie = await AddMovieAsync(rewind, "Hocus Pocus", 1993, ct);
+        using var leaving = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var leaveOnceSaved = rewind.ContextsWith(new AfterEachSave(_ => leaving.CancelAsync()));
+
+        var answer = await Shelves(rewind, leaveOnceSaved).SetMovieShelvesAsync(movie, [halloweenId], leaving.Token);
+
+        Assert.True(leaving.IsCancellationRequested);
+        Assert.Equal([new MovieShelfRow(halloweenId, "Halloween", Halloween, HasTheMovie: true)], answer);
+    }
+
+    // NET-7: each of Ask the Clerk's calls hands its token on to its first read, tonight's night or the movie, so a
+    // screen that closes stops it before it sends the database anything. EF Core logs each command it sends, and logs
+    // none here.
+    [Theory]
+    [InlineData("tonight")]
+    [InlineData("movie")]
+    [InlineData("set")]
+    public async Task EachAskTheClerkCall_Cancelled_ThrowsBeforeAskingTheDatabase(string call)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, ct);
+        var movie = await AddMovieAsync(rewind, "Hocus Pocus", 1993, ct);
+        await PutOnAsync(rewind, halloweenId, movie, ct);
+        var log = new ListLoggerProvider();
+        using var logged = new LoggedContexts(rewind, log);
+        using var leaving = new CancellationTokenSource();
+        await leaving.CancelAsync();
+
+        var act = () => AskAsync(Shelves(rewind, logged), call, movie, halloweenId, leaving.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(act);
+        Assert.Contains(log.Entries, entry => entry.Category.StartsWith("Microsoft.EntityFrameworkCore", StringComparison.Ordinal)); // the log is EF Core's
+        Assert.DoesNotContain(log.Entries, entry => entry.Message.StartsWith("Executed DbCommand", StringComparison.Ordinal));
+    }
+
+    // NET-7: each of these calls reads three times: tonight's night or the movie, then the seasonal shelves, then the
+    // Staff Picks. Each later read hears the token too, so a screen that closes once the first or the second read is in
+    // still stops the call, though here, putting the movie on the shelf it sits on already, no save is left to hear it.
+    [Theory]
+    [InlineData("tonight", 1)]
+    [InlineData("tonight", 2)]
+    [InlineData("movie", 1)]
+    [InlineData("movie", 2)]
+    [InlineData("set", 1)]
+    [InlineData("set", 2)]
+    public async Task EachAskTheClerkCall_CancelledOnceAReadIsIn_Throws(string call, int reads)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var rewind = new TempRewind();
+        await rewind.StartAsync(ct);
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, ct);
+        var movie = await AddMovieAsync(rewind, "Hocus Pocus", 1993, ct);
+        await PutOnAsync(rewind, halloweenId, movie, ct);
+        using var leaving = new CancellationTokenSource();
+        var cancelAfterTheReads = rewind.ContextsWith(new CancelAfterTheRead(leaving, reads));
+
+        var act = () => AskAsync(Shelves(rewind, cancelAfterTheReads), call, movie, halloweenId, leaving.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(act);
+        Assert.True(leaving.IsCancellationRequested);
+    }
+
     // The business days read the same contexts as the shelves, so a test's interceptor, or NoDatabase, covers both.
     private static DisplayShelves Shelves(
         TempRewind rewind, IDbContextFactory<RewindDb>? dbFactory = null, ILogger<DisplayShelves>? logger = null)
@@ -983,7 +1580,7 @@ public sealed class DisplayShelvesTests
     // one of them deactivated and one typed in lower case. Returns their names in the list's order.
     private static async Task<string[]> AddFourToSortAsync(TempRewind rewind, CancellationToken cancellationToken)
     {
-        await AddStaffPicksAsync(rewind, "Dad", "MEM-001", cancellationToken);
+        await AddMemberAsync(rewind, "Dad", "MEM-001", cancellationToken);
         await AddShelfAsync(rewind, "Halloween", Halloween, cancellationToken);
         await AddShelfAsync(rewind, "Summer", new Season(6, 21, 9, 22), cancellationToken, isActive: false);
         await AddShelfAsync(rewind, "christmas", Christmas, cancellationToken);
@@ -1009,15 +1606,125 @@ public sealed class DisplayShelvesTests
         return shelf.Id;
     }
 
-    // A member with their Staff Picks shelf, saved together straight to the database, as the Members tab adds them.
-    private static async Task<int> AddStaffPicksAsync(TempRewind rewind, string name, string card, CancellationToken cancellationToken)
+    // A member added as the Members tab adds them, through MemberRoster, which gives them their Staff Picks shelf in
+    // the same save (ADR-0015). One saved straight to the database would have none.
+    private static async Task<StaffPicks> AddMemberAsync(TempRewind rewind, string name, string card, CancellationToken cancellationToken)
+    {
+        var added = await Roster(rewind).AddAsync(name, card, cancellationToken);
+        Assert.NotNull(added.Member);
+        var memberId = added.Member.Id;
+        await using var db = rewind.OpenDb();
+        var shelfId = await db.Shelves.Where(s => s.MemberId == memberId).Select(s => s.Id).SingleAsync(cancellationToken);
+        return new StaffPicks(memberId, shelfId);
+    }
+
+    private static MemberRoster Roster(TempRewind rewind) => new(rewind.DbFactory, NullLogger<MemberRoster>.Instance);
+
+    // Three seasonal shelves, each in season on TempRewind's October 23, and four members, each with their Staff Picks.
+    // Neither the order they're added in nor its reverse is the list's, and a name in lower case sorts one way when
+    // letter case counts and another when it's folded: candy Corn before Halloween, and grandma before Mom. Two members
+    // share a name, so their cards decide. Returns the shelves in the list's order.
+    private static async Task<ShelfRow[]> AddSevenToSortAsync(TempRewind rewind, CancellationToken cancellationToken)
+    {
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, cancellationToken);
+        var secondDad = await AddMemberAsync(rewind, "Dad", "MEM-002", cancellationToken);
+        var candyCornId = await AddShelfAsync(rewind, "candy Corn", Halloween, cancellationToken);
+        var firstDad = await AddMemberAsync(rewind, "Dad", "MEM-001", cancellationToken);
+        var mom = await AddMemberAsync(rewind, "Mom", "MEM-003", cancellationToken);
+        var spookyId = await AddShelfAsync(rewind, "Spooky Season", Halloween, cancellationToken);
+        var grandma = await AddMemberAsync(rewind, "grandma", "MEM-004", cancellationToken);
+        return
+        [
+            new(candyCornId, "candy Corn"),
+            new(halloweenId, "Halloween"),
+            new(spookyId, "Spooky Season"),
+            new(firstDad.ShelfId, "Dad's Staff Picks"),
+            new(secondDad.ShelfId, "Dad's Staff Picks"),
+            new(grandma.ShelfId, "grandma's Staff Picks"),
+            new(mom.ShelfId, "Mom's Staff Picks"),
+        ];
+    }
+
+    // Halloween and Christmas, Mom with her Staff Picks, and a movie that sits on Halloween and on Mom's shelf. Then
+    // Halloween is deactivated, by the Store Manager's call, and so is Mom, by MemberRoster's, so the form shows
+    // neither shelf.
+    private static async Task<(int HalloweenId, int ChristmasId, StaffPicks Mom, int Movie)> PutOnTwoThenDeactivateBothAsync(
+        TempRewind rewind, CancellationToken cancellationToken)
+    {
+        var halloweenId = await AddShelfAsync(rewind, "Halloween", Halloween, cancellationToken);
+        var christmasId = await AddShelfAsync(rewind, "Christmas", Christmas, cancellationToken);
+        var mom = await AddMemberAsync(rewind, "Mom", "MEM-001", cancellationToken);
+        var movie = await AddMovieAsync(rewind, "The Nightmare Before Christmas", 1993, cancellationToken);
+        await PutOnAsync(rewind, halloweenId, movie, cancellationToken);
+        await PutOnAsync(rewind, mom.ShelfId, movie, cancellationToken);
+        await Shelves(rewind).SetActiveAsync(halloweenId, isActive: false, cancellationToken);
+        await Roster(rewind).SetActiveAsync(mom.MemberId, isActive: false, cancellationToken);
+        return (halloweenId, christmasId, mom, movie);
+    }
+
+    // A movie saved straight to the database, in no case, or in a case with the store label given, which a search needs
+    // to find it. A movie needn't be in a case to go on a shelf. Returns its Id.
+    private static async Task<int> AddMovieAsync(
+        TempRewind rewind, string title, int year, CancellationToken cancellationToken, string? inCase = null)
     {
         await using var db = rewind.OpenDb();
-        var shelf = new Shelf { Member = new Member { Name = name, CardBarcode = card } };
-        db.Shelves.Add(shelf);
+        var movie = new Movie { Title = title, Year = year };
+        db.Movies.Add(movie);
+        if (inCase is not null)
+        {
+            db.Cases.Add(new Case { StoreLabel = inCase, Movies = { movie } });
+        }
+
         await db.SaveChangesAsync(cancellationToken);
-        return shelf.Id;
+        return movie.Id;
     }
+
+    // A movie put on a shelf straight in the database, as an earlier save of the form would have, or another save.
+    private static async Task PutOnAsync(TempRewind rewind, int shelfId, int movieId, CancellationToken cancellationToken)
+    {
+        await using var db = rewind.OpenDb();
+        db.ShelfMovies.Add(new ShelfMovie { ShelfId = shelfId, MovieId = movieId });
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    // A movie taken off a shelf straight in the database, by another save.
+    private static async Task TakeOffAsync(TempRewind rewind, int shelfId, int movieId, CancellationToken cancellationToken)
+    {
+        await using var db = rewind.OpenDb();
+        db.ShelfMovies.Remove(new ShelfMovie { ShelfId = shelfId, MovieId = movieId });
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    // The shelves a movie sits on, as the database holds them, in the order the shelves were added.
+    private static async Task<List<int>> ShelvesOfAsync(TempRewind rewind, int movieId, CancellationToken cancellationToken)
+    {
+        await using var db = rewind.OpenDb();
+        return await db.ShelfMovies
+            .AsNoTracking()
+            .Where(sm => sm.MovieId == movieId)
+            .OrderBy(sm => sm.ShelfId)
+            .Select(sm => sm.ShelfId)
+            .ToListAsync(cancellationToken);
+    }
+
+    // The movies a search of the shelf finds, by Id, as Ask the Clerk's search finds them.
+    private static async Task<List<int>> FoundOnAsync(TempRewind rewind, int shelfId, CancellationToken cancellationToken)
+    {
+        var search = new CatalogSearch(rewind.DbFactory, new Posters(Options.Create(rewind.Paths), NullLogger<Posters>.Instance), rewind.Time);
+        var found = await search.SearchAsync(null, null, null, null, shelfId, cancellationToken);
+        return [.. found.Hits.Select(hit => hit.MovieId)];
+    }
+
+    // One of Ask the Clerk's calls, about a movie that sits on the Halloween shelf. Putting it there asks for the shelf
+    // it sits on already, so it saves nothing.
+    private static Task AskAsync(DisplayShelves shelves, string call, int movieId, int halloweenId, CancellationToken cancellationToken) =>
+        call switch
+        {
+            "tonight" => shelves.ListTonightsAsync(cancellationToken),
+            "movie" => shelves.ListMovieShelvesAsync(movieId, cancellationToken),
+            "set" => shelves.SetMovieShelvesAsync(movieId, [halloweenId], cancellationToken),
+            _ => throw new ArgumentOutOfRangeException(nameof(call), call, "No such call."),
+        };
 
     // Two movies in no case, put straight on the shelf. Returns their Ids in the order they were added.
     private static async Task<List<int>> PutTwoMoviesOnAsync(TempRewind rewind, int shelfId, CancellationToken cancellationToken)
@@ -1081,4 +1788,7 @@ public sealed class DisplayShelvesTests
 
     private sealed record SavedShelf(
         int Id, int? MemberId, string? Name, int? FromMonth, int? FromDay, int? ToMonth, int? ToDay, bool IsActive);
+
+    // A member and their Staff Picks shelf, by Id.
+    private sealed record StaffPicks(int MemberId, int ShelfId);
 }
