@@ -145,6 +145,21 @@ public sealed class MovieHitsTests : BunitContext
         Assert.Equal(0, _escapes);
     }
 
+    // Windows repeats a held key, and each repeat is another Enter. The screen shows the movie's shelves on a pick, and
+    // the focus comes back to the row once they close, so a row that picked on each repeat would open them again and
+    // again while the key is down. It picks on the press alone.
+    [Fact]
+    public async Task KeyDownEnter_HeldOnARow_PicksOnThePressAlone()
+    {
+        var cut = RenderList();
+
+        await Rows(cut)[1].KeyDownAsync(new KeyboardEventArgs { Key = "Enter" });
+        await Rows(cut)[1].KeyDownAsync(new KeyboardEventArgs { Key = "Enter", Repeat = true });
+        await Rows(cut)[1].KeyDownAsync(new KeyboardEventArgs { Key = "Enter", Repeat = true });
+
+        Assert.Equal([HomeMovies], _picked);
+    }
+
     [Fact]
     public async Task DoubleClick_ARow_PicksItsHit()
     {

@@ -66,8 +66,8 @@
     public IReadOnlyList<MovieHit> Hits { get; set; } = [];
 
     /// <summary>
-    /// Called with a row's hit when the clerk presses Enter on the row or double-clicks it, so the screen can show the
-    /// movie's shelves. Without it, both do nothing.
+    /// Called with a row's hit when the clerk presses Enter on the row, once however long it's held, or double-clicks
+    /// it, so the screen can show the movie's shelves. Without it, both do nothing.
     /// </summary>
     [Parameter]
     public EventCallback<MovieHit> OnPick { get; set; }
@@ -111,10 +111,13 @@
 
     private Task PickAsync(int row) => OnPick.InvokeAsync(Hits[row]);
 
-    // UI-3: Enter on a row picks it, as a double-click does.
+    // UI-3: Enter on a row picks it, as a double-click does, on the press and not on its repeats. Windows repeats a
+    // held key, and each repeat is another Enter. The screen shows the movie's shelves on a pick, where Enter presses
+    // Save and the focus then comes back to the row, so a held Enter would open the shelves and shut them again for as
+    // long as it was down.
     private async Task OnRowKeyDownAsync(KeyboardEventArgs e, int row)
     {
-        if (e.Key == "Enter")
+        if (e.Key == "Enter" && !e.Repeat)
         {
             await PickAsync(row);
         }

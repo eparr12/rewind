@@ -225,7 +225,7 @@ public sealed class MovieShelvesTests : BunitContext
     {
         var cut = RenderForm([]);
 
-        Assert.Equal("No shelves yet. The Store Manager adds seasonal shelves at F5.", cut.Find(".movie-shelves p").TextContent);
+        Assert.Equal("No shelves yet. The Store Manager adds members and seasonal shelves at F5.", cut.Find(".movie-shelves p").TextContent);
         Assert.Empty(Checkboxes(cut));
         Assert.Equal(["OK"], cut.FindAll("button").Select(button => button.TextContent));
     }
